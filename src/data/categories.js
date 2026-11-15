@@ -264,15 +264,21 @@ export function getCategoryById(id) {
  * OSMタグキー（amenity=…など）を上位カテゴリにしない代わりに、利用目的で
  * グループ化する: 食べる／買う／遊ぶ／暮らす／学ぶ／その他。
  * PCのカテゴリselectの <optgroup> ラベルと、モバイルの目的チップで同じ
- * 定義を共有する（単一データソース）。各カテゴリはちょうど1つのグループに
- * 属する（分区）。icon はモバイルの目的チップ表示用（emoji）。
+ * 定義を共有する（単一データソース）。基本7グループは各カテゴリがちょうど
+ * 1つの主グループに属する（分区）。icon はモバイルの目的チップ表示用（emoji）。
  * グループ内の順序はここで制御する（CATEGORIES 配列の順序に依存しない）。
+ * (#63) モバイル「一般向けトップ」用のクイックグループ（病院・薬局／役所・手続き）は
+ * 「暮らす」のサブセットで意図的に重複する。複合タイル用のもので、
+ * getPurposeOfCategory は主グループ（配列内で最初に見つかる側）に解決される。
  */
 export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
   { name: '買う', icon: '🛍️', ids: ['retail', 'convenience'] },
   { name: '遊ぶ', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
   { name: '暮らす', icon: '🏠', ids: ['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets'] },
+  // (#63) モバイル一般向けトップのクイックグループ（複合タイル。「暮らす」との重複は意図的）
+  { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
+  { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },
   { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'] },
   { name: 'その他', icon: '🧭', ids: ['transport'] },
   { name: 'バリアフリー', icon: '♿', ids: ['barrier_free'] }

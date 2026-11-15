@@ -6,7 +6,7 @@ import MapToolbar from '../MapToolbar'
 
 /**
  * MapToolbar（地名検索）— MapLibre版の検証
- * - setViewが[経度, 緯度]順で呼ばれる
+ * - jumpToがcenter [経度, 緯度]順・ズーム15以上で呼ばれる
  * - (#38) ポップアップはtextContentベースのDOMノード（HTML注入不可）
  * - 再検索時、旧マーカーが削除される（残存防止）
  */
@@ -30,7 +30,7 @@ function makeMapMock() {
   const map = {
     calls: [],
     _markers: [],
-    setView(...a) { map.calls.push({ name: 'setView', args: a }) },
+    jumpTo(...a) { map.calls.push({ name: 'jumpTo', args: a }) },
     getZoom() { return 12 },
     addMarker(m) { map._markers.push(m) },
     removeMarker(m) { map._markers = map._markers.filter((x) => x !== m) },
@@ -51,7 +51,7 @@ vi.mock('maplibre-gl', async () => {
 })
 
 describe('MapToolbar 地名検索', () => {
-  it('検索実行でsetViewが[経度, 緯度]順・ズーム15以上で呼ばれる', async () => {
+  it('検索実行でjumpToがcenter[経度, 緯度]順・ズーム15以上で呼ばれる', async () => {
     geocode.mockResolvedValue({ lat: 35.0, lon: 139.8, displayName: '渋谷駅' })
     const mapRef = makeMapMock()
 
@@ -61,11 +61,10 @@ describe('MapToolbar 地名検索', () => {
     fireEvent.submit(input.closest('form'))
 
     await waitFor(() => {
-      expect(mapRef.current.calls.some((c) => c.name === 'setView')).toBe(true)
+      expect(mapRef.current.calls.some((c) => c.name === 'jumpTo')).toBe(true)
     })
-    const setView = mapRef.current.calls.find((c) => c.name === 'setView')
-    expect(setView.args[0]).toEqual([139.8, 35.0]) // [lng, lat]
-    expect(setView.args[1]).toBe(15)
+    const jumpTo = mapRef.current.calls.find((c) => c.name === 'jumpTo')
+    expect(jumpTo.args[0]).toEqual({ center: [139.8, 35.0], zoom: 15 }) // centerは{lng, lat}順、zoomは現在値と15の大きい方
   })
 
   it('マーカーはプレーンDOM要素で、ポップアップはtextContentベース（#38）', async () => {

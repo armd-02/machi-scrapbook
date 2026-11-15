@@ -8,6 +8,7 @@
  */
 
 import { parseBarrierFreeElements } from './barrierFree'
+import { isValidBbox } from './searchBbox'
 
 // バリアフリーカテゴリのid（data/categories.js）
 export const BARRIER_FREE_CATEGORY = 'barrier_free'
@@ -97,6 +98,102 @@ export function toStandardResults(elements) {
  */
 export function parseBarrierFreeResponse(data) {
   return toStandardResults(parseBarrierFreeElements(data ? data.elements : undefined))
+}
+
+/**
+ * 結果を指定されたbboxの内側だけに切り取る（純粋関数）。
+ *
+ * 既定のOverpass接続先（armd-01）はキャッシュのため、ウェイ検索の範囲を
+ * グリッド状に広げて返す仕様なので、検索範囲の外側にある歩道ウェイ・ノードも
+ * 結果に混ざる。表示・集計は検索範囲の中だけが正しいため、ここで切り取る。
+ *
+ * 判定規則:
+ * - node: lat/lon が bbox 内（境界上を含む）なら残し、外なら落とす。
+ * - way: bf.geometry（[lon, lat] 配列）のいずれかの頂点が bbox 内にあるか、
+ *        いずれかの線分が bbox と交差するなら残す。完全に外側なら落とす。
+ *        （頂点平均の近似中心 lat/lon で判定しない）
+ *
+ * bbox が無効（欠落・縮退・逆順）の場合はフィルタせず入力をそのまま返す。
+ * useSearch は検証済みの bbox を渡す前提。
+ *
+ * @param {Array} results - parseBarrierFreeResponse の出力（共通結果形状の配列）
+ * @param {{south:number, west:number, north:number, east:number}} bbox - クエリ生成に使ったBBOX
+ * @returns {Array} bbox 内側の結果のみ
+ */
+export function filterByBbox(results, bbox) {
+  if (!Array.isArray(results) || results.length === 0) return Array.isArray(results) ? results : []
+  if (!isValidBbox(bbox)) return results
+
+  return results.filter((r) => {
+    if (r.type === 'node') {
+      return typeof r.lon === 'number' && typeof r.lat === 'number' &&
+        pointInBbox(r.lon, r.lat, bbox)
+    }
+    return wayIntersectsBbox(r.bf ? r.bf.geometry : undefined, bbox)
+  })
+}
+
+/** 点がbbox内（境界上を含む）か */
+function pointInBbox(lon, lat, bbox) {
+  return lon >= bbox.west && lon <= bbox.east &&
+    lat >= bbox.south && lat <= bbox.north
+}
+
+/**
+ * way の線分列（[[lon,lat],...]）がbboxと交差するか。
+ * いずれかの頂点が内側か、いずれかの線分が矩形と交差（境界を横切る）する
+ * 場合は true。完全に入れない場合は false。
+ */
+function wayIntersectsBbox(geometry, bbox) {
+  if (!Array.isArray(geometry) || geometry.length === 0) return false
+  for (const p of geometry) {
+    if (p && typeof p[0] === 'number' && typeof p[1] === 'number' &&
+      pointInBbox(p[0], p[1], bbox)) {
+      return true
+    }
+  }
+  for (let i = 1; i < geometry.length; i++) {
+    const a = geometry[i - 1]
+    const b = geometry[i]
+    if (!a || !b) continue
+    if (typeof a[0] !== 'number' || typeof a[1] !== 'number' ||
+      typeof b[0] !== 'number' || typeof b[1] !== 'number') continue
+    if (segmentIntersectsBbox(a[0], a[1], b[0], b[1], bbox)) return true
+  }
+  return false
+}
+
+/**
+ * 線分 (x1,y1)-(x2,y2) が軸平行矩形 bbox と交差するか（slab法）。
+ * 境界上をまたぐ・頂点が境界上の場合は交差とみなす（境界を含む）。
+ */
+function segmentIntersectsBbox(x1, y1, x2, y2, bbox) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  let tmin = 0
+  let tmax = 1
+  const axes = [
+    [x1, dx, bbox.west, bbox.east],
+    [y1, dy, bbox.south, bbox.north]
+  ]
+  for (const [p, d, lo, hi] of axes) {
+    if (Math.abs(d) < 1e-12) {
+      // 軸に平行: 線分の点が範囲内に無い場合は交差不可能
+      if (p < lo || p > hi) return false
+      continue
+    }
+    let ta = (lo - p) / d
+    let tb = (hi - p) / d
+    if (ta > tb) {
+      const tmp = ta
+      ta = tb
+      tb = tmp
+    }
+    if (ta > tmin) tmin = ta
+    if (tb < tmax) tmax = tb
+    if (tmin > tmax) return false
+  }
+  return tmin <= tmax
 }
 
 /**

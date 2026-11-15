@@ -57,7 +57,8 @@ describe('ResultsPanel: 公式サイトアイコン', () => {
 describe('ResultsPanel: カテゴリ選択=検索フォームと同期 (#44)', () => {
   it('ドロップダウンでカテゴリを選ぶと検索フォームにdispatchされcatFilterがミラーされる', () => {
     const log = []
-    render(<Harness preActions={[{ type: 'SET_RESULTS', payload: RESULTS }]} log={log} />)
+    // (#66) 既定ソースがmunicipalityになったため、mapモードを明示
+    render(<Harness preActions={[{ type: 'SET_SEARCH_SOURCE', payload: 'map' }, { type: 'SET_RESULTS', payload: RESULTS }]} log={log} />)
 
     const select = screen.getByRole('combobox', { name: '施設の種類で絞る' })
     fireEvent.change(select, { target: { value: 'cafe' } })
@@ -86,6 +87,7 @@ describe('ResultsPanel: カテゴリ選択=検索フォームと同期 (#44)', (
     const log = []
     render(<Harness
       preActions={[
+        { type: 'SET_SEARCH_SOURCE', payload: 'map' },
         { type: 'SET_RESULTS', payload: RESULTS },
         { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe', purpose: '' } }
       ]}
@@ -106,6 +108,7 @@ describe('ResultsPanel: カテゴリ選択=検索フォームと同期 (#44)', (
     const park = { type: 'node', id: 3, name: 'テスト公園', tags: { leisure: 'park', name: 'テスト公園' } }
     render(<Harness
       preActions={[
+        { type: 'SET_SEARCH_SOURCE', payload: 'map' },
         { type: 'SET_RESULTS', payload: [...RESULTS, park] },
         { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '食べる' } }
       ]}
@@ -117,6 +120,7 @@ describe('ResultsPanel: カテゴリ選択=検索フォームと同期 (#44)', (
   it('フィルタ条件にすべての結果が一致する場合は「絞り込み済み」表示が出ない', () => {
     render(<Harness
       preActions={[
+        { type: 'SET_SEARCH_SOURCE', payload: 'map' },
         { type: 'SET_RESULTS', payload: RESULTS },
         { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '食べる' } }
       ]}
@@ -304,6 +308,7 @@ describe('ResultsPanel: カテゴリ選択肢は取得データに基づいて�
   it('選択中カテゴリは出現していなくても選択肢に残る（count 0）', () => {
     render(<Harness
       preActions={[
+        { type: 'SET_SEARCH_SOURCE', payload: 'map' },
         { type: 'SET_RESULTS', payload: RESULTS },
         { type: 'SET_SIMPLE_SEARCH', payload: { category: 'hospital', purpose: '' } }
       ]}

@@ -55,24 +55,26 @@ const SMALL_BBOX = { south: 34.7, west: 135.5, north: 34.72, east: 135.52 }
 const unnamedFootway = {
   type: 'way',
   id: 100,
-  lat: 34.003,
-  lon: 135.01,
+  lat: 34.703,
+  lon: 135.505,
   tags: { highway: 'footway', tactile_paving: 'yes' },
   name: null,
   osmId: 'way/100',
-  bf: { kind: 'way', tactile: 'yes', lengthM: 152, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.0, 34.0], [135.01, 34.01]] }
+  // 検索BBOX（SMALL_BBOX: 34.7–34.72 / 135.5–135.52）の内側に置く（bboxフィルタ対策）
+  bf: { kind: 'way', tactile: 'yes', lengthM: 152, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.5, 34.7], [135.51, 34.71]] }
 }
 
 /** キーワードと完全一致する名称を持つ要素 */
 const namedFootway = {
   type: 'way',
   id: 101,
-  lat: 34.01,
-  lon: 135.02,
+  lat: 34.71,
+  lon: 135.515,
   tags: { highway: 'footway', name: '駅前通り' },
   name: '駅前通り',
   osmId: 'way/101',
-  bf: { kind: 'way', tactile: null, lengthM: 80, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.01, 34.01], [135.02, 34.01]] }
+  // 検索BBOX（SMALL_BBOX: 34.7–34.72 / 135.5–135.52）の内側に置く（bboxフィルタ対策）
+  bf: { kind: 'way', tactile: null, lengthM: 80, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.51, 34.71], [135.52, 34.71]] }
 }
 
 function makeState(overrides = {}) {
@@ -123,6 +125,9 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
     expect(h.overpassCalls[0].query).toBe(buildBarrierFreeQuery(SMALL_BBOX))
     // バリアフリーパーサを渡している
     expect(h.overpassCalls[0].options.parse).toBe(parseBarrierFreeResponse)
+    // (#63) バリアフリー検索のみ: タイムアウト延長オプションを渡す
+    expect(h.overpassCalls[0].options.perAttemptTimeout).toBe(60000)
+    expect(h.overpassCalls[0].options.timeout).toBe(150000)
     // キーワード絞り込みをしないため、name の無い要素も残る
     expect(resultsPayload()).toHaveLength(2)
     expect(dispatched('SET_RESULT_KIND')[0].payload).toBe('barrier_free')
@@ -176,6 +181,9 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
 
     expect(h.overpassCalls[0].query).toBe('MOCK_BARRIER_FREE_QUERY')
     expect(h.overpassCalls[0].options.parse).toBe(parseBarrierFreeResponse)
+    // (#63) criteria経路でもバリアフリー検索はタイムアウト延長オプションを渡す
+    expect(h.overpassCalls[0].options.perAttemptTimeout).toBe(60000)
+    expect(h.overpassCalls[0].options.timeout).toBe(150000)
     expect(resultsPayload()).toHaveLength(2)
     expect(dispatched('SET_RESULT_KIND')[0].payload).toBe('barrier_free')
   })
@@ -190,6 +198,9 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
 
     // parseオプションなし（既定の parseOverpassResponse）
     expect(h.overpassCalls[0].options.parse).toBeUndefined()
+    // (#63) バリアフリー以外（POI）の検索では延長オプションを渡さない（config の既定を使う）
+    expect(h.overpassCalls[0].options.perAttemptTimeout).toBeUndefined()
+    expect(h.overpassCalls[0].options.timeout).toBeUndefined()
     // name の無い要素は絞り込みで除外される
     expect(resultsPayload()).toHaveLength(1)
     expect(resultsPayload()[0].osmId).toBe('way/101')

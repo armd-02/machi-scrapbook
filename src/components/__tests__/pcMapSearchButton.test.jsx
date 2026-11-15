@@ -19,6 +19,9 @@
  * - 地図のロード完了時点で「検索する」が押せるようになる（no_bbox で無い）
  * - 押下すると「押下時点の地図表示範囲（getBounds）」で検索が実行される（#41方式）。
  *   初期表示範囲（モック既定 34.8,135.4,34.9,135.6）がクエリに反映される。
+ *
+ * (#66) 初期検索ソースがmunicipalityになったため、各テストは「地図から探す」で
+ * mapモードへ明示切替してから、地図モードの検索ボタンを検証する。
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -35,6 +38,14 @@ vi.mock('maplibre-gl', async () => {
 })
 
 const overpassCalls = []
+
+// (#66) municipalities.json のモックフィクスチャ（初期ソースがmunicipalityのため）
+const MUNI_FIXTURE = {
+  count: 1,
+  municipalities: [
+    { name: '高石市', code: '272078', prefecture: '大阪府', prefCode: '27', adminLevel: 8, bbox: { south: 34.78051, west: 135.55719, north: 34.97667, east: 135.67264 }, displayName: '高石市' }
+  ]
+}
 
 class MockResizeObserver { observe() {} unobserve() {} disconnect() {} }
 beforeEach(() => {
@@ -61,6 +72,10 @@ beforeEach(() => {
         ] })
       }
     }
+    // (#66) 初期ソースがmunicipalityのため、municipalities.jsonは有効なフィクスチャを返す
+    if (u.includes('municipalities.json')) {
+      return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_FIXTURE }
+    }
     return { ok: true, json: async () => ({}) }
   })
 })
@@ -76,9 +91,18 @@ const IT_TIMEOUT = 15000
 // モックの地図は getBounds() が常に既定範囲を返す
 const INITIAL_BOUNDS = '34.800000,135.400000,34.900000,135.600000'
 
+// (#66) 「地図から探す」でmapモードへ明示切替し、地図モードの検索ボタンが出るまで待つ
+async function enterMapMode() {
+  fireEvent.click(screen.getByRole('button', { name: '地図から探す' }))
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+  }, { timeout: 5000 })
+}
+
 describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン', () => {
   it('入力なし・地図がロード完了すると「検索する」が押せるようになる', async () => {
     render(<App />)
+    await enterMapMode()
 
     // 地図インスタンスが登録される（MapViewのマウント後effect）
     await waitFor(() => {
@@ -98,6 +122,7 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
 
   it('押下すると地図の初期表示範囲（getBounds）で検索が実行される（#41方式の維持）', async () => {
     render(<App />)
+    await enterMapMode()
 
     // 地図のロード完了を待ち、ボタンが有効化される
     await waitFor(() => {
@@ -115,6 +140,7 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
 
   it('地図を移動（moveend）した後の押下は、その時点の表示範囲で検索する（getBoundsの押下時点評価）', async () => {
     render(<App />)
+    await enterMapMode()
 
     // ボタン有効化を待つ
     await waitFor(() => {
@@ -141,6 +167,7 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
 
   it('範囲が広すぎ（too_large）になると無効化され、縮小すると再有効化される（既存バリデーションがリアルタイムに機能）', async () => {
     render(<App />)
+    await enterMapMode()
 
     // 地図インスタンスの登録を待つ
     await waitFor(() => {

@@ -305,7 +305,10 @@ describe('自治体モード E2E（カテゴリ反映の検証）', () => {
   it('モード切替: 地図モードのカテゴリが自治体モードに引き継がれる（last-wins）', async () => {
     renderApp()
 
-    // 地図モード（初期）でカテゴリ「カフェ」を選択（目的チップ→カテゴリチップ）
+    // (#66) 初期検索ソースがmunicipalityになったため、地図モードから検証を始める
+    fireEvent.click(screen.getByText('地図から探す'))
+
+    // 地図モードでカテゴリ「カフェ」を選択（目的チップ→カテゴリチップ）
     expect(selectCategoryChip('カフェ')).toBe(true)
     await expectCategorySelected()
 
@@ -477,6 +480,9 @@ describe('#54 料理（cuisine）フィルタ E2E', () => {
 
   it('モード切替: 料理フィルタも引き継がれる（last-wins）', async () => {
     renderApp()
+
+    // (#66) 初期検索ソースがmunicipalityになったため、地図モードから検証を始める
+    fireEvent.click(screen.getByText('地図から探す'))
 
     // 地図モードで レストラン+ラーメン
     expect(selectCategoryChip('レストラン')).toBe(true)

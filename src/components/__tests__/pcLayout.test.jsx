@@ -36,8 +36,15 @@ beforeEach(() => {
   if (mockState.api) mockState.api.resetState()
   window.history.replaceState(null, '', '/')
 
-  // municipalities.json等のフェッチは空データで応答（検索実行はしない）
-  global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }))
+  // (#66) 初期画面が自治体モードのため、municipalities.jsonは有効なフィクスチャを返す
+  // （空データだとMunicipalitySearchが data.municipalities のイテレーションでクラッシュする）
+  global.fetch = vi.fn(async (url) => {
+    const u = String(url)
+    if (u.includes('municipalities.json')) {
+      return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_FIXTURE }
+    }
+    return { ok: true, status: 200, headers: new Map(), json: async () => ({}) }
+  })
 })
 
 afterEach(() => {
@@ -47,6 +54,14 @@ afterEach(() => {
 })
 
 const IT_TIMEOUT = 15000
+
+// (#66) municipalities.json のモックフィクスチャ（初期ソースがmunicipalityのため）
+const MUNI_FIXTURE = {
+  count: 1,
+  municipalities: [
+    { name: '高石市', code: '272078', prefecture: '大阪府', prefCode: '27', adminLevel: 8, bbox: { south: 34.78051, west: 135.55719, north: 34.97667, east: 135.67264 }, displayName: '高石市' }
+  ]
+}
 
 // ハンバーガーメニューを開く
 function openMenu() {
@@ -92,7 +107,8 @@ describe('PCレイアウト構造（タブバー廃止・ハンバーガーメ�
 
     // 検索条件エリア（SearchPanel・折りたたみヘッダー）
     expect(screen.getByText('検索条件')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+    // (#66) 初期ソースがmunicipalityのため、フッターの検索ボタンは「検索する」
+    expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
 
     // 一覧エリア（ResultsPanel初期状態: 0件・「まだ登録がない」案内）
     expect(screen.getByText(/件が見つかりました/)).toBeTruthy()

@@ -21,7 +21,7 @@ const { mockMap, mockBounds } = vi.hoisted(() => {
     getEast: () => 135.49,
   }
   const mockMap = {
-    setView: vi.fn(),
+    jumpTo: vi.fn(),
     getZoom: vi.fn().mockReturnValue(13),
     getBounds: vi.fn().mockReturnValue(mockBounds),
     on: vi.fn(),
@@ -62,8 +62,8 @@ describe('#29/#41: 地図の移動と検索BBOXの分離', () => {
     expect(bboxDispatches).toHaveLength(0)
   })
 
-  it('setView（地名検索）でSET_BBOXをdispatchしない', () => {
-    mockMap.setView([135.50, 34.72], 15)
+  it('jumpTo（地名検索）でSET_BBOXをdispatchしない', () => {
+    mockMap.jumpTo({ center: [135.50, 34.72], zoom: 15 })
     const bboxDispatches = dispatchMock.mock.calls.filter(
       ([action]) => action.type === 'SET_BBOX'
     )

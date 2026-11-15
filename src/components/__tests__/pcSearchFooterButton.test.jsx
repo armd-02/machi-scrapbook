@@ -83,6 +83,8 @@ function findFixedFooter(btn) {
 describe('PC: 検索ボタンの固定フッター配置（モバイル版との統一）', () => {
   it('フッター（スロールーム外）にfullWidth版の大きな検索ボタンが表示される', async () => {
     render(<App />)
+    // (#66) 初期ソースがmunicipalityのため、まず地図モードへ切替
+    fireEvent.click(screen.getByRole('button', { name: '地図から探す' }))
 
     const btn = screen.getByRole('button', { name: 'この表示範囲で検索' })
 
@@ -112,22 +114,22 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
   it('ラベルは検索ソースで切り替わる: 地図モード「この表示範囲で検索」⇄ 自治体モード「検索する」', async () => {
     render(<App />)
 
-    // 既定（地図モード）: 「この表示範囲で検索」のみ
-    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '検索する' })).toBeNull()
+    // (#66) 既定は自治体モード: 「検索する」のみ
+    expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
 
-    // 自治体モードへ切替 → 「検索する」に切り替わる
-    fireEvent.click(screen.getByText('自治体から探す'))
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
-    }, { timeout: 5000 })
-
-    // 地図モードへ戻す → 「この表示範囲で検索」に復帰
+    // 地図モードへ切替 → 「この表示範囲で検索」に切り替わる
     fireEvent.click(screen.getByText('地図から探す'))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
       expect(screen.queryByRole('button', { name: '検索する' })).toBeNull()
+    }, { timeout: 5000 })
+
+    // 自治体モードへ戻す → 「検索する」に復帰
+    fireEvent.click(screen.getByText('自治体から探す'))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
     }, { timeout: 5000 })
   }, IT_TIMEOUT)
 
@@ -141,7 +143,8 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
     expect(headerRow.className).toContain('px-3')
 
     // フッターの検索ボタンはヘッダー行に含まれない
-    const searchBtn = screen.getByRole('button', { name: 'この表示範囲で検索' })
+    // (#66) 初期ソースがmunicipalityのため、フッターの検索ボタンは「検索する」
+    const searchBtn = screen.getByRole('button', { name: '検索する' })
     expect(headerRow.contains(searchBtn)).toBe(false)
 
     // 行内のボタンは折りたたみトグルと「共有URL」の2つだけ

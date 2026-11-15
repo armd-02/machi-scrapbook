@@ -20,7 +20,7 @@
  *
  * API対応（MapView/MapToolbar/BatchMatchMapが使用するもの）:
  * - Map: on/off/fire, addSource/getSource/addLayer/removeLayer/removeSource,
- *   querySourceFeatures, setView/fitBounds/panTo/easeTo/jumpTo,
+ *   querySourceFeatures, fitBounds/panTo/easeTo/jumpTo,
  *   getBounds/getZoom/getCenter, getCanvas, addControl, resize, remove
  * - GeoJSONSource（addSourceで生成・getSourceで取得）: setData(data)
  *
@@ -28,6 +28,10 @@
  * 本モックも実APIに合わせsetGeoJSONを実装しておらず、アプリ側が誤って
  * map.setGeoJSON()を呼んだ場合は本番と同様のTypeErrorでテストが失敗する
  * （Task 11: 検索時の「map.setGeoJSON is not a function」回帰防止）。
+ * 同様に実maplibre-glのMapにはsetView()メソッドが存在しない（Leaflet由来の名残）。
+ * 本モックも実APIに合わせsetViewを実装しておらず、アプリ側が誤って
+ * map.setView()を呼んだ場合は本番と同様のTypeErrorでテストが失敗する
+ * （地名移動の「map.setView is not a function」回帰防止）。
  * - Marker: setLngLat/addTo/remove/setPopup/getPopup
  * - Popup: setLngLat/setDOMElement/setText/addTo/open/close/remove
  * - NavigationControl: addTo/remove
@@ -129,7 +133,6 @@ export function createMapLibreMock(options = {}) {
 
       // 注: このオブジェクトのメソッドはthisを参照するため、
       // 矢印関数ではなく通常のメソッド定義を使うこと（new時の戻り値がオブジェクトのため）
-      setView(...a) { return this._record('setView', a) },
       fitBounds(...a) { return this._record('fitBounds', a) },
       panTo(...a) { return this._record('panTo', a) },
       easeTo(...a) { return this._record('easeTo', a) },

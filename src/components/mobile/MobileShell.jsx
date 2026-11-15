@@ -15,7 +15,8 @@ import MobileFacilityDetail from './MobileFacilityDetail'
  *   エラーはタブを離れても画面に戻ってくる）
  * - 中央: 3タブ（検索/一覧/その他）。非活性タブは hidden で
  *   アンマウントしないため、検索条件・フィルタ状態がタブ切替をまたいで保持される。
- *   (#60) MapLibre マップは検索タブ内に常設（地図モード時のみレンダリング）
+ *   (#60) MapLibre マップは検索タブ内に常設（地図モード時に表示、
+ *   (#63) 自治体モードでは hidden で非表示。トップ⇄フォーム切替では再マウントしない）
  * - 下部: 下部ナビゲーション（3タブ）
  * - 施設詳細: ボトムシート（オーバーレイ。主ナビのタブではない）
  *
@@ -25,23 +26,18 @@ export default function MobileShell() {
   const { state, dispatch } = useApp()
   const [tab, setTab] = useState('search')
   const [detail, setDetail] = useState(null) // { result, origin }
+  // (#63) 検索タブ内のビュー（'top' 一般向けトップ | 'form' 従来検索フォーム）。
+  // 初期表示はトップ。検索成功でリストタブへ切替しても値は保持し、検索タブへ
+  // 戻ったとき直前の文脈（トップ⇄フォーム）を引き継ぐ
+  const [searchView, setSearchView] = useState('top')
 
-  // 検索完了（loading → success/error）でタブを自動切替
-  // (修正) バリアフリー検索の成功時は「一覧」タブではなく「検索」タブ（地図）へ。
-  // searchSource が 'map' でなければ 'map' に切替する（詳細シートの showOnMap と同じやり方）。
+  // 検索完了（loading → success/error）でタブを自動切替。
+  // 検索の種類によらず、成功時は常に「一覧」タブ、エラー時は「検索」タブへ。
   const prevStatusRef = useRef(state.status)
   useEffect(() => {
     const prev = prevStatusRef.current
     prevStatusRef.current = state.status
     if (prev !== 'loading' || state.status === prev) return
-
-    if (state.status === 'success' && state.resultKind === 'barrier_free') {
-      if (state.searchSource !== 'map') {
-        dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'map' })
-      }
-      setTab('search')
-      return
-    }
     setTab(state.status === 'success' ? 'list' : 'search')
   }, [state.status])
 
@@ -91,6 +87,8 @@ export default function MobileShell() {
       <main className="flex-1 min-h-0 relative">
         <div className="absolute inset-0" {...panelProps('search')}>
           <MobileSearchTab
+            view={searchView}
+            onViewChange={setSearchView}
             onViewResults={() => setTab('list')}
             onMarkerClick={(r) => openDetail(r, 'map')}
           />

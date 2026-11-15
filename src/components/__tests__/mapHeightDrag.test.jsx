@@ -26,6 +26,9 @@ vi.mock('maplibre-gl', async () => {
 
 class MockResizeObserver { observe() {} unobserve() {} disconnect() {} }
 
+// このファイルは地図高さドラッグのテストなので、searchSource を 'map' に固定する
+const mapState = () => ({ ...createInitialState(), searchSource: 'map' })
+
 beforeEach(() => {
   global.ResizeObserver = global.ResizeObserver || MockResizeObserver
   if (mockState.api) mockState.api.resetState()
@@ -58,7 +61,7 @@ describe('PC（SearchTabContent）', () => {
   it('地図コンテナの直後にドラッグハンドルが描画され、既定の高さクラスは維持される', () => {
     const view = renderInContext(
       <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const mapContainer = mapContainerOf(view, 'pc')
     expect(mapContainer).toBeTruthy()
@@ -73,18 +76,18 @@ describe('PC（SearchTabContent）', () => {
   it('ハンドル当たり判定の高さは28px以上（h-7）。中央のつかみ線は細いままでよい', () => {
     const view = renderInContext(
       <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
     expect(handle.className).toContain('h-7') // 当たり判定 28px 以上
-    // 中央のつかみ線（グリップバー）は細いままでよい（h-1）
+    // 中央のつかみ線（グリップバー）は細いますでよい（h-1）
     expect(handle.firstElementChild.className).toContain('h-1')
   })
 
   it('ハンドルをドラッグすると地図コンテナの高さがインラインstyleで上書きされる', () => {
     const view = renderInContext(
       <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const mapContainer = mapContainerOf(view, 'pc')
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
@@ -107,7 +110,7 @@ describe('PC（SearchTabContent）', () => {
   it('地図の隠す/表示する切替は不変（隠すとハンドルも一緒に消え、表示で復帰）', () => {
     const view = renderInContext(
       <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap={false} setShowMap={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     // 非表示: 地図コンテナもハンドルも描画されず、「地図を表示」ボタンだけ
     expect(view.container.querySelector('.search-split')).toBeNull()
@@ -118,7 +121,7 @@ describe('PC（SearchTabContent）', () => {
     // 表示に戻す: 地図とハンドルが復帰し、「地図を隠す」ボタンが戻る
     act(() => {
       view.rerender(
-        <AppContext.Provider value={{ state: createInitialState(), dispatch: vi.fn() }}>
+        <AppContext.Provider value={{ state: mapState(), dispatch: vi.fn() }}>
           <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap={true} setShowMap={vi.fn()} />
         </AppContext.Provider>
       )
@@ -132,7 +135,7 @@ describe('PC（SearchTabContent）', () => {
   it('PCは 280px〜1000px の範囲にクランプされる', () => {
     const view = renderInContext(
       <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const mapContainer = mapContainerOf(view, 'pc')
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
@@ -159,7 +162,7 @@ describe('モバイル（MobileSearchTab・地図モード）', () => {
   it('地図コンテナの直後にドラッグハンドルが描画され、既定の高さクラスは維持される', () => {
     const view = renderInContext(
       <MobileSearchTab onViewResults={vi.fn()} />,
-      createInitialState() // searchSourceは既定 'map'
+      mapState() // searchSource: 'map'（地図モード）
     )
     const mapContainer = mapContainerOf(view, 'mobile')
     expect(mapContainer).toBeTruthy()
@@ -173,7 +176,7 @@ describe('モバイル（MobileSearchTab・地図モード）', () => {
   it('ハンドル当たり判定の高さは28px以上（h-7）。中央のつかみ線は細いままでよい', () => {
     const view = renderInContext(
       <MobileSearchTab onViewResults={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
     expect(handle.className).toContain('h-7') // 当たり判定 28px 以上
@@ -184,7 +187,7 @@ describe('モバイル（MobileSearchTab・地図モード）', () => {
   it('ハンドルをドラッグすると地図コンテナの高さがインラインstyleで上書きされる', () => {
     const view = renderInContext(
       <MobileSearchTab onViewResults={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const mapContainer = mapContainerOf(view, 'mobile')
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
@@ -206,7 +209,7 @@ describe('モバイル（MobileSearchTab・地図モード）', () => {
   it('モバイルは 160px〜480px の範囲にクランプされる', () => {
     const view = renderInContext(
       <MobileSearchTab onViewResults={vi.fn()} />,
-      createInitialState()
+      mapState()
     )
     const mapContainer = mapContainerOf(view, 'mobile')
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')

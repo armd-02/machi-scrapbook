@@ -7,7 +7,8 @@
  * - PC: SearchTabContent（App.jsx の施設検索画面）— 凡例は地図コンテナ
  *   （.search-split）の外側かつその後のドキュメント順にある。
  * - モバイル: MobileSearchTab — 同上（地図コンテナは MapView の absolute
- *   容器の親 div）。
+ *   容器の親 div）。(#63) 初期表示は一般向けトップ（凡例は描画されない）ため、
+ *   凡例の配置は従来フォーム（view="form"）で検証する。
  * - 表示条件（barrier_free かつ結果1件以上）を満たさない場合は非表示。
  */
 import React from 'react'
@@ -142,8 +143,8 @@ describe('PC（SearchTabContent）', () => {
 describe('モバイル（MobileSearchTab）', () => {
   it('凡例は地図コンテナの外側・その後のドキュメント順（地図本体の下）にある', () => {
     const view = renderInContext(
-      <MobileSearchTab onViewResults={vi.fn()} />,
-      makeBfState()
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
+      makeBfState({ searchSource: 'map' })
     )
 
     const mapContainer = mapContainerOf(view, 'mobile')
@@ -159,7 +160,7 @@ describe('モバイル（MobileSearchTab）', () => {
 
   it('POI検索の結果では凡例を表示しない', () => {
     const view = renderInContext(
-      <MobileSearchTab onViewResults={vi.fn()} />,
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
       makeBfState({ resultKind: 'poi' })
     )
     expect(legendRootOf(view)).toBeNull()

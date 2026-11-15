@@ -3,12 +3,16 @@
  * MobileResultsMap: 地図高さドラッグハンドル（useDraggableHeight）の統合テスト
  *
  * - ハンドル（role=separator）は地図コンテナの直後に描画され、地図コンテナは
- *   既定の高さクラス（h-[200px]）のまま。
+ *   既定の高さクラス（poi: h-[200px] / barrier_free: h-[320px]）のまま。
  * - ハンドルをドラッグすると、地図コンテナの高さがインラインstyleで上書きされる
  *   （既定クラスは維持）。下方向ドラッグで高さが増える。
  * - 高さ変更に合わせて map.resize() が呼ばれる（MapLibre描画が追随）。
- * - ドラッグ終了時の高さは localStorage のキー mapHeight.results に保存される
- *   （検索タブの mapHeight.mobile・PC の mapHeight.pc とは独立）。
+ * - 既定の高さと保存キーは kind で分かれる:
+ *   kind="poi" → 既定200px・キー mapHeight.results（従来どおり）
+ *   kind="barrier_free" → 既定320px・キー mapHeight.resultsBf（POI地図のキーとは
+ *   独立するため、POI側で小さくした高さがバリアフリー地図に引き継がれない）
+ * - ドラッグ終了時の高さは kind 別のキーに保存される（検索タブの
+ *   mapHeight.mobile・PC の mapHeight.pc とは独立）。
  * - 保存値があればそれを初期高さとして使う（範囲外・不正な値は無視）。
  * - POI（kind="poi"）・バリアフリー（kind="barrier_free"）の両方の結果マップに
  *   適用される（MobileResultsMap 自体に組み込まれているため）。
@@ -162,24 +166,87 @@ describe('MobileResultsMap: 高さドラッグハンドル', () => {
     expect(mapContainer.className).toMatch(/h-\[200px\]/)
   })
 
-  it('バリアフリー結果マップ（kind="barrier_free"）にも同じ挙動が適用される', async () => {
+  it('バリアフリー結果マップ（kind="barrier_free"）にも同じ挙動が適用される（専用キーで保存）', async () => {
     const view = renderMap('barrier_free')
     await act(async () => {})
     const mapContainer = mapContainerOf(view, 'barrier_free')
     expect(mapContainer).toBeTruthy()
+    // 既定高さクラスは h-[320px]（インラインstyle 上書きなし）
+    expect(mapContainer.className).toMatch(/h-\[320px\]/)
     expect(mapContainer.style.height).toBe('')
 
     const handle = handleOf(view)
     expect(handle).toBeTruthy()
 
     act(() => {
-      fireEvent.pointerDown(handle, { clientY: 200 })
-      fireEvent.pointerMove(handle, { clientY: 280 })
+      fireEvent.pointerDown(handle, { clientY: 400 })
+      fireEvent.pointerMove(handle, { clientY: 360 }) // 40px上（上方向ドラッグで減少）→ 320-40 = 280
       fireEvent.pointerUp(handle)
     })
     expect(mapContainer.style.height).toBe('280px')
     const map = getMap()
     expect(map._calls.some((c) => c.name === 'resize')).toBe(true)
-    expect(localStorage.getItem('mapHeight.results')).toBe('280')
+    // バリアフリー専用キーに保存され、POIのキーには保存されない
+    expect(localStorage.getItem('mapHeight.resultsBf')).toBe('280')
+    expect(localStorage.getItem('mapHeight.results')).toBeNull()
+  })
+})
+
+describe('MobileResultsMap: 高さ設定の kind 別分離（修正）', () => {
+  it('バリアフリー地図: 保存値がなければ既定高さ320px（既定クラス h-[320px]・style上書きなし）で開く', () => {
+    const view = renderMap('barrier_free')
+    const mapContainer = mapContainerOf(view, 'barrier_free')
+    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.className).toMatch(/h-\[320px\]/)
+  })
+
+  it('バリアフリー地図: mapHeight.results（POIのキー）に小さい値が保存されていても影響しない', () => {
+    // POI地図で小さくした高さ（下限値160）が保存された状態
+    localStorage.setItem('mapHeight.results', '160')
+    const view = renderMap('barrier_free')
+    const mapContainer = mapContainerOf(view, 'barrier_free')
+    // 引き継がれず、既定の320px（既定クラス）で開く
+    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.className).toMatch(/h-\[320px\]/)
+  })
+
+  it('バリアフリー地図: mapHeight.resultsBf に保存値があればそれを初期高さとして使う', () => {
+    localStorage.setItem('mapHeight.resultsBf', '360')
+    const view = renderMap('barrier_free')
+    const mapContainer = mapContainerOf(view, 'barrier_free')
+    expect(mapContainer.style.height).toBe('360px')
+  })
+
+  it('バリアフリー地図: 範囲外（maxHeight超）の mapHeight.resultsBf 保存値は無視され既定320pxが使える', () => {
+    localStorage.setItem('mapHeight.resultsBf', '999') // maxHeight 480 を超える
+    const view = renderMap('barrier_free')
+    const mapContainer = mapContainerOf(view, 'barrier_free')
+    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.className).toMatch(/h-\[320px\]/)
+  })
+
+  it('POI地図: mapHeight.resultsBf（バリアフリーのキー）に保存値があっても影響しない（従来どおり既定200px）', () => {
+    localStorage.setItem('mapHeight.resultsBf', '360')
+    const view = renderMap('poi')
+    const mapContainer = mapContainerOf(view, 'poi')
+    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.className).toMatch(/h-\[200px\]/)
+  })
+
+  it('POI地図: 保存キー（mapHeight.results）・既定高さ（h-[200px]）・範囲160〜480px は従来どおり', async () => {
+    const view = renderMap('poi')
+    await act(async () => {})
+    const mapContainer = mapContainerOf(view, 'poi')
+    expect(mapContainer.className).toMatch(/h-\[200px\]/)
+
+    const handle = handleOf(view)
+    act(() => {
+      fireEvent.pointerDown(handle, { clientY: 200 })
+      fireEvent.pointerMove(handle, { clientY: 300 }) // 100px下 → 200+100 = 300
+      fireEvent.pointerUp(handle)
+    })
+    expect(mapContainer.style.height).toBe('300px')
+    expect(localStorage.getItem('mapHeight.results')).toBe('300')
+    expect(localStorage.getItem('mapHeight.resultsBf')).toBeNull()
   })
 })

@@ -17,6 +17,8 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 施設カードタップ → 詳細ボトムシート → 「地図で見る」
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
+// - (#66) 初期検索ソースがmunicipalityになったため、地図モード検証テストは
+//   フォームビューで「地図から探す」へ明示切替してから操作する
 // - エラー時: バannerがタブ切替をまたいで表示される
 //
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする。
@@ -45,10 +47,26 @@ const OVERPASS_ELEMENTS = [
   { type: 'way', id: 2001, center: { lat: 34.87, lon: 135.52 }, tags: { name: 'テスト書店', shop: 'books' } },
 ]
 
+// (#63) 複合タイル「病院・薬局」検証用の要素（病院＋薬局＋グループ外の書店）
+const MEDICAL_ELEMENTS = [
+  { type: 'node', id: 4001, lat: 34.85, lon: 135.5, tags: { name: 'テスト病院', amenity: 'hospital' } },
+  { type: 'node', id: 4002, lat: 34.86, lon: 135.51, tags: { name: 'テスト薬局', amenity: 'pharmacy' } },
+  { type: 'way', id: 4003, center: { lat: 34.87, lon: 135.52 }, tags: { name: 'テスト書店', shop: 'books' } },
+]
+
 // (修正) バリアフリー検索用の要素（歩道ウェイ＋縁石ノード）
 const BF_ELEMENTS = [
   { type: 'way', id: 3001, tags: { highway: 'footway', tactile_paving: 'yes', name: '中央通り歩道' }, geometry: [ { lat: 34.8, lon: 135.4 }, { lat: 34.81, lon: 135.45 }, { lat: 34.82, lon: 135.5 } ] },
   { type: 'node', id: 3002, lat: 34.85, lon: 135.55, tags: { barrier: 'kerb' } },
+]
+
+// 東大阪市 bbox（34.56–34.72 / 135.34–135.52）の内側にある要素。
+// 自治体モードは地図の表示範囲ではなく市町村のbboxで検索するため、
+// 地図モード用（mock地図の既定範囲 34.8–34.9 / 135.4–135.6）の BF_ELEMENTS を
+// そのまま使うと bboxフィルタで全て落ちる。
+const BF_ELEMENTS_HIGASHIOSAKA = [
+  { type: 'way', id: 3003, tags: { highway: 'footway', tactile_paving: 'yes', name: '中央通り歩道' }, geometry: [ { lat: 34.6, lon: 135.4 }, { lat: 34.61, lon: 135.45 }, { lat: 34.62, lon: 135.5 } ] },
+  { type: 'node', id: 3004, lat: 34.65, lon: 135.48, tags: { barrier: 'kerb' } },
 ]
 
 // ===== フック =====
@@ -158,6 +176,21 @@ function selectCategoryChip(catLabel) {
   throw new Error(`カテゴリチップが見つからない: ${catLabel}`)
 }
 
+// (#63) 検索タブの初期表示は一般向けトップ（QuickTop）。
+// 「くわしく探す」で従来の検索フォーム（目的チップ・検索実行ボタンがあるview）へ切替する
+function openFormView() {
+  fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
+}
+
+// (#66) 初期検索ソースが自治体（municipality）になったため、地図モードの挙動を
+// 検証するテストではフォームビューで「地図から探す」へ明示切替してから操作する。
+async function switchToMapMode() {
+  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: '＋ 条件を追加（詳細検索）' })).toBeTruthy()
+  }, { timeout: 3000 })
+}
+
 async function selectMunicipality(prefText, munText, prefLabel = '都道府県', munLabel = '市区町村') {
   await waitFor(() => {
     expect(screen.getByText(prefLabel)).toBeTruthy()
@@ -265,11 +298,13 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
 
     // 横画面へ回転（幅が1024px未満になる）→ モバイルシェル
     fireMediaChange(true)
-    // 下部ナビが出現し、モバイルの検索タブ（「この表示範囲で検索」）が表示される
+    // 下部ナビが出現し、モバイルの検索タブが表示される
     await waitFor(() => {
       expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
     }, { timeout: 3000 })
-    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+    // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素（intro・「くわしく探す」）を確認
+    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     // PC固有の要素（メニューボタン・地図切替）は消える
     expect(screen.queryByRole('button', { name: 'メニュー' })).toBeNull()
     expect(screen.queryByText('地図を隠す')).toBeNull()
@@ -288,6 +323,10 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
 describe('(#59) 検索タブ: 地図モード検索', () => {
   it('カテゴリ選択→検索する: クエリにカテゴリと地図BBOXが反映され、結果が表示される', async () => {
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから目的チップでカテゴリ選択
+    openFormView()
+    await switchToMapMode()
 
     // カテゴリ=cafe を目的チップで選択（食べる → カフェ）
     expect(selectCategoryChip('カフェ')).toBe(true)
@@ -308,6 +347,10 @@ describe('(#59) 検索タブ: 地図モード検索', () => {
   it('検索成功後は「一覧」タブへ自動切替され、施設カードが表示される', async () => {
     renderApp()
 
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
+
     selectCategoryChip('カフェ')
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
 
@@ -325,6 +368,10 @@ describe('(#59) 検索タブ: 地図モード検索', () => {
 
   it('タブを離れても検索条件（キーワード入力）が保持される', async () => {
     renderApp()
+
+    // (#63) キーワード入力欄は従来フォーム側。フォームへ切替してから入力
+    openFormView()
+    await switchToMapMode()
 
     // キーワード入力（検索タブ）
     const kwInput = screen.getByPlaceholderText('例: 珈琲、ラーメン')
@@ -344,6 +391,10 @@ describe('(#59) 検索タブ: 地図モード検索', () => {
 describe('(#59/#60) 検索タブ: 地図の明示的な検索トリガー', () => {
   it('「この表示範囲で検索」押下で地図BBOXを検索に使用する', async () => {
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してからカテゴリを設定
+    openFormView()
+    await switchToMapMode()
 
     // 検索タブでカテゴリを設定（レストラン）
     selectCategoryChip('レストラン')
@@ -371,6 +422,10 @@ describe('(#59/#60) 検索タブ: 地図の明示的な検索トリガー', () =
 
   it('マーカータップで施設詳細ボトムシートが開く', async () => {
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
 
     selectCategoryChip('カフェ')
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
@@ -408,6 +463,10 @@ describe('(#59/#60) 検索タブ: 地図の明示的な検索トリガー', () =
 describe('(#59) 施設カード→詳細ボトムシート→地図で見る', () => {
   it('カードタップ→詳細表示→「地図で見る」で地図タブに移動する', async () => {
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
 
     selectCategoryChip('カフェ')
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
@@ -477,6 +536,10 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
   it('施設名フィルタでカードが絞られ、件数表示も更新される', async () => {
     renderApp()
 
+    // (#63) 初期表示は一般向けトップ。キーワード入力欄は従来フォーム側
+    openFormView()
+    await switchToMapMode()
+
     // キーワード検索（カテゴリ未選択=汎用POIクエリ）→ 全3件がフィルタ対象になる
     const kwInput = screen.getByPlaceholderText('例: 珈琲、ラーメン')
     fireEvent.change(kwInput, { target: { value: 'テスト' } })
@@ -519,6 +582,10 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
       return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
     })
 
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
+
     selectCategoryChip('カフェ')
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
 
@@ -535,6 +602,9 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
 describe('(#59) 自治体モード検索', () => {
   it('「自治体から探す」→市区町村選択→検索: 自治体BBOXのPOIクエリが送出される', async () => {
     renderApp()
+
+    // (#63) ソース切替タブは従来フォーム側。まずフォームへ
+    openFormView()
 
     // ソース切替（検索タブ内のタブボタン）
     fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
@@ -560,8 +630,12 @@ describe('(#59) 自治体モード検索', () => {
 })
 
 describe('(#44) 目的チップ', () => {
-  it('目的チップ: 「買う」をタップすると具体カテゴリチップが展開し、選択すると解除ボタンが出る', () => {
+  it('目的チップ: 「買う」をタップすると具体カテゴリチップが展開し、選択すると解除ボタンが出る', async () => {
     renderApp()
+
+    // (#63) 目的チップは従来フォーム側。まずフォームへ
+    openFormView()
+    await switchToMapMode()
 
     // 「買う」目的チップをタップ → 2つのカテゴリチップが展開
     fireEvent.click(screen.getByRole('button', { name: '買う' }))
@@ -578,8 +652,12 @@ describe('(#44) 目的チップ', () => {
     expect(screen.queryByRole('button', { name: 'コンビニ・スーパー' })).toBeNull()
   }, IT_TIMEOUT)
 
-  it('サンプル検索セクションは削除済み（「サンプル検索で試す」が存在しない）', () => {
+  it('サンプル検索セクションは削除済み（「サンプル検索で試す」が存在しない）', async () => {
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームの要素を確認するためフォームへ切替
+    openFormView()
+    await switchToMapMode()
 
     // セクション自体がレンダされない
     expect(screen.queryByRole('region', { name: 'サンプル検索' })).toBeNull()
@@ -597,6 +675,10 @@ describe('(#59) エラー表示の継続性', () => {
   it('全エンドポイント失敗時もエラーbannerが表示され、タブ切替をまたいで残る', async () => {
     overpassStatus = 503
     renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
 
     selectCategoryChip('カフェ')
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
@@ -616,21 +698,14 @@ describe('(#59) エラー表示の継続性', () => {
   }, IT_TIMEOUT)
 })
 
-describe('(修正) バリアフリー検索: 成功時は「検索」タブ（地図）へ切替', () => {
-  // 検索タブの MapView（グローバルに登録される）の結果GeoJSON
-  async function expectBfOnSearchMap() {
-    await waitFor(() => {
-      const map = getMapInstance()
-      expect(map).toBeTruthy()
-      const features = map._lastGeoJSON?.data?.features || []
-      expect(features.length).toBe(2)
-      expect(features.map((f) => f.geometry.type).sort()).toEqual(['LineString', 'Point'])
-    }, { timeout: 8000 })
-  }
-
-  it('地図モード: バリアフリー検索成功 → 「検索」タブに残り、地図に歩道の線・縁石の点が表示される', async () => {
+describe('バリアフリー検索: 成功時は一覧タブへ自動切替（検索の種類によらず統一）', () => {
+  it('地図モード: バリアフリー検索成功 → 「一覧」タブへ自動切替され、BFカード・結果マップ・凡例が表示される', async () => {
     renderApp()
     overpassElements = BF_ELEMENTS
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから目的チップを選択
+    openFormView()
+    await switchToMapMode()
 
     // 目的チップ「バリアフリー」でバリアフリー検索に
     fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
@@ -644,20 +719,25 @@ describe('(修正) バリアフリー検索: 成功時は「検索」タブ（�
       expect(screen.getByText('2件の結果を取得しました')).toBeTruthy()
     }, { timeout: 8000 })
 
-    // (修正) バリアフリー検索の成功時は「一覧」タブではなく「検索」タブ
-    expect(tabIsCurrent('検索')).toBe(true)
-    expect(tabIsCurrent('一覧')).toBe(false)
+    // 成功時は通常のPOI検索と同様に「一覧」タブへ自動切替される
+    expect(tabIsCurrent('一覧')).toBe(true)
+    expect(tabIsCurrent('検索')).toBe(false)
 
-    // 検索タブの地図に歩道（線）＋縁石（点）が表示される
-    await expectBfOnSearchMap()
+    // 一覧タブにBFカード（名称・表示名）・件数表示が表示される
+    expect(screen.getByText('中央通り歩道')).toBeTruthy()
+    expect(screen.getByText('縁石（未記録）')).toBeTruthy()
+    expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
 
-    // (既存仕様Task 2) 検索後に地図のカメラ（中心・ズーム）は動かさない
-    expect(getMapInstance()._calls.filter((c) => c.name === 'fitBounds')).toHaveLength(0)
+    // 検索タブ・一覧タブの両方で凡例が描画される（hiddenタブはDOMに残る）
+    expect(screen.getAllByText('凡例')).toHaveLength(2)
   }, IT_TIMEOUT)
 
-  it('自治体モード: バリアフリー検索成功 → searchSourceが「地図」に切替され、地図が表示される', async () => {
+  it('自治体モード: バリアフリー検索成功 → 「一覧」タブへ切替され、searchSourceは自治体モードのまま', async () => {
     renderApp()
-    overpassElements = BF_ELEMENTS
+    overpassElements = BF_ELEMENTS_HIGASHIOSAKA
+
+    // (#63) 初期表示は一般向けトップ。ソース切替タブは従来フォーム側
+    openFormView()
 
     // 「自治体から探す」へ切替（searchSource='municipality'）
     fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
@@ -674,42 +754,193 @@ describe('(修正) バリアフリー検索: 成功時は「検索」タブ（�
       expect(screen.getByText('2件の結果を取得しました')).toBeTruthy()
     }, { timeout: 8000 })
 
-    // (修正) 成功 → 「検索」タブ + searchSourceが'map'に切替
+    // 成功時は「一覧」タブへ切替される（旧の searchSource→'map' 切替の例外は無い）
+    expect(tabIsCurrent('一覧')).toBe(true)
+    expect(tabIsCurrent('検索')).toBe(false)
+
+    // 一覧タブにBFカード（名称・表示名）・件数表示が表示される
+    expect(screen.getByText('中央通り歩道')).toBeTruthy()
+    expect(screen.getByText('縁石（未記録）')).toBeTruthy()
+    expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
+
+    // 検索タブに戻ってもソースは「自治体から探す」のまま（searchSourceが地図へ変遷しない）
+    clickTab('検索')
     expect(tabIsCurrent('検索')).toBe(true)
-    // 検索ボタンのラベルが地図モードの「この表示範囲で検索」になる＝searchSource 'map'
-    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
-
-    // 新たにマウントされた検索タブの地図に結果が表示される
-    await expectBfOnSearchMap()
-
-    // (既存仕様Task 2) 検索後に地図のカメラ（中心・ズーム）は動かさない
-    expect(getMapInstance()._calls.filter((c) => c.name === 'fitBounds')).toHaveLength(0)
+    expect(screen.getByRole('tab', { name: '自治体から探す' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
   }, IT_TIMEOUT)
 
-  it('一覧タブ: バリアフリー検索成功後に一覧タブへ戻ると、BFカード・結果マップ・凡例が表示される', async () => {
-    renderApp()
+  it('バリアフリー検索エラー → 「検索」タブへ自動切替される', async () => {
+    overpassStatus = 503
     overpassElements = BF_ELEMENTS
+    renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから目的チップを選択
+    openFormView()
+    await switchToMapMode()
 
     // 目的チップ「バリアフリー」でバリアフリー検索に
     fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
 
+    // フォールバックチェーン（3エンドポイント）を順に試したあとエラーになる
+    await waitFor(() => {
+      expect(screen.getByText(/サーバーエラー/)).toBeTruthy()
+    }, { timeout: 12000 })
+    expect(overpassCalls.length).toBeGreaterThanOrEqual(2)
+
+    // エラー時は「検索」タブへ自動切替される
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(tabIsCurrent('一覧')).toBe(false)
+  }, IT_TIMEOUT)
+})
+
+describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検索', () => {
+  it('初期表示は一般向けトップ: intro・場所指定・目的タイル・「くわしく探す」が表示され、従来フォーム要素は出ない', () => {
+    renderApp()
+
+    // introと場所指定
+    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
+
+    // 目的タイル10種が揃って表示される
+    for (const label of ['食べる', '買う', '病院・薬局', '役所・手続き', '遊ぶ・公園', '泊まる', '駅・交通', 'トイレ', '学ぶ', 'バリアフリー']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy()
+    }
+
+    // 従来フォームへの「くわしく探す」導線
+    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
+
+    // 従来フォーム固有の要素はトップでは表示されない
+    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
+    expect(screen.queryByPlaceholderText('例: 珈琲、ラーメン')).toBeNull()
+  }, IT_TIMEOUT)
+
+  it('目的タイル（食べる）: 目的グループの施設種類unionで検索が実行され、成功で一覧タブへ切替', async () => {
+    renderApp()
+
+    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
+    // フォーム経由で地図モードへ切替してからトップへ戻る
+    openFormView()
+    await switchToMapMode()
+    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    // 「食べる」目的グループ: 飲食系カテゴリのunionがクエリに反映される
+    expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('amenity=restaurant')
+    expect(overpassCalls[0]).toContain('fast_food|bar')
+    // 検索範囲は地図の現在表示範囲
+    expect(overpassCalls[0]).toContain('34.800000,135.400000,34.900000,135.600000')
+
+    // 成功で一覧タブへ自動切替され、目的で絞り込まれる（書店=「買う」グループ外は除外）
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+    expect(screen.getByText(/3件中、\s*2\s*件を表示/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /テスト珈琲店/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /ラーメン屋テスト/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /テスト書店/ })).toBeNull()
+  }, IT_TIMEOUT)
+
+  it('複合タイル（病院・薬局）: 病院＋薬局のunionクエリが送出され、両カテゴリのみ表示される', async () => {
+    renderApp()
+    overpassElements = MEDICAL_ELEMENTS
+
+    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
+    // フォーム経由で地図モードへ切替してからトップへ戻る
+    openFormView()
+    await switchToMapMode()
+    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '病院・薬局' }))
+
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    // 「病院・薬局」= 病院・クリニック＋薬局・ドラッグストア カテゴリのunion
+    expect(overpassCalls[0]).toContain('amenity=pharmacy')
+    expect(overpassCalls[0]).toContain('shop=drugstore')
+    expect(overpassCalls[0]).toContain('hospital|clinic')
+
+    // 成功で一覧タブへ自動切替され、目的の絞り込みで病院＋薬局のみが残る
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+    expect(screen.getByText(/3件中、\s*2\s*件を表示/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /テスト病院/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /テスト薬局/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /テスト書店/ })).toBeNull()
+  }, IT_TIMEOUT)
+
+  it('バリアフリータイル: バリアフリー専用クエリ（footway等）が送出され、成功で一覧タブへ切替', async () => {
+    renderApp()
+    overpassElements = BF_ELEMENTS
+
+    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
+    // フォーム経由で地図モードへ切替してからトップへ戻る
+    openFormView()
+    await switchToMapMode()
+    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
+
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    // バリアフリー専用クエリ（POIタグ指定ではなく歩道・縁石など）
+    expect(overpassCalls[0]).toContain('footway')
+
     await waitFor(() => {
       expect(screen.getByText('2件の結果を取得しました')).toBeTruthy()
     }, { timeout: 8000 })
-
-    // (修正) 成功時は「検索」タブへ自動切替される
-    expect(tabIsCurrent('検索')).toBe(true)
-
-    // 検索タブ・一覧タブの両方で凡例が描画される（hiddenタブはDOMに残る）
-    expect(screen.getAllByText('凡例')).toHaveLength(2)
-
-    // 一覧タブへ戻るとBFカード（名称・表示名）と件数表示が出る
-    clickTab('一覧')
     expect(tabIsCurrent('一覧')).toBe(true)
     expect(screen.getByText('中央通り歩道')).toBeTruthy()
     expect(screen.getByText('縁石（未記録）')).toBeTruthy()
-    expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('単一カテゴリタイル（トイレ）: そのカテゴリで検索が実行される', async () => {
+    renderApp()
+
+    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
+    // フォーム経由で地図モードへ切替してからトップへ戻る
+    openFormView()
+    await switchToMapMode()
+    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'トイレ' }))
+
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    // 単一カテゴリタイル: カテゴリのタグ条件（amenity=toilets）で地図範囲を検索
+    expect(overpassCalls[0]).toContain('amenity=toilets')
+    expect(overpassCalls[0]).toContain('34.800000,135.400000,34.900000,135.600000')
+  }, IT_TIMEOUT)
+
+  it('「くわしく探す」で従来フォームへ移り、「トップへ戻る」でトップへ戻れる（地図インスタンスは保持）', async () => {
+    renderApp()
+
+    const mapBefore = getMapInstance()
+    expect(mapBefore).toBeTruthy()
+
+    // トップ → 従来フォーム
+    fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
+    // (#66) 初期ソースが自治体のため、地図モードのフォーム要素を検証するには切替が必要
+    await switchToMapMode()
+    // フォーム要素が表示される（ソース切替・エリアカード・キーワード入力・フッターの検索ボタン）
+    expect(screen.getByRole('tab', { name: '地図から探す' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '自治体から探す' })).toBeTruthy()
+    expect(screen.getByText('どの街・エリアで探す？')).toBeTruthy()
+    expect(screen.getByPlaceholderText('例: 珈琲、ラーメン')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+    // トップ固有要素が消える
+    expect(screen.queryByText('近くの施設を、みんなの地図で探す')).toBeNull()
+    expect(screen.queryByRole('button', { name: /くわしく探す/ })).toBeNull()
+
+    // 従来フォーム → トップ
+    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
+    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
+
+    // 切替で地図が再マウントされていない（単一インスタンス。位置・表示範囲が引き継がれる）
+    expect(getMapInstance()).toBe(mapBefore)
   }, IT_TIMEOUT)
 })

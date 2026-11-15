@@ -56,7 +56,7 @@ function MapToolbar({ mapRef }) {
       const m = mapRef.current
       if (m) {
         // MapLibreのcenterは[経度, 緯度]順
-        m.setView([result.lon, result.lat], Math.max(m.getZoom(), 15))
+        m.jumpTo({ center: [result.lon, result.lat], zoom: Math.max(m.getZoom(), 15) })
 
         // 前回の地名検索マーカーを削除（残存防止）
         if (markerRef.current) {

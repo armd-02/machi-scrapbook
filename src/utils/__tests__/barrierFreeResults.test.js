@@ -8,7 +8,8 @@ import {
   barrierFreeTypeLabel,
   tactileStatus,
   lengthLabel,
-  signalLabels
+  signalLabels,
+  filterByBbox
 } from '../barrierFreeResults'
 
 /**
@@ -270,5 +271,97 @@ describe('signalLabels', () => {
   })
   it('無ければ空配列', () => {
     expect(signalLabels(standard(kerbNode))).toEqual([])
+  })
+})
+
+describe('filterByBbox', () => {
+  // 検索範囲: 135.0–135.1 (lon) / 34.0–34.1 (lat)
+  const bbox = { south: 34.0, west: 135.0, north: 34.1, east: 135.1 }
+
+  const makeWay = (geometry, id = 100) => standard({
+    ...footway,
+    osmId: `way/${id}`,
+    geometry
+  })
+  const makeNode = (lon, lat, id = 200) => standard({
+    ...kerbNode,
+    osmId: `node/${id}`,
+    geometry: [lon, lat]
+  })
+
+  it('範囲外（完全に外側）のウェイは落ちる', () => {
+    const out = filterByBbox([makeWay([[135.2, 34.2], [135.3, 34.2]])], bbox)
+    expect(out).toHaveLength(0)
+  })
+
+  it('境界を横切るウェイ（両端が範囲外だが線分がbboxと交差）は残る', () => {
+    // lat 34.05 の水平線: lon 134.9 → 135.2 は bbox の西・東境界をまたぐ
+    const out = filterByBbox([makeWay([[134.9, 34.05], [135.2, 34.05]])], bbox)
+    expect(out).toHaveLength(1)
+    expect(out[0].id).toBe(100)
+  })
+
+  it('いずれかの頂点が範囲内のウェイは残る', () => {
+    const out = filterByBbox([makeWay([[135.05, 34.05], [135.3, 34.3]])], bbox)
+    expect(out).toHaveLength(1)
+  })
+
+  it('完全に外側のウェイが混ざる場合は外側のみが落ちる', () => {
+    const out = filterByBbox([
+      makeWay([[135.0, 34.05], [135.05, 34.05]], 101),  // 範囲内 → 残る
+      makeWay([[135.2, 34.05], [135.2, 34.5]], 102)     // lon 135.2 は常に範囲外 → 落ちる
+    ], bbox)
+    expect(out.map((r) => r.id)).toEqual([101])
+  })
+
+  it('範囲外のノードは落ちる', () => {
+    const out = filterByBbox([makeNode(135.2, 34.2)], bbox)
+    expect(out).toHaveLength(0)
+  })
+
+  it('範囲内のノードは残る', () => {
+    const out = filterByBbox([makeNode(135.05, 34.05)], bbox)
+    expect(out).toHaveLength(1)
+    expect(out[0].lon).toBe(135.05)
+  })
+
+  it('境界上のノードは残る（境界を含む）', () => {
+    const out = filterByBbox([makeNode(135.0, 34.0, 201)], bbox)
+    expect(out).toHaveLength(1)
+  })
+
+  it('ウェイは頂点平均（近似中心）ではなく線分で判定する', () => {
+    // 西・南・東の外側を回り込む V 字型ウェイ。
+    // 頂点平均は (135.05, 34.0) で bbox 内（境界を含む）に入るが、
+    // いかなる頂点も bbox 内になく、線分も bbox と交差しないため落とす。
+    const geom = [[134.9, 34.05], [135.05, 33.9], [135.2, 34.05]]
+    const way = makeWay(geom)
+    // 平均中心が bbox 内（境界上）であることを確認（平均で判定すると残る）
+    expect(way.lon).toBeCloseTo(135.05, 10)
+    expect(way.lat).toBeCloseTo(34.0, 10)
+    const out = filterByBbox([way], bbox)
+    expect(out).toHaveLength(0)
+  })
+
+  it('混在した結果を正しく切り取る（範囲外ウェイ・範囲外ノードが落ちる）', () => {
+    const out = filterByBbox([
+      makeWay([[135.2, 34.2], [135.3, 34.2]], 100),      // 外 → 落ちる
+      makeWay([[134.9, 34.05], [135.2, 34.05]], 101),    // 横切り → 残る
+      makeNode(135.2, 34.2, 200),                        // 外 → 落ちる
+      makeNode(135.05, 34.05, 201)                       // 内 → 残る
+    ], bbox)
+    expect(out.map((r) => r.osmId)).toEqual(['way/101', 'node/201'])
+  })
+
+  it('空配列・undefined は空配列を返す', () => {
+    expect(filterByBbox([], bbox)).toEqual([])
+    expect(filterByBbox(undefined, bbox)).toEqual([])
+  })
+
+  it('bbox が無効な場合はフィルタせずそのまま返す', () => {
+    const results = [makeNode(135.2, 34.2)]
+    expect(filterByBbox(results, null)).toBe(results)
+    // 縮退bbox（south >= north）は無効
+    expect(filterByBbox(results, { south: 34.2, west: 135.0, north: 34.0, east: 135.1 })).toBe(results)
   })
 })

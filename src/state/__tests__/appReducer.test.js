@@ -18,6 +18,12 @@ function withResults(state, results = RESULTS) {
   return appReducer(state, { type: 'SET_RESULTS', payload: results })
 }
 
+// (#66) 既定の searchSource が 'municipality' になったため、
+// mapモードのフォーム挙動を検証するテストでは明示的にmapへ切替する。
+function mapState() {
+  return appReducer(createInitialState(), { type: 'SET_SEARCH_SOURCE', payload: 'map' })
+}
+
 describe('createInitialState', () => {
   it('resultFilters に purposeFilter が含まれる', () => {
     const s = createInitialState()
@@ -29,7 +35,7 @@ describe('createInitialState', () => {
 
 describe('activeSearchOf', () => {
   it('searchSource が map のとき simpleSearch を返す', () => {
-    const s = createInitialState()
+    const s = mapState()
     s.simpleSearch.category = 'cafe'
     expect(activeSearchOf(s)).toBe(s.simpleSearch)
   })
@@ -42,14 +48,14 @@ describe('activeSearchOf', () => {
 
 describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   it('mapモード+結果ロード済み: カテゴリ選択でcatFilterがミラーされる', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
     expect(s.resultFilters.catFilter).toBe('cafe')
     expect(s.simpleSearch.category).toBe('cafe')
   })
 
   it('結果が未ロードのときはミラーしない', () => {
-    const s = appReducer(createInitialState(), { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
+    const s = appReducer(mapState(), { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
     expect(s.resultFilters.catFilter).toBe('')
   })
 
@@ -67,14 +73,14 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   })
 
   it('目的のみ選択: purposeFilterがミラーされる（catFilterは空）', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
     expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
     expect(s.resultFilters.catFilter).toBe('')
   })
 
   it('カテゴリ優先: 目的を設定してからカテゴリを選ぶとpurposeFilterは空になる', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
     expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'park', purpose: '' } })
@@ -83,7 +89,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   })
 
   it('目的を解除するとpurposeFilterも消える', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '' } })
     expect(s.resultFilters.purposeFilter).toBe('')
@@ -91,7 +97,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
 
   it('SET_RESULTSで現在のフォームからミラーを再導出する', () => {
     // 1) カテゴリなしで検索 → 結果到着（ミラーは空）
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     expect(s.resultFilters.catFilter).toBe('')
 
     // 2) 結果ロード済みの状態でカテゴリ選択（ライブ絞り込み）
@@ -106,7 +112,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
 
   it('モード切替でカテゴリを引き継いだあとミラーを再導出する', () => {
     // mapモードで目的を設定 → 結果ロード
-    let s = createInitialState()
+    let s = mapState()
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
     s = withResults(s)
     expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
@@ -123,7 +129,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   })
 
   it('高度モード切替でカテゴリ系フィルタを解除する', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
     expect(s.resultFilters.catFilter).toBe('cafe')
     s = appReducer(s, { type: 'SET_SEARCH_MODE', payload: 'advanced' })
@@ -135,7 +141,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   })
 
   it('CLEAR_RESULTS後にフォームのカテゴリを外して再検索すると、SET_RESULTSで古いミラーが更新される', () => {
-    let s = withResults(createInitialState())
+    let s = withResults(mapState())
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
     expect(s.resultFilters.catFilter).toBe('cafe')
     s = appReducer(s, { type: 'CLEAR_RESULTS' })
@@ -159,7 +165,7 @@ describe('SET_RESULT_FILTERS (A2)', () => {
   })
 
   it('検索フォームのミラー導出（syncCategoryFilters）より後に適用するとフィルタ値が維持される', () => {
-    let s = createInitialState()
+    let s = mapState()
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe', keyword: '', location: '', cuisine: '', purpose: '' } })
     // (URL復元順: 検索state → フィルタ) 結果がまだ空のためミラー導出はno-op
     s = appReducer(s, { type: 'SET_RESULT_FILTERS', payload: { nameFilter: 'コーヒー' } })

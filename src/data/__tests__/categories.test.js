@@ -15,12 +15,15 @@ import {
 } from '../../data/categories'
 
 describe('カテゴリの目的ベースグループ化（#44 生活者目線UI）', () => {
-  it('7つの目的グループ（食べる・買う・遊ぶ・暮らす・学ぶ・その他・バリアフリー）を返し、計24カテゴリを含む', () => {
+  it('9つの目的グループ（基本7＋(#63)モバイルトップ用クイック2）を返す', () => {
     const grouped = getGroupedCategories()
-    expect(grouped.length).toBe(7)
-    expect(grouped.map((g) => g.group)).toEqual(['食べる', '買う', '遊ぶ', '暮らす', '学ぶ', 'その他', 'バリアフリー'])
+    expect(grouped.length).toBe(9)
+    expect(grouped.map((g) => g.group)).toEqual([
+      '食べる', '買う', '遊ぶ', '暮らす', '病院・薬局', '役所・手続き', '学ぶ', 'その他', 'バリアフリー'
+    ])
+    // クイック2グループは「暮らす」と意図的に重複するため、カテゴリ総数は24+4
     const total = grouped.reduce((n, g) => n + g.categories.length, 0)
-    expect(total).toBe(24)
+    expect(total).toBe(CATEGORIES.length + 4)
   })
 
   it('(#44) 学ぶグループに教育施設のサブカテゴリ（幼稚園・小学校・大学・予備校・学校）を含む', () => {
@@ -40,14 +43,29 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     }
   })
 
-  it('グループ間・グループ内でIDが重複しておらず、すべてCATEGORIESに存在する', () => {
-    const ids = getGroupedCategories().flatMap((g) => g.categories.map((c) => c.id))
-    expect(new Set(ids).size).toBe(ids.length)
-    for (const id of ids) {
-      expect(getCategoryById(id)).toBeTruthy()
+  it('基本7グループは全カテゴリの分区（各カテゴリはちょうど1つの主グループに属する）', () => {
+    const original = ['食べる', '買う', '遊ぶ', '暮らす', '学ぶ', 'その他', 'バリアフリー']
+    const seen = new Set()
+    for (const name of original) {
+      for (const cat of getCategoriesForPurpose(name)) {
+        expect(seen.has(cat.id)).toBe(false) // グループ間の重複なし
+        seen.add(cat.id)
+      }
     }
-    // グループ表示の集合 === CATEGORIES の集合（漏れ・余計な追加がない）
-    expect(ids.sort()).toEqual(CATEGORIES.map((c) => c.id).sort())
+    // 集合 === CATEGORIES の集合（漏れ・余計な追加がない）
+    expect(seen.size).toBe(CATEGORIES.length)
+  })
+
+  it('(#63) クイックグループ（病院・薬局／役所・手続き）は「暮らす」のサブセットで、IDはすべてCATEGORIESに存在する', () => {
+    const living = getCategoriesForPurpose('暮らす').map((c) => c.id)
+    for (const name of ['病院・薬局', '役所・手続き']) {
+      const cats = getCategoriesForPurpose(name)
+      expect(cats.length).toBeGreaterThan(0)
+      for (const c of cats) {
+        expect(getCategoryById(c.id)).toBeTruthy()
+        expect(living).toContain(c.id) // 「暮らす」内に含まれる
+      }
+    }
   })
 
   it('グループ名とグループ内順序がCATEGORY_GROUPS定義（広い→狭い）と一致する', () => {
@@ -167,8 +185,29 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     expect(filters).toEqual([])
   })
 
+  it('getPurposeUnionFilters: (#63) 病院・薬局 = 病院・クリニック + 薬局・ドラッグストア のunion', () => {
+    expect(getPurposeUnionFilters('病院・薬局')).toEqual([
+      'amenity~"^(hospital|clinic|doctors|dentist)$"',
+      'amenity=pharmacy',
+      'shop=drugstore'
+    ])
+  })
+
+  it('getPurposeUnionFilters: (#63) 役所・手続き = 公共施設 + 銀行・ATM のunion', () => {
+    expect(getPurposeUnionFilters('役所・手続き')).toEqual([
+      'amenity~"^(townhall|post_office|police|fire_station|library|community_centre|recycling|shelter)$"',
+      'office~"^(government|municipality)$"',
+      'amenity~"^(bank|atm)$"'
+    ])
+  })
+
+  it('getPurposeLabelList: (#63) クイックグループの案内文', () => {
+    expect(getPurposeLabelList('病院・薬局')).toBe('病院・クリニック・薬局・ドラッグストア')
+    expect(getPurposeLabelList('役所・手続き')).toBe('公共施設・銀行・ATM')
+  })
+
   it('getPurposeUnionFilters: 他の目的グループに barrier_free フィルタが混入しない', () => {
-    for (const name of ['食べる', '買う', '遊ぶ', '暮らす', '学ぶ', 'その他']) {
+    for (const name of ['食べる', '買う', '遊ぶ', '暮らす', '病院・薬局', '役所・手続き', '学ぶ', 'その他']) {
       const filters = getPurposeUnionFilters(name)
       for (const f of filters) {
         expect(f).not.toContain('footway')

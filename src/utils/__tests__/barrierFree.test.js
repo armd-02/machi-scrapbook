@@ -11,9 +11,10 @@ describe('buildBarrierFreeQuery (#62)', () => {
     expect(query).toContain('34.700000,135.480000,34.710000,135.490000')
   })
 
-  it('タイムアウトが25秒で設定される', () => {
+  it('タイムアウトが60秒で設定される（#63: クライアント側60秒打ち切り・全体150秒予算に対応）', () => {
     const query = buildBarrierFreeQuery(testBbox)
-    expect(query).toContain('[out:json][timeout:25]')
+    expect(query).toContain('[out:json][timeout:60]')
+    expect(query).not.toContain('[timeout:25]')
   })
 
   it('歩道ウェイ（footway・path）が out geom で取得される', () => {
@@ -41,7 +42,7 @@ describe('buildBarrierFreeQuery (#62)', () => {
     // クエリ全体を完全一致で固定:
     // - union（forブロック）は `);` で閉じ、`out geom;` / `out body;` は独立した文
     // - コロンを含むタグキーはダブルクォートで囲む
-    expect(query).toBe(`[out:json][timeout:25];
+    expect(query).toBe(`[out:json][timeout:60];
 (
   way[highway=footway](34.700000,135.480000,34.710000,135.490000);
   way[highway=path](34.700000,135.480000,34.710000,135.490000);

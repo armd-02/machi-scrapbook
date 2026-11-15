@@ -48,9 +48,12 @@ import { useDraggableHeight } from '../../hooks/useDraggableHeight'
  *   再生成（remount）させることで、ソース/レイヤの入れ替えロジックを
  *   単純化する。
  * - 地図の高さを地図下のドラッグハンドルで変更できる（検索タブの地図と同じ
- *   useDraggableHeight）。既定200px・範囲160〜480px。高さ変更は
- *   localStorage（キー mapHeight.results、検索タブのキーとは独立）に保存され、
- *   再マウント時も読み戻す。ドラッグに合わせて map.resize() を呼ぶ。
+ *   useDraggableHeight）。範囲は160〜480px。既定の高さ・保存キーは kind で分ける:
+ *   kind='poi' → 既定200px・キー mapHeight.results（従来どおり）
+ *   kind='barrier_free' → 既定320px・キー mapHeight.resultsBf（POI地図のキーとは
+ *   独立するため、POI側で小さくした高さがバリアフリー地図に引き継がれない）
+ *   高さ変更は localStorage に保存され、再マウント時も読み戻す。ドラッグに合わせて
+ *   map.resize() を呼ぶ。
  */
 
 const POI_SOURCE_ID = 'results'
@@ -70,6 +73,8 @@ const FIT_OPTIONS = { padding: 24, maxZoom: 16, duration: 0 }
 
 // 結果マップの高さの保存キー（検索タブの mapHeight.mobile とは独立）
 const RESULTS_MAP_HEIGHT_KEY = 'mapHeight.results'
+// (修正) バリアフリー結果マップ専用の高さ保存キー（POI地図のキーとは独立）
+const BF_RESULTS_MAP_HEIGHT_KEY = 'mapHeight.resultsBf'
 
 /**
  * GeoJSON FeatureCollection の範囲（BBOX）を算出する。
@@ -132,19 +137,21 @@ export default function MobileResultsMap({ kind = 'poi' }) {
   // 隠れている間に保留した fitBounds の対象範囲 [[sw],[ne]]（null で保留なし）
   const pendingBoundsRef = useRef(null)
 
-  // 地図の高さをドラッグで変更（既定200px・範囲160〜480px）。保存値が
-  // localStorage にあればそれを初期値として使う（フックの既存挙動）。
-  // 高さ変更に合わせて map.resize() を呼ぶことで、MapLibre の描画が
-  // ドラッグに追随する
+  // 地図の高さをドラッグで変更（範囲160〜480px）。既定の高さと保存キーは
+  // kind で分ける: poi → 既定200px・mapHeight.results / barrier_free →
+  // 既定320px・mapHeight.resultsBf。保存値が localStorage にあればそれを
+  // 初期値として使う（フックの既存挙動）。高さ変更に合わせて map.resize() を
+  // 呼ぶことで、MapLibre の描画がドラッグに追随する
   const handleMapResize = () => {
     const map = mapRef.current
     if (map && typeof map.resize === 'function') map.resize()
   }
+  const isBarrierFree = kind === 'barrier_free'
   const mapHeight = useDraggableHeight({
-    defaultHeight: 200,
+    defaultHeight: isBarrierFree ? 320 : 200,
     minHeight: 160,
     maxHeight: 480,
-    storageKey: RESULTS_MAP_HEIGHT_KEY,
+    storageKey: isBarrierFree ? BF_RESULTS_MAP_HEIGHT_KEY : RESULTS_MAP_HEIGHT_KEY,
     onResize: handleMapResize
   })
 
@@ -266,14 +273,15 @@ export default function MobileResultsMap({ kind = 'poi' }) {
 
   const label = kind === 'barrier_free' ? 'バリアフリー要素マップ' : '検索結果マップ'
   // ラウンド枠（rounded-lg）は地図+ハンドルの外側wrapperに持ち、
-  // 地図コンテナは既定 h-[200px] のまま（ドラッグ後はstyle上書き）
+  // 地図コンテナは既定高さクラス（poi: h-[200px] / barrier_free: h-[320px]）のまま
+  // （ドラッグ後はstyle上書き）
   return (
     <div className="rounded-lg overflow-hidden border border-slate-200">
       <div
         ref={containerRef}
         role="application"
         aria-label={label}
-        className="h-[200px] bg-slate-100"
+        className={isBarrierFree ? 'h-[320px] bg-slate-100' : 'h-[200px] bg-slate-100'}
         style={mapHeight.containerStyle}
       />
       {/* 高さドラッグハンドル（検索タブの地図と同一のフック・見た目） */}

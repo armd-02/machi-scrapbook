@@ -36,16 +36,6 @@ function SearchPanel() {
       {/* (#44) 検索ソース切替: 「地図から探す」「自治体から探す」の対等な2択 */}
       <div className="flex rounded-lg bg-slate-100 p-1">
         <button
-          onClick={() => switchSource('map')}
-          className={`flex-1 py-1.5 text-sm rounded-md transition-all ${
-            searchSource === 'map'
-              ? 'bg-white text-slate-800 shadow-sm font-medium'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          地図から探す
-        </button>
-        <button
           onClick={() => switchSource('municipality')}
           className={`flex-1 py-1.5 text-sm rounded-md transition-all ${
             searchSource === 'municipality'
@@ -54,6 +44,16 @@ function SearchPanel() {
           }`}
         >
           自治体から探す
+        </button>
+        <button
+          onClick={() => switchSource('map')}
+          className={`flex-1 py-1.5 text-sm rounded-md transition-all ${
+            searchSource === 'map'
+              ? 'bg-white text-slate-800 shadow-sm font-medium'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          地図から探す
         </button>
       </div>
 

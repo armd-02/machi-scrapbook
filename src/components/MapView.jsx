@@ -216,7 +216,15 @@ export function resultsToGeoJSON(results) {
  * - (#38) ポップアップはtextContentベースのDOMノードのみ（setHTML禁止）
  * - (#60) コンテナサイズ変化でmap.resize()（hidden→表示復帰時のタイル再描画）
  */
-function MapView({ onMarkerClick = null, onMarkerTap = null }) {
+/**
+ * @param {boolean} [showToolbar=true] 地名で移動ツールバー（MapToolbar）を表示する。
+ *   (#63) モバイル一般向けトップは独自の場所入力を備えるためfalseを渡す。
+ * @param {{center:[number,number], zoom:number}|null} [initialCamera=null]
+ *   (#63) 再マウント時の初期カメラ（[経度, 緯度]順）。モバイル検索タブで
+ *   トップ⇄フォーム切替時に地図が再マウントされるため、前の表示範囲を
+ *   引き継ぐのに使う（URL復元bboxのfitBoundsは従来どおり優先される）。
+ */
+function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true, initialCamera = null }) {
   const containerRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const loadedRef = useRef(false)
@@ -441,10 +449,14 @@ function MapView({ onMarkerClick = null, onMarkerTap = null }) {
     // (Task 2) 検索由来のbboxでは初期カメラをBBOXに依存させない。
     const s0 = stateRef.current
     const initialBbox = (s0.bbox && s0.bboxSource === 'url') ? s0.bbox : null
-    const center = initialBbox
-      ? [(initialBbox.west + initialBbox.east) / 2, (initialBbox.south + initialBbox.north) / 2]
-      : DEFAULT_CENTER
-    const zoom = initialBbox ? 12 : DEFAULT_ZOOM
+    const center = initialCamera && Array.isArray(initialCamera.center) && initialCamera.center.length === 2
+      ? initialCamera.center
+      : initialBbox
+        ? [(initialBbox.west + initialBbox.east) / 2, (initialBbox.south + initialBbox.north) / 2]
+        : DEFAULT_CENTER
+    const zoom = initialCamera && initialCamera.zoom != null
+      ? initialCamera.zoom
+      : (initialBbox ? 12 : DEFAULT_ZOOM)
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -567,7 +579,7 @@ function MapView({ onMarkerClick = null, onMarkerTap = null }) {
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="w-full h-full" />
-      <MapToolbar mapRef={mapInstanceRef} />
+      {showToolbar && <MapToolbar mapRef={mapInstanceRef} />}
       {/* (#62) 凡例（BarrierFreeLegend）は地図のオーバーレイではなく、
           親レイアウト（Appの地図ブロック・モバイル検索タブ）の地図本体の下に
           通常のフローで描画する。 */}

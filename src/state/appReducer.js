@@ -35,7 +35,8 @@ export function createInitialState() {
     errorSuggestion: null,
     fetchMeta: null,
     activeResultId: null,
-    searchSource: 'map',
+    // 初期値は 'municipality'（URLパラメータ無しで開いたとき「自治体」検索が前提）
+    searchSource: 'municipality',
     selectedMunicipality: null,
     municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '' },
     resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none', missingFilter: 'none' }

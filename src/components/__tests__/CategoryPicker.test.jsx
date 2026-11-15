@@ -48,7 +48,7 @@ function renderControlledPickerLegacy(initialValue, onChange = vi.fn()) {
 }
 
 describe('CategoryPicker（mobile: 目的チップ）', () => {
-  it('6つの目的チップ（食べる・買う・遊ぶ・暮らす・学ぶ・その他）を表示する', () => {
+  it('9つの目的チップ（基本7＋(#63)クイック2）を表示する', () => {
     renderPicker()
     for (const g of CATEGORY_GROUPS) {
       const btn = screen.getByRole('button', { name: g.name })
@@ -188,7 +188,7 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
 })
 
 describe('CategoryPicker（pc: グループ付きselect）', () => {
-  it('6つのoptgroup（アイコン付き）でカテゴリを列挙する', () => {
+  it('9つのoptgroup（アイコン付き）でカテゴリを列挙する', () => {
     const { container } = render(
       <CategoryPicker variant="pc" value="" onChange={() => {}} />
     )

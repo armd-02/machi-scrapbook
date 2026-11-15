@@ -51,7 +51,7 @@ afterEach(() => cleanup())
 describe('MobileListTab: カテゴリ選択=検索フォームと同期 (#44)', () => {
   it('地図モード: ドロップダウンでカテゴリを選ぶとSET_SIMPLE_SEARCHにdispatchされparkが絞られる', () => {
     const log = []
-    render(<Harness preActions={[{ type: 'SET_RESULTS', payload: [cafeWithWeb, park] }, { type: 'SET_STATUS', payload: 'success' }]} log={log} />)
+    render(<Harness preActions={[{ type: 'SET_SEARCH_SOURCE', payload: 'map' }, { type: 'SET_RESULTS', payload: [cafeWithWeb, park] }, { type: 'SET_STATUS', payload: 'success' }]} log={log} />)
 
     expect(screen.getByText('中央公園')).toBeTruthy()
     const select = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
@@ -84,6 +84,7 @@ describe('MobileListTab: カテゴリ選択=検索フォームと同期 (#44)', 
     const log = []
     render(<Harness
       preActions={[
+        { type: 'SET_SEARCH_SOURCE', payload: 'map' },
         { type: 'SET_RESULTS', payload: [cafeWithWeb, park] },
         { type: 'SET_STATUS', payload: 'success' },
         { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } },
@@ -389,13 +390,17 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
-  it('バリアフリー検索結果: 折りたたまず常時表示。結果マップと凡例が表示され、線・点が設定される', async () => {
+  it('バリアフリー検索結果: 初期は開いている状態（初期open）。線・点の結果範囲にフィットされ、凡例は常時表示', async () => {
     render(<Harness preActions={bfMobileActions()} />)
 
+    // 初期状態は展開: 地図が表示され、トグルは「地図を隠す」（aria-expanded=true）
     expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
-    // バリアフリー結果の地図は折りたたみ対象外（「地図を表示」ボタンは出ない）
-    expect(screen.queryByRole('button', { name: /地図を表示/ })).toBeNull()
+    const toggle = screen.getByRole('button', { name: /地図を隠す/ })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    // 凡例は折りたたみの外なので、常に一緒に表示される
     expect(screen.getByText('凡例')).toBeTruthy()
+
+    // 線（LineString）と点（Point）が設定され、結果範囲にfitBoundsされる
     await waitFor(async () => {
       const map = mockState.api._state.maps.at(-1)
       const features = map._lastGeoJSON?.data?.features || []
@@ -404,6 +409,34 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     })
     const map = mockState.api._state.maps.at(-1)
     // 線（135.0〜135.02, 34.0〜34.01）と点（135.1, 34.1）を含む範囲
+    const fit = map._calls.find((c) => c.name === 'fitBounds')
+    expect(fit.args[0]).toEqual([[135.0, 34.0], [135.1, 34.1]])
+  })
+
+  it('バリアフリー地図: トグルで閉じられる（地図非表示・破棄）し、もう一度開けると結果範囲に再フィットする', async () => {
+    render(<Harness preActions={bfMobileActions()} />)
+
+    // 初期は開いている → 「地図を隠す」ボタン
+    expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
+    await waitFor(() => expect(mockState.api._state.maps).toHaveLength(1))
+    const firstMap = mockState.api._state.maps[0]
+
+    // 閉じる: 地図がアンマウントされ破棄される。凡例は折りたたみの外なので残る
+    fireEvent.click(screen.getByRole('button', { name: /地図を隠す/ }))
+    expect(screen.queryByRole('application', { name: 'バリアフリー要素マップ' })).toBeNull()
+    expect(firstMap._removed).toBe(true)
+    expect(screen.getByRole('button', { name: /地図を表示/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByText('凡例')).toBeTruthy()
+
+    // 再展開: 地図が新規マウントされ、結果範囲にfitBoundsされる
+    fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
+    await waitFor(async () => {
+      const map = mockState.api._state.maps.at(-1)
+      expect(map._lastGeoJSON?.data?.features?.length).toBe(2)
+    })
+    const map = mockState.api._state.maps.at(-1)
+    expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /地図を隠す/ }).getAttribute('aria-expanded')).toBe('true')
     const fit = map._calls.find((c) => c.name === 'fitBounds')
     expect(fit.args[0]).toEqual([[135.0, 34.0], [135.1, 34.1]])
   })

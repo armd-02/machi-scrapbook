@@ -9,7 +9,11 @@ import {
   OverpassError
 } from '../utils/overpass'
 import { buildBarrierFreeQuery } from '../utils/barrierFree'
-import { parseBarrierFreeResponse, isBarrierFreeCriteria } from '../utils/barrierFreeResults'
+import {
+  parseBarrierFreeResponse,
+  isBarrierFreeCriteria,
+  filterByBbox
+} from '../utils/barrierFreeResults'
 import { checkBboxSize } from '../utils/geo'
 import { isValidBbox } from '../utils/searchBbox'
 
@@ -136,12 +140,27 @@ export function useSearch() {
       const { results, meta } = await executeOverpassQuery(query, {
         signal: controller.signal,
         // (#62) バリアフリー検索: 要素をバリアフリー形式→共通結果形状にパース
-        ...(queryKind === 'barrier_free' ? { parse: parseBarrierFreeResponse } : {})
+        ...(queryKind === 'barrier_free'
+          ? {
+              parse: parseBarrierFreeResponse,
+              // (#63) バリアフリー検索のみ: クライアント側のタイムアウトを延長
+              // 既定のOverpass接続先（armd-01）はキャッシュのため検索範囲をグリッド状に
+              // 広げて返すため、範囲の大きい自治体（うるま市など）では応答が約12MBになり、
+              // 既定の単体30秒/全体90秒では受け取りきれない。
+              perAttemptTimeout: 60000,
+              timeout: 150000
+            }
+          : {})
       })
 
       // (#62) バリアフリー検索: キーワード絞り込みを適用しない
       // （歩道・縁石・音声案内ノードは name が無いことが多く、絞り込むと結果が消える）
-      const filtered = queryKind === 'barrier_free' ? results : filterByKeyword(results, keyword)
+      // 既定のOverpass接続先（armd-01）はキャッシュのため検索範囲をグリッド状に
+      // 広げて返すため、範囲外の結果が混ざる。表示・集計は検索範囲内だけが正しい
+      // ので、クエリ生成に使用した同一のbboxで切り取る。
+      const filtered = queryKind === 'barrier_free'
+        ? filterByBbox(results, bbox)
+        : filterByKeyword(results, keyword)
 
       dispatch({ type: 'SET_RESULTS', payload: filtered })
       dispatch({ type: 'SET_RESULT_KIND', payload: queryKind })

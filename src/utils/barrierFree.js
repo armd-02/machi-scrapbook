@@ -39,7 +39,7 @@ export function buildBarrierFreeQuery(bbox) {
     'out body;',
   ].join('\n')
 
-  return `[out:json][timeout:25];\n${body}\n`
+  return `[out:json][timeout:60];\n${body}\n`
 }
 
 // ===== データ整形 =====

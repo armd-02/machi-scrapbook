@@ -114,8 +114,8 @@ describe('Task 2: 検索後のカメラ不変', () => {
 
     // fitBoundsは初回の1件のみ（再fitなし）
     expect(callsOf(getMap(), 'fitBounds')).toHaveLength(1)
-    // setViewも呼ばれない（カメラ位置・ズームの変更なし）
-    expect(callsOf(getMap(), 'setView')).toHaveLength(0)
+    // jumpToも呼ばれない（カメラ位置・ズームの変更なし）
+    expect(callsOf(getMap(), 'jumpTo')).toHaveLength(0)
     // 結果マーカーは反映される（検索結果の更新自体は正常に動作）
     expect(getMap()._lastGeoJSON.data.features.length).toBe(2)
   })
