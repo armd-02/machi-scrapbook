@@ -6,6 +6,7 @@ import MobileBottomNav from './MobileBottomNav'
 import MobileSearchTab from './MobileSearchTab'
 import MobileListTab from './MobileListTab'
 import MobileOtherTab from './MobileOtherTab'
+import MemochoSection from './MemochoSection'
 import MobileFacilityDetail from './MobileFacilityDetail'
 import AppIcon from './AppIcon'
 
@@ -14,11 +15,11 @@ import AppIcon from './AppIcon'
  *
  * - 上部: ヘッダー + StatusBanner（全タブで共通表示。
  *   エラーはタブを離れても画面に戻ってくる）
- * - 中央: 3タブ（検索/一覧/その他）。非活性タブは hidden で
+ * - 中央: 4タブ（検索/一覧/メモ帳/その他）。非活性タブは hidden で
  *   アンマウントしないため、検索条件・フィルタ状態がタブ切替をまたいで保持される。
  *   (#60) MapLibre マップは検索タブ内に常設（地図モード時に表示、
  *   (#63) 自治体モードでは hidden で非表示。トップ⇄フォーム切替では再マウントしない）
- * - 下部: 下部ナビゲーション（3タブ）
+ * - 下部: 下部ナビゲーション（4タブ）
  * - 施設詳細: ボトムシート（オーバーレイ。主ナビのタブではない）
  *
  * 検索完了時は結果（一覧）タブへ、エラー時は検索タブへ自動切替する。
@@ -102,6 +103,12 @@ export default function MobileShell() {
         </div>
         <div className="absolute inset-0" {...panelProps('list')}>
           <MobileListTab onOpenDetail={openDetail} />
+        </div>
+        <div className="absolute inset-0" {...panelProps('memo')}>
+          {/* まちメモ帳: 独立タブ。カードタップで施設詳細シートを開く */}
+          <div className="h-full overflow-y-auto">
+            <MemochoSection onOpenDetail={openDetail} />
+          </div>
         </div>
         <div className="absolute inset-0" {...panelProps('other')}>
           <MobileOtherTab />

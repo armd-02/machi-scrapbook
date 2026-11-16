@@ -11,7 +11,7 @@ const hotel = { type: 'way', id: 3, tags: { tourism: 'hotel' } }
 const conv = { type: 'node', id: 4, tags: { shop: 'convenience' } }
 const RESULTS = [cafe, park, hotel, conv]
 
-const BASE = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none' }
+const BASE = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none' }
 
 describe('applyResultFilters: purposeFilter（目的スコープ）', () => {
   it('遊ぶ: その目的のカテゴリに一致する要素だけが残る', () => {
@@ -350,6 +350,18 @@ describe('cuisineFacetValues', () => {
   it('limit で返す件数を制限できる', () => {
     const out = cuisineFacetValues([r(1, 'ramen'), r(2, 'sushi'), r(3, 'udon')], 2)
     expect(out.map((f) => f.value)).toEqual(['ramen', 'sushi'])
+  })
+
+  it('牛丼・ステーキハウス・お好み焼き等も日本語ラベルになる', () => {
+    const out = cuisineFacetValues([
+      r(1, 'beef_bowl'), r(2, 'steak_house'), r(3, 'okonomiyaki'), r(4, 'yakitori'), r(5, 'taiwanese')
+    ], 30)
+    const byValue = Object.fromEntries(out.map((f) => [f.value, f.label]))
+    expect(byValue.beef_bowl).toBe('牛丼')
+    expect(byValue.steak_house).toBe('ステーキ')
+    expect(byValue.okonomiyaki).toBe('お好み焼き')
+    expect(byValue.yakitori).toBe('焼き鳥')
+    expect(byValue.taiwanese).toBe('台湾料理')
   })
 
   it('一般的な値は日本語ラベル、載っていない値はそのまま表示', () => {

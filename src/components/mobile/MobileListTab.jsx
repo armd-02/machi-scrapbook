@@ -10,6 +10,7 @@ import MobileFacilityCard from './MobileFacilityCard'
 import MobileResultsMap from './MobileResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
+import PerspectiveHelpModal from './PerspectiveHelpModal'
 import AttributeCompleteness from '../AttributeCompleteness'
 import { ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '../../utils/barrierFreeResults'
@@ -85,27 +86,41 @@ function CuisineChips({ facets, value, onChange }) {
 }
 
 function PerspectiveChips({ value, onChange }) {
+  const [helpOpen, setHelpOpen] = useState(false)
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="視点で絞る">
-      {PERSPECTIVES.map((p) => {
-        const selected = value === p.value
-        return (
-          <button
-            key={p.value}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onChange(p.value)}
-            className={`min-h-[44px] px-3 text-xs font-medium rounded-full border transition-colors ${
-              selected
-                ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {p.label}
-          </button>
-        )
-      })}
-    </div>
+    <>
+      <div className="flex items-start gap-1.5">
+        <div className="flex flex-wrap gap-1.5 flex-1" role="group" aria-label="視点で絞る">
+          {PERSPECTIVES.map((p) => {
+            const selected = value === p.value
+            return (
+              <button
+                key={p.value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onChange(p.value)}
+                className={`min-h-[44px] px-3 text-xs font-medium rounded-full border transition-colors ${
+                  selected
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+        <button
+          type="button"
+          aria-label="視点フィルタの説明"
+          onClick={() => setHelpOpen(true)}
+          className="shrink-0 w-6 h-6 rounded-full border border-slate-300 text-slate-400 text-xs italic font-serif leading-none flex items-center justify-center hover:text-slate-500 hover:border-slate-400"
+        >
+          i
+        </button>
+      </div>
+      {helpOpen && <PerspectiveHelpModal onClose={() => setHelpOpen(false)} />}
+    </>
   )
 }
 
@@ -119,7 +134,7 @@ export default function MobileListTab({ onOpenDetail }) {
   }
 
   const { results, status, resultFilters, searchSource } = state
-  const { nameFilter, websiteOnly, sortDir } = resultFilters
+  const { nameFilter, sortDir } = resultFilters
 
   // 縁石の高さ絞り込み（kerbHeight）はバリアフリー一覧専用なので、
   // 施設一覧では 'any' に固定して適用しない（旧BF検索の残値で全件が消えるのを防ぐ）
@@ -162,7 +177,7 @@ export default function MobileListTab({ onOpenDetail }) {
   const resetFilters = () => {
     // 検索フォームのカテゴリ・目的選択も一緒に解除する（状態の整合性）
     dispatch({ type: searchFormType, payload: { category: '', purpose: '' } })
-    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', kerbHeight: 'any' })
   }
 
   return (
@@ -230,15 +245,6 @@ export default function MobileListTab({ onOpenDetail }) {
                   <option value="desc">名前逆順</option>
                 </select>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700 min-h-[24px]">
-                <input
-                  type="checkbox"
-                  checked={websiteOnly}
-                  onChange={(e) => setFilters({ websiteOnly: e.target.checked })}
-                  className="w-4 h-4"
-                />
-                Webサイトがあるものだけ
-              </label>
               {/* (B2) 主要属性の欠落で絞り込む */}
               <select
                 value={resultFilters.missingFilter || 'none'}
@@ -373,7 +379,7 @@ function BarrierFreeMobileList() {
   const { results, status, resultFilters } = state
 
   // バリアフリー要素には意味のないフィルタ（Webサイト・属性欠落・料理ジャンル）は適用しない
-  const bfFilters = { ...resultFilters, websiteOnly: false, missingFilter: 'none', cuisine: '' }
+  const bfFilters = { ...resultFilters, missingFilter: 'none', cuisine: '' }
   const filtered = useMemo(
     () => applyResultFilters(results || [], bfFilters),
     [results, resultFilters]

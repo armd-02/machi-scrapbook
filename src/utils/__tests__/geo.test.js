@@ -8,9 +8,12 @@
  *   と各フォールバック
  * - レート制限: geocode と geocodeCandidates が 1リクエスト/秒 を共有する
  * - searchAreaFromGeocode が geocodeCandidates の候補オブジェクトにも使える
+ * - calculateBboxAreaKm2 / isBboxTooLarge: BBOX面積の近似計算と
+ *   「広すぎる」しきい値判定（MAX_SEARCH_AREA_KM2 = 1,000 km² 以上）。
+ *   旧都道府県名ベースのガード（isPrefectureCandidate）を置き換える
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { geocode, geocodeCandidates, geocodeCandidateLabel, searchAreaFromGeocode } from '../geo'
+import { geocode, geocodeCandidates, geocodeCandidateLabel, calculateBboxAreaKm2, isBboxTooLarge, isMunicipalityCandidate, MAX_SEARCH_AREA_KM2, searchAreaFromGeocode } from '../geo'
 
 // ---------- モックヘルパー ----------
 
@@ -125,6 +128,7 @@ describe('geocodeCandidates（複数候補）', () => {
       prefecture: '鹿児島県',
       city: '鹿児島市',
       type: 'suburb',
+      addresstype: '',
       kind: '',
       boundingbox: { south: 31.58, north: 31.6, west: 130.68, east: 130.71 }
     })
@@ -240,6 +244,143 @@ describe('geocodeCandidateLabel（候補ラベル）', () => {
 
   it('displayName も無い場合は空文字列', () => {
     expect(geocodeCandidateLabel({})).toBe('')
+  })
+})
+
+// ---------- 面積ベースの「広すぎる」判定（旧都道府県ガードの置き換え） ----------
+
+// 面積計算（calculateBboxAreaKm2）と同じ式（地球半径6371km、経度方向を
+// cos(緯度) で補正）を使って、面積が指定値 km² になる BBOX を作るヘルパー。
+// 中心は緯度 latMid・経度135。テストでBBOXを構成し、判定関数がその面積を
+// 正しく計算していることを検証するのに使う
+const TEST_KM_PER_DEG = (Math.PI / 180) * 6371
+function makeBboxAtArea(latMid, dLatKm, areaKm2) {
+  const dLonKm = areaKm2 / dLatKm
+  const cosMid = Math.cos((latMid * Math.PI) / 180)
+  const halfLat = dLatKm / 2 / TEST_KM_PER_DEG
+  const halfLon = dLonKm / 2 / (TEST_KM_PER_DEG * cosMid)
+  return {
+    south: latMid - halfLat,
+    north: latMid + halfLat,
+    west: 135 - halfLon,
+    east: 135 + halfLon
+  }
+}
+
+// 大阪府の実境界（都道府県サイズ。約25,800 km²）
+const OSAKA_PREF_BBOX = { south: 33.4342, north: 35.0240, west: 135.2802, east: 136.8672 }
+
+// 駅サイズ（点状・約0.04 km²）
+const STATION_BBOX = { south: 34.699, north: 34.701, west: 135.499, east: 135.501 }
+
+describe('calculateBboxAreaKm2（BBOX概算面積）', () => {
+  it('都道府県サイズ（大阪府）は数万 km² になる', () => {
+    const area = calculateBboxAreaKm2(OSAKA_PREF_BBOX)
+    expect(area).toBeGreaterThan(20000)
+    expect(area).toBeLessThan(32000)
+  })
+
+  it('市サイズ（15km × 15km）は約 225 km² になる', () => {
+    const area = calculateBboxAreaKm2(makeBboxAtArea(35, 15, 225))
+    expect(area).toBeCloseTo(225, 1)
+  })
+
+  it('駅サイズ（点状）は 1 km² 未満になる', () => {
+    const area = calculateBboxAreaKm2(STATION_BBOX)
+    expect(area).toBeGreaterThan(0)
+    expect(area).toBeLessThan(1)
+  })
+
+  it('経度方向は緯度が高いほど短くなる（cos 補正）', () => {
+    const low = calculateBboxAreaKm2({ south: 30, north: 31, west: 130, east: 131 })
+    const high = calculateBboxAreaKm2({ south: 43, north: 44, west: 140, east: 141 })
+    expect(low).toBeGreaterThan(high)
+  })
+})
+
+describe('isBboxTooLarge（1,000 km² しきい値判定）', () => {
+  it('しきい値定数 MAX_SEARCH_AREA_KM2 は 1,000 km²', () => {
+    expect(MAX_SEARCH_AREA_KM2).toBe(1000)
+  })
+
+  it('都道府県サイズのBBOX（大阪府・約25,800 km²）は true', () => {
+    expect(isBboxTooLarge(OSAKA_PREF_BBOX)).toBe(true)
+  })
+
+  it('国サイズのBBOX（日本・約263万 km²）は true', () => {
+    expect(isBboxTooLarge({ south: 30.5, north: 45.5, west: 128.0, east: 146.0 })).toBe(true)
+  })
+
+  it('市サイズのBBOX（約225 km²）は false', () => {
+    expect(isBboxTooLarge(makeBboxAtArea(35, 15, 225))).toBe(false)
+  })
+
+  it('駅サイズのBBOX（約0.04 km²）は false', () => {
+    expect(isBboxTooLarge(STATION_BBOX)).toBe(false)
+  })
+
+  it('しきい値ちょうど（1,000 km²）は広すぎる（>= 扱い）、1 km² 未満では false', () => {
+    const at = makeBboxAtArea(35, 25, MAX_SEARCH_AREA_KM2)
+    expect(calculateBboxAreaKm2(at)).toBeCloseTo(1000, 6)
+    expect(isBboxTooLarge(at)).toBe(true)
+
+    const below = makeBboxAtArea(35, 25, MAX_SEARCH_AREA_KM2 - 1)
+    expect(calculateBboxAreaKm2(below)).toBeCloseTo(999, 6)
+    expect(isBboxTooLarge(below)).toBe(false)
+  })
+
+  it('boundingbox がない（点状）候補や無効なBBOXは広すぎとはみなさない', () => {
+    expect(isBboxTooLarge(null)).toBe(false)
+    expect(isBboxTooLarge(undefined)).toBe(false)
+    // 順序が逆転したBBOX（south > north）は無効
+    expect(isBboxTooLarge({ south: 35.1, north: 35.0, west: 135, east: 135.1 })).toBe(false)
+  })
+})
+
+// ---------- 市区町村判定（「広すぎる」ガードの例外） ----------
+
+describe('isMunicipalityCandidate（市区町村判定）', () => {
+  it('自治体データ由来の候補（kind="自治体"）は市区町村', () => {
+    // municipalityToCandidate の戻り値形状（addresstype は無い）
+    expect(isMunicipalityCandidate({ kind: '自治体', name: '高山市' })).toBe(true)
+  })
+
+  it('Nominatim 候補の addresstype が市区町村レベルなら市区町村', () => {
+    for (const addresstype of ['city', 'town', 'village', 'municipality', 'borough']) {
+      expect(isMunicipalityCandidate({ addresstype })).toBe(true)
+    }
+  })
+
+  it('Nominatim 候補の addresstype が都道府県・国なら市区町村ではない', () => {
+    // 実 Nominatim: 高山市→city、揖斐川町→town、香川県→province、日本→country
+    for (const addresstype of ['province', 'state', 'country', 'county', 'suburb', 'hamlet', 'railway', '']) {
+      expect(isMunicipalityCandidate({ addresstype })).toBe(false)
+    }
+  })
+
+  it('addresstype・kind が無い候補、null・undefined は市区町村ではない', () => {
+    expect(isMunicipalityCandidate({})).toBe(false)
+    expect(isMunicipalityCandidate({ name: '大阪駅' })).toBe(false)
+    expect(isMunicipalityCandidate(null)).toBe(false)
+    expect(isMunicipalityCandidate(undefined)).toBe(false)
+  })
+
+  it('geocodeCandidates が Nominatim の addresstype を候補に載せる', async () => {
+    // 「高山市」の実 Nominatim 応答に近い行（boundary/administrative・addresstype=city）
+    mockNominatimFetch([
+      nomiRow({
+        name: '高山市',
+        display_name: '高山市, 岐阜県, 日本',
+        class: 'boundary',
+        type: 'administrative',
+        addresstype: 'city',
+        boundingbox: ['35.8974890', '36.3929960', '136.7539670', '137.6530540'],
+        address: {}
+      })
+    ])
+    const cs = await geocodeCandidates('高山市')
+    expect(cs[0].addresstype).toBe('city')
+    expect(isMunicipalityCandidate(cs[0])).toBe(true)
   })
 })
 

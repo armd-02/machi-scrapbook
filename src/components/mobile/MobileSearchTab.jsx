@@ -4,7 +4,7 @@ import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocodeCandidates, searchAreaFromGeocode } from '../../utils/geo'
+import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode } from '../../utils/geo'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
 import SimpleSearch from '../SimpleSearch'
 import MunicipalitySearch from '../MunicipalitySearch'
@@ -58,6 +58,13 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  * - 地図の移動でOverpass検索は実行されない（明示的な押下のみ）
  * - 検索中は「中止」でキャンセル可能
  */
+
+// 「広すぎる」ガード（BBOX面積ベース: geo.js の isBboxTooLarge）で統一する
+// エラー文。候補選択時（handleCandidateSelect）と「検索する」押下時
+// （handleTopSearch の geocode 分岐）で共通にする
+const tooLargeSearchError = (name) =>
+  `『${(name || '').trim()}』の範囲が広すぎるため検索できません。市区町村や駅・地名を指定してください。`
+
 export default function MobileSearchTab({ view = 'top', onViewChange = () => {}, onViewResults, onMarkerClick = null }) {
   const { state, dispatch } = useApp()
   const { search, cancel } = useSearch()
@@ -124,6 +131,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // （入力が変わった古いリクエストの結果は無視するために使う）
   const suggestTimerRef = useRef(null)
   const suggestSeqRef = useRef(0)
+
+  // (top) 目的タイル → 検索条件（handleTopSearch と自治体セクションへの引き継ぎで共用）
+  const tileConditions = (tile) => (tile.purpose
+    ? { category: '', cuisine: '', keyword: '', purpose: tile.purpose }
+    : { category: tile.category, cuisine: '', keyword: '', purpose: '' })
 
   // (top) 「検索する」ボタン・場所入力欄 Enter で実行する統一検索フロー。
   // ① 場所の確定: 入力欄に地名・駅名があれば geocodeCandidates して検索エリアを設定。
@@ -205,6 +217,21 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             }
             // 候補が1件: 従来どおり進む
             const result = cands[0]
+            // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアに
+            // 設定せず、施設検索のクエリも発行しない（広範囲全域の巨大クエリを防ぐ）。
+            // 既存のバリデーションエラーと同じ流儀（SET_STATUS 'error' + SET_ERROR）で
+            // エラーを返す。市区町村レベルの行政区域（isMunicipalityCandidate）は
+            // ガードの対象外: 大きな市（例: 高山市・約2,178 km²）は最小の県より大きく、
+            // 面積だけでは市区町村と都道府県を区別できないため
+            if (!isMunicipalityCandidate(result) && isBboxTooLarge(result.boundingbox)) {
+              dispatch({ type: 'SET_STATUS', payload: 'error' })
+              dispatch({
+                type: 'SET_ERROR',
+                payload: tooLargeSearchError(result.name),
+                errorType: 'validation'
+              })
+              return
+            }
             // (#63) ジオコード結果の範囲を検索エリア（state.bbox）として設定する。
             // トップ画面には地図を描画しないため、地図の表示範囲は使わない。
             areaBbox = searchAreaFromGeocode(result)
@@ -249,9 +276,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
 
     // ④ 施設検索（旧タイル即検索と同じ方式: 更新後の状態スナップショット
     //    → buildSearchCriteria → search）
-    const conditions = selectedTile.purpose
-      ? { category: '', cuisine: '', keyword: '', purpose: selectedTile.purpose }
-      : { category: selectedTile.category, cuisine: '', keyword: '', purpose: '' }
+    const conditions = tileConditions(selectedTile)
 
     // 地図モードで検索する。自治体モード等なら先に地図モードへ切替
     // （目的タイル・フォーム経由のいずれの流れでも地図モードで検索する既存設計を維持）
@@ -294,6 +319,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   const handleTileSelect = (tile) => {
     if (state.status === 'loading') return
     setSelectedTile(tile)
+    // 自治体が選択済みなら、セクション内検索にも種別を引き継ぐ
+    // （自治体→タイルの順で操作しても、セクションの「検索する」で種別が効く）
+    if (state.selectedMunicipality) {
+      dispatch({ type: 'SET_MUNICIPALITY_SEARCH', payload: tileConditions(tile) })
+    }
   }
 
   // (top) 自治体セクションの「検索する」: #47 パターン（更新後の状態スナップショット →
@@ -371,6 +401,24 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       clearTimeout(suggestTimerRef.current)
       suggestTimerRef.current = null
     }
+    // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアを設定
+    // せず（広範囲全域の巨大クエリを防ぐ）、場所入力欄の下でエラー表示
+    // （searchError）で知らせる。通常候補（駅・地名など）は従来どおり
+    // エリアが設定される。市区町村レベルの候補（自治体データ由来、または
+    // Nominatim の addresstype が市区町村レベルの行政区域）はガードの対象外
+    // （大きな市（例: 高山市）を地名入力から検索できる仕様・
+    // 「都道府県から探す」等の自治体検索経路を現行仕様に維持）
+    if (!isMunicipalityCandidate(candidate) && isBboxTooLarge(candidate.boundingbox)) {
+      dispatch({ type: 'SET_BBOX', payload: null })
+      setAreaName(null)
+      setPlaceAreaSet(false)
+      setAreaSetQuery(null)
+      setSearchError(tooLargeSearchError(candidate.name))
+      setSuggestCandidates([])
+      setMuniSuggest([])
+      setPendingCandidates(null)
+      return
+    }
     const areaBbox = searchAreaFromGeocode(candidate)
     dispatch({ type: 'SET_BBOX', payload: areaBbox })
     setAreaName(candidate.displayName)
@@ -423,6 +471,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     prevMunRef.current = mun
     if (mun && mun.bbox && isValidBbox(mun.bbox)) {
       dispatch({ type: 'SET_BBOX', payload: { ...mun.bbox } })
+      // 目的タイルが選択済みなら、その種別を自治体モードの条件にも引き継ぐ
+      // （「都道府県から探す」セクション内の「検索する」でも、タイルで選んだ
+      // 種別が効くようにする。タイルだけ見て検索する流れとの一貫性のため）
+      if (selectedTile) {
+        dispatch({ type: 'SET_MUNICIPALITY_SEARCH', payload: tileConditions(selectedTile) })
+      }
       // 自治体選択で検索エリアが上書きされるため、地名入力由来の緑・フィードバックを
       // 解除する（入力内容と検索エリアが食い違う状態を防ぐ）
       setPlaceAreaSet(false)

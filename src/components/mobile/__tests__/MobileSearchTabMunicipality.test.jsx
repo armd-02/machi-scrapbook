@@ -38,9 +38,9 @@ const MUNI_DATA = {
 }
 
 const OVERPASS_ELEMENTS = [
-  { type: 'node', id: 1001, lat: 34.85, lon: 135.5, tags: { name: 'テスト珈琲店', amenity: 'cafe', cuisine: 'coffee' } },
-  { type: 'node', id: 1002, lat: 34.86, lon: 135.51, tags: { name: 'ラーメン屋テスト', amenity: 'restaurant', cuisine: 'ramen' } },
-  { type: 'way', id: 2001, center: { lat: 34.87, lon: 135.52 }, tags: { name: 'テスト書店', shop: 'books' } },
+  { type: 'node', id: 1001, lat: 34.695, lon: 135.495, tags: { name: 'テスト珈琲店', amenity: 'cafe', cuisine: 'coffee' } },
+  { type: 'node', id: 1002, lat: 34.7, lon: 135.5, tags: { name: 'ラーメン屋テスト', amenity: 'restaurant', cuisine: 'ramen' } },
+  { type: 'way', id: 2001, center: { lat: 34.705, lon: 135.505 }, tags: { name: 'テスト書店', shop: 'books' } },
 ]
 
 // ===== フック =====

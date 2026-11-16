@@ -9,6 +9,8 @@ import { parseAccessibility } from '../../utils/accessibility'
 import { buildIdElementUrl, buildOsmElementUrl } from '../../utils/editLinks'
 import { keyInfoFor } from '../../utils/categoryProfiles'
 import { formatOpeningHoursJa } from '../../utils/openingHours'
+import { memochoKeyOf } from '../../utils/memocho'
+import { useMemocho } from '../../hooks/useMemocho'
 import MiniLocationMap from './MiniLocationMap'
 
 /**
@@ -99,6 +101,10 @@ export default function MobileFacilityDetail({ detail, onClose }) {
 
   // SNSリンク（タグが登録されている場合のみ）
   const snsLinks = snsLinksFromTags(tags)
+
+  // まちメモ帳（第2ピース）: この施設が登録済みかどうか（フッターボタンで切替）
+  const { has, toggle } = useMemocho()
+  const registered = has(memochoKeyOf(result))
 
   return (
     <div className="absolute inset-0 z-50" role="presentation">
@@ -275,6 +281,15 @@ export default function MobileFacilityDetail({ detail, onClose }) {
           >
             ✏️ iDで編集
           </a>
+          {/* まちメモ帳（第2ピース）: 追加/削除トグル（既存ボタンの見た目に合わせる） */}
+          <button
+            type="button"
+            onClick={() => toggle(result)}
+            className="flex-1 min-h-[44px] px-4 flex items-center justify-center bg-violet-50 hover:bg-violet-100 border border-violet-200 text-violet-800 text-sm font-medium rounded-lg"
+            title="この施設をまちメモ帳に登録/解除する"
+          >
+            {registered ? '📝 メモ帳から削除' : '📝 メモ帳に追加'}
+          </button>
         </div>
       </div>
     </div>

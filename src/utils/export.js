@@ -8,6 +8,8 @@
  * - 数式注入対策（= + - @ 等の前置き）
  * - 全フィールドにエスケープを適用
  * - ヘッダーが最初の行にあり、メタデータは末尾に配置
+ * - meta.includeMemo: true のときのみ末尾に memo 列を追加する
+ *   （まちメモ帳のCSV書き出し用。通常呼び出しの出力は変わらない）
  */
 export function toCSV(results, meta = {}) {
   const MAIN_TAGS = ['name', 'name:ja', 'amenity', 'shop', 'tourism', 'leisure', 'office', 'healthcare', 'craft', 'cuisine', 'opening_hours', 'phone', 'website', 'email', 'addr:street', 'addr:housenumber', 'addr:city', 'addr:postcode']
@@ -19,8 +21,12 @@ export function toCSV(results, meta = {}) {
   // 既存列の対応: osmId→osm_id（type/id形式）、lat/lon/name は既存列をそのまま使う。
   const hasBf = results.some(r => r.bf && typeof r.bf === 'object')
   const BF_COLUMNS = ['kind', 'tactile', 'kerb', 'hasSound', 'hasVibration', 'lengthM']
+  // (まちメモ帳 第3ピース) includeMemo のときだけ末尾に memo 列を付け足す。
+  // 通常呼び出し（includeMemo 無し）の列構成は従来と完全に一致する。
+  const includeMemo = !!meta.includeMemo
   const allHeaders = ['name', 'type', 'osm_id', 'osm_url', 'lat', 'lon',
-    ...(hasBf ? BF_COLUMNS : []), ...activeTags, 'fetched_at', 'source']
+    ...(hasBf ? BF_COLUMNS : []), ...activeTags, 'fetched_at', 'source',
+    ...(includeMemo ? ['memo'] : [])]
 
   const fetchedAt = meta.fetchedAt || new Date().toISOString()
   const source = 'OpenStreetMap (ODbL) / Overpass API'
@@ -50,7 +56,8 @@ export function toCSV(results, meta = {}) {
       ...bfValues,
       ...activeTags.map(tag => r.tags?.[tag] || ''),
       fetchedAt,
-      source
+      source,
+      ...(includeMemo ? [r.memo != null ? r.memo : ''] : [])
     ]
     // 全フィールドにエスケープを適用
     lines.push(row.map(csvEscape).join(','))

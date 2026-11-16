@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import MobileFacilityCard, { facilityName, formatAddress, safeWebsite } from '../MobileFacilityCard'
 import { facilityTypeLabel } from '../../../utils/facilityLabels'
+import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
+import { resetMemochoStore } from '../../../hooks/useMemocho'
 
 /**
  * (#59 / #44 / 電話帳型改訂) モバイル施設カード
@@ -294,5 +296,57 @@ describe('facilityTypeLabel（日本語施設タイプ）', () => {
   it('何も一致しなければ「施設」となる', () => {
     expect(facilityTypeLabel({ tags: {} })).toBe('施設')
     expect(facilityTypeLabel({})).toBe('施設')
+  })
+})
+
+describe('まちメモ帳ボタン（第2ピース）', () => {
+  // このブロックだけ localStorage・ストアをリセットして隔離する
+  beforeEach(() => {
+    localStorage.clear()
+    resetMemochoStore()
+  })
+  afterEach(() => {
+    localStorage.clear()
+    resetMemochoStore()
+  })
+
+  it('ボタンで追加でき、表示が「登録済み」に変わる（aria-pressed も更新）', () => {
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    const btn = screen.getByRole('button', { name: /メモ帳に追加/ })
+    expect(btn.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(btn)
+
+    expect(screen.getByRole('button', { name: /登録済み/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+    // localStorage にスナップショットが保存される
+    const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({ type: 'node', id: 1001, name: 'テスト珈琲店' })
+  })
+
+  it('もう一度押すと削除され、表示が「メモ帳に追加」に戻る（toggle）', () => {
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /メモ帳に追加/ }))
+    fireEvent.click(screen.getByRole('button', { name: /登録済み/ }))
+    expect(screen.getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))).toHaveLength(0)
+  })
+
+  it('ボタンを押しても詳細が開かない（onOpen は呼ばれない）', () => {
+    const onOpen = vi.fn()
+    render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
+    fireEvent.click(screen.getByRole('button', { name: /メモ帳に追加/ }))
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('localStorage に保存済みの施設では初回表示が「登録済み」', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      { type: 'node', id: 1001, name: 'テスト珈琲店', lat: 34.85, lon: 135.5, tags: null, memo: '', addedAt: null },
+    ]))
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    const btn = screen.getByRole('button', { name: /登録済み/ })
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
   })
 })

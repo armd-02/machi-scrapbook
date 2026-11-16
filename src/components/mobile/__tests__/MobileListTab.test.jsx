@@ -247,6 +247,33 @@ describe('MobileListTab: 視点フィルタチップ（POI一覧）', () => {
     expect(within(group).getByRole('button', { name: '車椅子' }).getAttribute('aria-pressed')).toBe('false')
   })
 
+  it('「Webサイトがあるものだけ」の絞り込みは無い（未登録の絞り込みに一本化）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeWithWeb, cafeNoWc] },
+      { type: 'SET_STATUS', payload: 'success' }
+    ]} />)
+    expect(screen.queryByRole('button', { name: 'Webサイトがあるものだけ' })).toBeNull()
+    expect(screen.queryByText('Webサイトがあるものだけ')).toBeNull()
+  })
+
+  it('視点フィルタの説明ボタン: モーダルに素人向け説明とタグ詳細が出て、閉じられる', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeWc, cafeNoWc] },
+      { type: 'SET_STATUS', payload: 'success' }
+    ]} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '視点フィルタの説明' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('視点フィルタについて')).toBeTruthy()
+    expect(within(dialog).getByText(/点字ブロックや、音・振動で知らせる信号/)).toBeTruthy()
+    expect(within(dialog).getByText(/おむつ替え台や、子ども向けの設備/)).toBeTruthy()
+    expect(within(dialog).getByText(/tactile_paving=yes/)).toBeTruthy()
+    expect(within(dialog).getByText(/changing_table=yes/)).toBeTruthy()
+    expect(within(dialog).getByText(/elevator=yes/)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('車椅子チップを選ぶと該当施設だけが残る（aria-pressedも更新される）', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: [cafeWc, cafeNoWc] },

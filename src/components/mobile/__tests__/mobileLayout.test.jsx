@@ -54,6 +54,21 @@ const MEDICAL_ELEMENTS = [
   { type: 'way', id: 4003, center: { lat: 34.87, lon: 135.52 }, tags: { name: 'テスト書店', shop: 'books' } },
 ]
 
+// (#63) 「梅田」ジオコード検索エリア（34.69–34.71 / 135.49–135.51）の内側にある
+// POI要素。POI検索の結果はクライアント側で検索bboxによりフィルタされるため、
+// ジオコード/自治体bboxで検索するテストでは要素を検索エリア内に置く。
+const OVERPASS_ELEMENTS_UMEDA = [
+  { type: 'node', id: 1001, lat: 34.695, lon: 135.495, tags: { name: 'テスト珈琲店', amenity: 'cafe', cuisine: 'coffee', 'addr:city': '大阪市', 'addr:suburb': '梅田', 'addr:street': '1-1', phone: '+81-6-1234-5678', website: 'https://example.com/coffee', wheelchair: 'yes', 'wheelchair:description:ja': '段差なし' } },
+  { type: 'node', id: 1002, lat: 34.7, lon: 135.5, tags: { name: 'ラーメン屋テスト', amenity: 'restaurant', cuisine: 'ramen' } },
+  { type: 'way', id: 2001, center: { lat: 34.705, lon: 135.505 }, tags: { name: 'テスト書店', shop: 'books' } },
+]
+
+const MEDICAL_ELEMENTS_UMEDA = [
+  { type: 'node', id: 4001, lat: 34.695, lon: 135.495, tags: { name: 'テスト病院', amenity: 'hospital' } },
+  { type: 'node', id: 4002, lat: 34.7, lon: 135.5, tags: { name: 'テスト薬局', amenity: 'pharmacy' } },
+  { type: 'way', id: 4003, center: { lat: 34.705, lon: 135.505 }, tags: { name: 'テスト書店', shop: 'books' } },
+]
+
 // (修正) バリアフリー検索用の要素（歩道ウェイ＋縁石ノード）
 const BF_ELEMENTS = [
   { type: 'way', id: 3001, tags: { highway: 'footway', tactile_paving: 'yes', name: '中央通り歩道' }, geometry: [ { lat: 34.8, lon: 135.4 }, { lat: 34.81, lon: 135.45 }, { lat: 34.82, lon: 135.5 } ] },
@@ -338,24 +353,37 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     expect(screen.queryByText('施設検索')).toBeNull()
   }, IT_TIMEOUT)
 
-  it('幅>=1024px: モバイルと同じシェルが中央寄せmax-widthコンテナ内で表示される（PC・モバイル共通レイアウト）', async () => {
+  it('幅>=1024px: 専用2ペインシェル（PcShell）が表示される（PCレイアウト）', async () => {
     mediaMatches = false
     window.history.replaceState(null, '', '/')
     const view = render(<App />)
     const container = view.container
 
-    // 中央寄せmax-widthコンテナ（max-w-[520px]）
-    const wrapper = container.querySelector('.mx-auto')
-    expect(wrapper).toBeTruthy()
-    expect(wrapper.className).toContain('max-w-[520px]')
+    // 旧構成の中央寄せmax-widthコンテナ（max-w-[520px]）は存在しない
+    expect(container.querySelector('.max-w-\\[520px\\]')).toBeNull()
 
-    // コンテナ内はモバイルと同じシェル: 下部ナビ3タブ＋一般向けトップ表示
+    // (#72) PCの2ペインレイアウト: 左ペイン（検索）+ 右ペイン（メモ帳）
+    // + その他ペイン（hidden）
+    const left = container.querySelector('[data-testid="pc-left-pane"]')
+    const right = container.querySelector('[data-testid="pc-right-pane"]')
+    const other = container.querySelector('[data-testid="pc-other-pane"]')
+    expect(left).toBeTruthy()
+    expect(left.hasAttribute('hidden')).toBe(false)
+    expect(right).toBeTruthy()
+    expect(right.hasAttribute('hidden')).toBe(false)
+    expect(other).toBeTruthy()
+    expect(other.hasAttribute('hidden')).toBe(true)
+
+    // 下部ナビ（4タブ）は全幅で常時表示。activeは右ペインの内容（メモ帳）に従う
     const nav = screen.getByRole('navigation', { name: 'モバイルナビゲーション' })
-    for (const label of ['検索', '一覧', 'その他']) {
+    for (const label of ['検索', '一覧', 'メモ帳', 'その他']) {
       expect(within(nav).getByRole('button', { name: label })).toBeTruthy()
     }
-    expect(tabIsCurrent('検索')).toBe(true)
+    expect(tabIsCurrent('メモ帳')).toBe(true)
+
+    // 左ペイン: 一般向けトップ表示（「くわしく探す」ボタンが在席）
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
+    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
 
     // (#63) トップ画面には地図を描画しない（マウントされたままhidden）
     const mapBlock = screen.queryByTestId('map-block')
@@ -367,32 +395,31 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     expect(screen.queryByText('地図を隠す')).toBeNull()
   }, IT_TIMEOUT)
 
-  it('matchMedia change でレイアウトが追従する（回転・キーボード表示に対応）: コンテナの出現・消滅', async () => {
+  it('matchMedia change でレイアウトが追従する（回転・キーボード表示に対応）: 2ペイン構造の出現・消滅', async () => {
     mediaMatches = false
     window.history.replaceState(null, '', '/')
     const view = render(<App />)
     const container = view.container
 
-    // PC幅: 中央寄せコンテナ＋モバイルシェル
-    expect(container.querySelector('.mx-auto')).toBeTruthy()
+    // PC幅: 2ペインシェル（PcShell）
+    expect(container.querySelector('[data-testid="pc-left-pane"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="pc-right-pane"]')).toBeTruthy()
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
-    // 横画面へ回転（幅が1024px未満になる）→ モバイル: コンテナが消え、シェルがビューポート全体に
+    // 横画面へ回転（幅が1024px未満になる）→ モバイル: 2ペインが消え、単一シェルに
     fireMediaChange(true)
     await waitFor(() => {
-      expect(container.querySelector('.mx-auto')).toBeNull()
+      expect(container.querySelector('[data-testid="pc-left-pane"]')).toBeNull()
     }, { timeout: 3000 })
-    // シェル自体は同じコンポーネントがそのまま表示され続ける
     // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素を確認
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
     expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
-    // 元に戻る → PC: コンテナが復帰
+    // 元に戻る → PC: 2ペイン構造が復帰
     fireMediaChange(false)
     await waitFor(() => {
-      expect(container.querySelector('.mx-auto')).toBeTruthy()
+      expect(container.querySelector('[data-testid="pc-left-pane"]')).toBeTruthy()
     }, { timeout: 3000 })
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
   }, IT_TIMEOUT)
@@ -861,6 +888,7 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
 
 describe('(#59) 自治体モード検索', () => {
   it('「自治体から探す」→市区町村選択→検索: 自治体BBOXのPOIクエリが送出される', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
 
     // (#63) ソース切替タブは従来フォーム側。まずフォームへ
@@ -1096,6 +1124,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
   }, IT_TIMEOUT)
 
   it('目的タイル（食べる）を選択して「検索する」を押す: 初期ソースが自治体でも検索エリアで検索される（no_bboxにならない）', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
     // (#63) タイル検索には検索エリアの設定が必要: ジオコードで「梅田」を設定する
     await setAreaByGeocode()
@@ -1123,11 +1152,11 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.queryByText(/検索範囲が設定されていません/)).toBeNull()
   }, IT_TIMEOUT)
 
-  it('検索エリアが大きすぎる場合のタイル検索: 壊れたcriteriaをsearch()に渡さず検証エラーを表示（「接続エラー」ラベルなし）', async () => {
+  it('検索エリアが大きすぎる場合: 国サイズのジオコード結果は検索段階で遮断され、検証エラーが表示される（「接続エラー」ラベルなし）', async () => {
     renderApp()
 
-    // ジオコード結果のboundingboxが巨大（約230万km²、40000km²の閾値超）になるよう
-    // fetchモックを上書きする（searchAreaFromGeocodeは面積が1km²以上ならそのまま使う）
+    // ジオコード結果のboundingboxが巨大（約230万km²、MAX_SEARCH_AREA_KM2 =
+    // 1,000 km² のしきい値超）になるようfetchモックを上書きする
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
       const u = String(url)
       if (u.includes('nominatim')) {
@@ -1136,7 +1165,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
           status: 200,
           headers: new Map(),
           json: async () => [
-            { lat: '38.0', lon: '137.5', display_name: '日本', type: 'country', boundingbox: ['31', '45', '129', '146'] },
+            { lat: '38.0', lon: '137.5', display_name: '日本', name: '日本', class: 'place', type: 'country', boundingbox: ['31', '45', '129', '146'] },
           ],
         }
       }
@@ -1154,24 +1183,20 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
       return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
     })
 
-    // 地名を入力して「検索する」を押す（巨大bboxが検索エリアに設定される。
-    // タイル未選択のため同時に「種別を選んでください」の案内が出る）
+    // 地名を入力して「検索する」を押す。旧仕様では巨大bboxが検索エリアに設定
+    // され、後段のcriteria検証（checkBboxSize）で弾かれたが、新仕様では
+    // BBOX面積ベースの「広すぎる」ガード（isBboxTooLarge: 1,000 km²以上）が
+    // ジオコード段階で遮断し、検索エリアは設定されない
     fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
     fireEvent.click(getTopSearchButton())
+
+    // 検証エラー（統一エラー文）が表示され、検索エリアは設定されない
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+      expect(screen.getByText(/『日本』の範囲が広すぎるため検索できません/)).toBeTruthy()
     }, { timeout: 8000 })
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
 
-    // タイルを選択してから「検索する」を押す（検索が実行されcriteria検証が走る）
-    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
-    fireEvent.click(getTopSearchButton())
-
-    // criteria自身のmessage（「検索範囲が広すぎます」）が検証エラーとして表示される
-    await waitFor(() => {
-      expect(screen.getByText(/検索範囲が広すぎます/)).toBeTruthy()
-    }, { timeout: 8000 })
-
-    // 壊れたcriteriaをsearch()に渡さない: Overpassクエリは送出されない
+    // Overpassクエリは送出されない
     expect(overpassCalls).toHaveLength(0)
 
     // 検証エラーは通信エラーではない: 「接続エラー」ラベルが付かない
@@ -1183,6 +1208,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
   }, IT_TIMEOUT)
 
   it('目的タイル（食べる）: 目的グループの施設種類unionで検索が実行され、成功で一覧タブへ切替', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
     // (#63) タイル選択前に検索エリアを設定（ジオコード）する
     await setAreaByGeocode()
@@ -1210,7 +1236,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
 
   it('複合タイル（病院・薬局）: 病院＋薬局のunionクエリが送出され、両カテゴリのみ表示される', async () => {
     renderApp()
-    overpassElements = MEDICAL_ELEMENTS
+    overpassElements = MEDICAL_ELEMENTS_UMEDA
     // (#63) タイル選択前に検索エリアを設定（ジオコード）する
     await setAreaByGeocode()
 
@@ -1345,6 +1371,7 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索�
   }, IT_TIMEOUT)
 
   it('自治体選択（トップの「都道府県から探す」）の後、タイルでその自治体の範囲で検索が実行される', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
 
     // トップの「都道府県から探す」セクションを開き、市区町村を選択する。
@@ -1397,6 +1424,7 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索�
   }, IT_TIMEOUT)
 
   it('地名入力で「検索する」（geocode）の後、タイル選択+「検索する」でその範囲で検索が実行される', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
 
     // 地名を入力して「検索する」を押す（fetchモックがNominatim結果を返す → 検索エリア設定）

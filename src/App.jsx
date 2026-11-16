@@ -3,26 +3,32 @@ import { AppContext } from './context/AppContext'
 import { decodeURLToState } from './utils/urlState'
 import { useIsMobile } from './hooks/useIsMobile'
 import MobileShell from './components/mobile/MobileShell'
+import PcShell from './components/mobile/PcShell'
 import { BatchMatchProvider } from './context/BatchMatchContext.jsx'
 import { appReducer, createInitialState } from './state/appReducer'
 
 /**
- * PC・モバイル共通レイアウト
- *
- * 従来のPC専用レイアウト（検索フォーム+地図+結果パネルの3分割＋
- * ハンバーガーメニューで画面切替）は廃止し、モバイルと同じシェル
- * （MobileShell: 下部ナビ3タブ 検索/一覧/その他）を両幅で共用する。
+ * (#72) レイアウト切替: ビューポート幅ベース（useIsMobile = matchMedia）
  *
  * - モバイル（<1024px）: MobileShellがビューポート全体を占有する。
- * - PC（>=1024px）: 同一のMobileShellを中央寄せのmax-widthコンテナ
- *   （max-w-[520px]）内で表示する。要素の順序・流れはモバイルと
- *   同一で、幅の調整のみ。
+ *   従来どおり（4タブ: 検索/一覧/メモ帳/その他）。
+ * - PC（>=1024px）: 専用シェル（PcShell）で2ペインレイアウト。
+ *   画面いっぱいにヘッダー・ステータス・下フッターを表示し、中央 main
+ *   領域は左ペイン（幅600px）＝「検索」、右ペイン（残り幅）＝「一覧」
+ *   または「メモ帳」。下フッターの選択で右ペインの内容が切替し、
+ *   「その他」選択時は左ペインが消えて「その他」が全幅になる。
+ *   旧PCの並列レイアウト（検索フォーム+結果リスト）は廃止のままで、
+ *   その構成は「左ペイン=検索 / 右ペイン=一覧」として復活した。
  *
- * PCでもモバイルと同一のコンポーネント・ロジックを使うため:
- * - 初期表示は一般向けトップ（QuickTop）。地図は検索タブ内に常設で、
- *   地図モード表示時のみ現れる（モバイルと同一タイミング）。
+ * PCでもモバイルと同一のコンポーネント・ロジック（MobileSearchTab・
+ * MobileListTab・MemochoSection・MobileOtherTab 等）を再利用するため:
+ * - 初期表示は左ペインが一般トップ（QuickTop）、右ペインがメモ帳。
+ *   検索が成功すると右ペインが自動的に「一覧」へ切替される。
  * - 詳細検索フォーム・バリアフリー・CSV一括照合・CSVダウンロードは
- *   「くわしく探す」タブと「その他」タブからアクセスできる。
+ *   「くわしく探す」（左ペイン）と「その他」からアクセスできる。
+ *
+ * 幅が1024pxをまたぐと matchMedia のイベントで再レンダされ、
+ * レイアウトが追従する。
  */
 function App() {
   const [state, dispatch] = React.useReducer(appReducer, createInitialState())
@@ -52,21 +58,24 @@ function App() {
     }
   }, [dispatch])
 
-  const shell = (
-    <AppContext.Provider value={{ state, dispatch }}>
+  const contextValue = { state, dispatch }
+  if (isMobile) {
+    // モバイル: 従来どおり MobileShell がビューポート全体を占有
+    return (
+      <AppContext.Provider value={contextValue}>
+        <BatchMatchProvider>
+          <MobileShell />
+        </BatchMatchProvider>
+      </AppContext.Provider>
+    )
+  }
+  // PC（幅 >= 1024px）: 2ペインレイアウト（左:検索 / 右:一覧・メモ帳）
+  return (
+    <AppContext.Provider value={contextValue}>
       <BatchMatchProvider>
-        <MobileShell />
+        <PcShell />
       </BatchMatchProvider>
     </AppContext.Provider>
-  )
-
-  if (isMobile) return shell
-
-  // PC: モバイルと同じシェルを中央寄せのmax-widthコンテナに表示する
-  return (
-    <div className="min-h-dvh bg-slate-200">
-      <div className="mx-auto w-full max-w-[520px] shadow-2xl">{shell}</div>
-    </div>
   )
 }
 

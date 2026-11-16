@@ -129,7 +129,13 @@ export function filterByBbox(results, bbox) {
       return typeof r.lon === 'number' && typeof r.lat === 'number' &&
         pointInBbox(r.lon, r.lat, bbox)
     }
-    return wayIntersectsBbox(r.bf ? r.bf.geometry : undefined, bbox)
+    if (r.bf) {
+      return wayIntersectsBbox(r.bf.geometry, bbox)
+    }
+    // 通常POIの way/relation は中心点（lat/lon）で判定する
+    // （Overpass の out center で得た代表点。形状そのものの交差は見ない）
+    return typeof r.lon === 'number' && typeof r.lat === 'number' &&
+      pointInBbox(r.lon, r.lat, bbox)
   })
 }
 

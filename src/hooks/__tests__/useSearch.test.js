@@ -210,6 +210,20 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
     expect(dispatched('SET_RESULT_KIND')[0].payload).toBe('poi')
   })
 
+  it('POI検索では検索範囲外の結果が落ちる（armd-01のグリッド拡張対策）', async () => {
+    h.app.state = makeState({
+      simpleSearch: { category: 'cafe', keyword: '', cuisine: '', purpose: '' }
+    })
+    const poiIn = { type: 'node', id: 401, lat: 34.71, lon: 135.51, tags: { amenity: 'cafe', name: '範囲内' }, name: '範囲内', osmId: 'node/401' }
+    const poiOut = { type: 'node', id: 402, lat: 34.9, lon: 135.7, tags: { amenity: 'cafe', name: '範囲外' }, name: '範囲外', osmId: 'node/402' }
+    h.overpassResults = [poiIn, poiOut]
+
+    await runSearch({ ...SMALL_BBOX })
+
+    expect(resultsPayload()).toHaveLength(1)
+    expect(resultsPayload()[0].osmId).toBe('node/401')
+  })
+
   it('キーワード未入力のバリアフリー検索 → 全結果が残る', async () => {
     h.app.state = makeState({
       simpleSearch: { category: 'barrier_free', keyword: '', cuisine: '', purpose: '' }

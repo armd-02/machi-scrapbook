@@ -9,6 +9,8 @@ import { wheelchairBadge } from '../../utils/accessibility'
 import { keyInfoFor } from '../../utils/categoryProfiles'
 import { formatOpeningHoursJa } from '../../utils/openingHours'
 import { missingAttributesOf, ATTRIBUTE_LABELS } from '../../utils/statistics'
+import { memochoKeyOf } from '../../utils/memocho'
+import { useMemocho } from '../../hooks/useMemocho'
 
 // テスト・他コンポーネントの互換のために再エクスポート
 export { facilityName, formatAddress, safeWebsite }
@@ -52,8 +54,19 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
   )
   const wcBadge = wheelchairBadge(tags)
 
+  // まちメモ帳（第2ピース）: この施設が登録済みかどうか
+  const { has, toggle } = useMemocho()
+  const registered = has(memochoKeyOf(result))
+
   // リンクタップ時の詳細シート展開を止める（カード全体の onClick を通さない）
   const stopOpen = (e) => e.stopPropagation()
+
+  // メモ帳ボタンのタップ: 追加/削除を切り替える（toggle）。
+  // カード全体の onClick（詳細を開く）へは伝播させない（stopOpen と同じパターン）
+  const onToggleMemo = (e) => {
+    e.stopPropagation()
+    toggle(result)
+  }
 
   return (
     <div
@@ -141,6 +154,16 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
           </p>
         )
       })()}
+
+      {/* まちメモ帳（第2ピース）: 追加/削除トグルボタン（小さい・左寄せ） */}
+      <button
+        type="button"
+        onClick={onToggleMemo}
+        aria-pressed={registered}
+        className="self-start text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200"
+      >
+        {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
+      </button>
     </div>
   )
 }

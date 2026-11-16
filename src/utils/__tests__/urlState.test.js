@@ -145,7 +145,7 @@ describe('encodeStateToURL / decodeURLToState', () => {
 })
 
 describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
-  const baseFilters = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none', missingFilter: 'none' }
+  const baseFilters = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none' }
   const baseState = {
     searchMode: 'simple',
     simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '' },
@@ -164,10 +164,10 @@ describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
   })
 
   it('全フィルタパラメータがround-tripする', () => {
-    const state = { ...baseState, resultFilters: { nameFilter: 'test', typeFilter: 'way', websiteOnly: true, sortDir: 'desc', missingFilter: 'any' } }
+    const state = { ...baseState, resultFilters: { nameFilter: 'test', typeFilter: 'way', sortDir: 'desc', missingFilter: 'any' } }
     const qs = encodeStateToURL(state)
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.resultFilters).toEqual({ nameFilter: 'test', typeFilter: 'way', websiteOnly: true, sortDir: 'desc', missingFilter: 'any' })
+    expect(decoded.resultFilters).toEqual({ nameFilter: 'test', typeFilter: 'way', sortDir: 'desc', missingFilter: 'any' })
   })
 
   it('catFilter/purposeFilter（フォームミラー）はエンコード対象外である', () => {

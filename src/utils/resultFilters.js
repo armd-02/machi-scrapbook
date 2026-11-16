@@ -7,12 +7,11 @@
  * 明示する（「検索と出力の一致」要件 #44）。
  *
  * フィルタ状態は App.jsx の reducer state.resultFilters に置き、
- * { nameFilter, typeFilter, catFilter, websiteOnly, sortDir } を持つ。
+ * { nameFilter, typeFilter, catFilter, sortDir } を持つ。
  *   - nameFilter:   施設名の部分一致（name / name:ja、大文字小文字無視）
  *   - typeFilter:   OSM要素種別（all | node | way | relation）
  *   - catFilter:    施設カテゴリID（categoryMatchesElement で判定）
  *   - purposeFilter: 目的名（その目的に属するカテゴリのいずれかに一致するものだけ）
- *   - websiteOnly:  公式サイトが登録されているものだけ
  *   - missingFilter: 主要属性の欠落で絞り込み（none | any | phone | opening_hours | website | address）(B2)
  *   - perspective:  視点フィルタ（none | wheelchair | vision | child | elderly）
  *     利用者目線で「誰にとって使いやすいか」で絞る（matchesPerspective）。
@@ -180,7 +179,66 @@ const CUISINE_LABELS = {
   vegan: 'ヴィーガン',
   halal: 'ハラル',
   kosher: 'コーシャ',
-  buffet: 'ビュッフェ'
+  buffet: 'ビュッフェ',
+  beef_bowl: '牛丼',
+  steak_house: 'ステーキ',
+  okonomiyaki: 'お好み焼き',
+  takoyaki: 'たこ焼き',
+  yakitori: '焼き鳥',
+  tonkatsu: 'とんかつ',
+  kushiyaki: '串焼き',
+  teppanyaki: '鉄板焼き',
+  monjayaki: 'もんじゃ焼き',
+  shabu_shabu: 'しゃぶしゃぶ',
+  sukiyaki: 'すき焼き',
+  jingisukan: 'ジンギスカン',
+  champon: 'ちゃんぽん',
+  sara_udon: '皿うどん',
+  donburi: '丼',
+  bento: '弁当',
+  onigiri: 'おにぎり',
+  unagi: 'うなぎ',
+  fugu: 'ふぐ',
+  horumon: 'ホルモン',
+  taiyaki: 'たい焼き',
+  wagashi: '和菓子',
+  kakigori: 'かき氷',
+  crepe: 'クレープ',
+  donut: 'ドーナツ',
+  donuts: 'ドーナツ',
+  sandwich: 'サンドイッチ',
+  hot_dog: 'ホットドッグ',
+  fried_chicken: 'フライドチキン',
+  chicken: 'チキン',
+  kebab: 'ケバブ',
+  tacos: 'タコス',
+  burrito: 'ブリトー',
+  fish_and_chips: 'フィッシュ＆チップス',
+  german: 'ドイツ料理',
+  british: 'イギリス料理',
+  taiwanese: '台湾料理',
+  cantonese: '広東料理',
+  sichuan: '四川料理',
+  dim_sum: '点心',
+  hot_pot: '火鍋',
+  pho: 'フォー',
+  banh_mi: 'バインミー',
+  pad_thai: 'パッタイ',
+  indonesian: 'インドネシア料理',
+  filipino: 'フィリピン料理',
+  peruvian: 'ペルー料理',
+  ethiopian: 'エチオピア料理',
+  lebanese: 'レバノン料理',
+  hawaiian: 'ハワイアン',
+  bubble_tea: 'タピオカ',
+  smoothie: 'スムージー',
+  juice: 'ジュース',
+  chocolate: 'チョコレート',
+  salad: 'サラダ',
+  soup: 'スープ',
+  breakfast: '朝食',
+  local: '郷土料理',
+  regional: '郷土料理'
 }
 
 /**
@@ -227,7 +285,6 @@ export function hasActiveFilters(filters) {
     (f.typeFilter && f.typeFilter !== 'all') ||
     (f.catFilter || '') ||
     (f.purposeFilter || '') ||
-    f.websiteOnly ||
     (f.missingFilter && f.missingFilter !== 'none') ||
     (f.perspective && f.perspective !== 'none') ||
     ((f.cuisine || '').trim() !== '') ||
@@ -268,10 +325,6 @@ export function applyResultFilters(results, filters) {
     if (cats.length > 0) {
       out = out.filter((r) => cats.some((c) => categoryMatchesElement(c.id, r)))
     }
-  }
-
-  if (f.websiteOnly) {
-    out = out.filter((r) => !!(r.tags?.['website'] || r.tags?.['official_website']))
   }
 
   // (B2) 主要属性が欠落している施設だけを表示

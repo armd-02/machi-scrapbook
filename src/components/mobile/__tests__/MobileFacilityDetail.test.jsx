@@ -3,6 +3,8 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
 import MobileFacilityDetail from '../MobileFacilityDetail'
+import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
+import { resetMemochoStore } from '../../../hooks/useMemocho'
 
 /**
  * (#59) 施設詳細ボトムシート
@@ -32,6 +34,8 @@ vi.mock('maplibre-gl', async () => {
 
 beforeEach(() => {
   if (mockState.api) mockState.api.resetState()
+  localStorage.clear()
+  resetMemochoStore()
 })
 
 afterEach(() => cleanup())
@@ -381,5 +385,55 @@ describe('MobileFacilityDetail: SNSリンク', () => {
     expect(within(dialog).queryByRole('link', { name: /^Facebook/ })).toBeNull()
     expect(within(dialog).queryByRole('link', { name: /^X/ })).toBeNull()
     expect(within(dialog).queryByRole('link', { name: /^YouTube/ })).toBeNull()
+  })
+})
+
+describe('まちメモ帳ボタン（第2ピース・フッター）', () => {
+  it('フッターに「メモ帳に追加」ボタンがあり、既存ボタンと同じ並び', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    // 経路検索・iDで編集・メモ帳に追加 の3アクションが並ぶ
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
+  })
+
+  it('押すと追加され「メモ帳から削除」に変わり、もう一度押すと元に戻る（toggle）', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    const btn = within(dialog).getByRole('button', { name: /メモ帳に追加/ })
+    expect(within(dialog).queryByRole('button', { name: /メモ帳から削除/ })).toBeNull()
+
+    fireEvent.click(btn)
+    // 表示が即座に「メモ帳から削除」に変わる
+    expect(within(dialog).getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
+    // localStorage にも保存される
+    const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({ type: 'node', id: 1001, name: 'テスト珈琲店' })
+
+    // もう一度押すと削除され「メモ帳に追加」に戻る
+    fireEvent.click(within(dialog).getByRole('button', { name: /メモ帳から削除/ }))
+    expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))).toHaveLength(0)
+  })
+
+  it('既存アクション（経路検索・iDで編集・閉じる）はメモ帳ボタンの追加後も維持される', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
+  })
+
+  it('localStorage に保存済みの施設ではフッター表示が「メモ帳から削除」', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      { type: 'node', id: 1001, name: 'テスト珈琲店', lat: 34.85, lon: 135.5, tags: null, memo: '', addedAt: null },
+    ]))
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
   })
 })

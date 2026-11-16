@@ -32,7 +32,6 @@ const PARAM_KEYS = {
   // URLにエンコードしても再検索時にフォーム値で上書きされるため対象外。
   nameFilter: 'nf',  // 施設名の部分一致
   typeFilter: 'tf',  // OSM要素種別 (node/way/relation)
-  websiteOnly: 'wo', // 公式サイトありのみ (1)
   missingFilter: 'mf', // (B2) 未登録属性絞り込み
   sortDir: 'sd'      // 施設名並び替え (asc/desc)
 }
@@ -49,7 +48,6 @@ function appendResultFilters(params, rf) {
   if (!rf) return
   if ((rf.nameFilter || '').trim()) params.set(PARAM_KEYS.nameFilter, rf.nameFilter.trim())
   if (rf.typeFilter && rf.typeFilter !== 'all') params.set(PARAM_KEYS.typeFilter, rf.typeFilter)
-  if (rf.websiteOnly) params.set(PARAM_KEYS.websiteOnly, '1')
   if (rf.missingFilter && rf.missingFilter !== 'none') params.set(PARAM_KEYS.missingFilter, rf.missingFilter)
   if (rf.sortDir && rf.sortDir !== 'none') params.set(PARAM_KEYS.sortDir, rf.sortDir)
 }
@@ -64,7 +62,6 @@ function readResultFilters(params) {
   if (nf) rf.nameFilter = nf
   const tf = params.get(PARAM_KEYS.typeFilter)
   if (tf && tf !== 'all' && VALID_TYPES.includes(tf)) rf.typeFilter = tf
-  if (params.get(PARAM_KEYS.websiteOnly) === '1') rf.websiteOnly = true
   const mf = params.get(PARAM_KEYS.missingFilter)
   if (mf && mf !== 'none' && VALID_MISSING.includes(mf)) rf.missingFilter = mf
   const sd = params.get(PARAM_KEYS.sortDir)

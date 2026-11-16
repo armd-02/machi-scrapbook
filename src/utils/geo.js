@@ -179,6 +179,7 @@ export async function geocodeCandidates(query) {
         prefecture,
         city,
         type: row.type,
+        addresstype: row.addresstype || '',
         kind: nominatimKind(row),
         boundingbox: toBbox(row.boundingbox)
       }
@@ -247,6 +248,57 @@ export function calculateBboxAreaKm2(bbox) {
   const dLonKm = ((east - west) * Math.PI / 180) * 6371 * Math.cos(latRad)
 
   return dLatKm * dLonKm
+}
+
+// 検索エリアの「広すぎる」ガードのしきい値（km²）。候補の元のBBOXの面積が
+// この値以上なら広すぎる（検索不可）とする。国・外国の州・都道府県など、
+// 広すぎる範囲はすべてこの判定でカバーする（旧都道府県名ベースのガードを
+// 置き換える）。テストから参照できるように export する
+export const MAX_SEARCH_AREA_KM2 = 1000
+
+/**
+ * BBOXの面積が「広すぎる」（MAX_SEARCH_AREA_KM2 km² 以上）かどうかを判定する。
+ *
+ * 判定対象は候補が持つ元のBBOX（searchAreaFromGeocode が約1km四方に拡大を
+ * かける前の値）。場所入力のガードで使う: ジオコード結果が国・都道府県等の
+ * 広い範囲の場合は、その全域を検索エリアに設定して巨大な Overpass クエリを
+ * 発行しないようにする。
+ * boundingbox が無い（点状）候補や無効なBBOXは広すぎとはみなさない。
+ *
+ * @param {object|null} bbox { south, north, west, east }
+ * @returns {boolean} 広すぎるなら true
+ */
+export function isBboxTooLarge(bbox) {
+  if (!isValidBbox(bbox)) return false
+  return calculateBboxAreaKm2(bbox) >= MAX_SEARCH_AREA_KM2
+}
+
+// Nominatim 検索結果の addresstype うち「市区町村」（admin_level 8）レベルに
+// 対応する値。日本の行政区域では市が 'city'、町が 'town'、村が 'village'
+// （実 Nominatim で確認済み。例: 高山市→city、揖斐川町→town）。
+// 'municipality'/'borough' は海外の対応値。都道府県は 'state'/'province'、
+// 国は 'country' なのでこの例外に該当しない
+const MUNICIPALITY_ADDRESSTYPES = ['city', 'town', 'village', 'municipality', 'borough']
+
+/**
+ * 候補が「市区町村」レベルの行政区域かどうかを判定する。
+ *
+ * 「広すぎる」ガード（isBboxTooLarge）の対象外にするのに使う。大きな市
+ * （例: 高山市・約2,178 km²）は最小の県（例: 香川県・約1,876 km²）より
+ * 大きく、面積だけでは市区町村と都道府県・国を区別できないため、
+ * 行政区域の種類で市区町村を判定してガードの例外とする。
+ *
+ * 判定は候補の由来に沿う:
+ * - 自治体データ（municipalities.json）由来: kind が '自治体'（municipalityToCandidate）
+ * - Nominatim 由来: addresstype が市区町村レベル（city/town/village 等）
+ *
+ * @param {object|null} candidate geocodeCandidates や municipalityToCandidate の候補
+ * @returns {boolean} 市区町村なら true
+ */
+export function isMunicipalityCandidate(candidate) {
+  if (!candidate) return false
+  if (candidate.kind === '自治体') return true
+  return MUNICIPALITY_ADDRESSTYPES.includes(candidate.addresstype)
 }
 
 /**

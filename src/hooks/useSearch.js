@@ -161,9 +161,11 @@ export function useSearch() {
       // 既定のOverpass接続先（armd-01）はキャッシュのため検索範囲をグリッド状に
       // 広げて返すため、範囲外の結果が混ざる。表示・集計は検索範囲内だけが正しい
       // ので、クエリ生成に使用した同一のbboxで切り取る。
+      // 通常の施設検索も同じ理由で切り取る（当初はバリアフリー検索だけに
+      // 適用されており、範囲外の結果がそのまま表示されていた）。
       const filtered = queryKind === 'barrier_free'
         ? filterByBbox(results, bbox)
-        : filterByKeyword(results, keyword)
+        : filterByBbox(filterByKeyword(results, keyword), bbox)
 
       dispatch({ type: 'SET_RESULTS', payload: filtered })
       dispatch({ type: 'SET_RESULT_KIND', payload: queryKind })

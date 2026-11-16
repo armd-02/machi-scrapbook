@@ -407,6 +407,18 @@ describe('filterByBbox', () => {
     expect(out[0].lon).toBe(135.05)
   })
 
+  it('通常POIのウェイ（bf無し）は中心点で判定する: 範囲内は残り、範囲外は落ちる', () => {
+    const poiIn = { type: 'way', id: 300, lat: 34.05, lon: 135.05, tags: { amenity: 'cafe', name: '範囲内カフェ' } }
+    const poiOut = { type: 'way', id: 301, lat: 34.5, lon: 135.5, tags: { amenity: 'cafe', name: '範囲外カフェ' } }
+    const out = filterByBbox([poiIn, poiOut], bbox)
+    expect(out.map((r) => r.id)).toEqual([300])
+  })
+
+  it('通常POIのノードも中心点（座標）で判定する', () => {
+    const poiNode = { type: 'node', id: 302, lat: 34.05, lon: 135.05, tags: { amenity: 'restaurant' } }
+    expect(filterByBbox([poiNode], bbox)).toHaveLength(1)
+  })
+
   it('境界上のノードは残る（境界を含む）', () => {
     const out = filterByBbox([makeNode(135.0, 34.0, 201)], bbox)
     expect(out).toHaveLength(1)
