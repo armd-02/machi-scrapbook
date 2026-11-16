@@ -70,11 +70,6 @@ function StatusBanner() {
           <span className="text-sm text-green-800">
             {count.toLocaleString()}件の結果を取得しました
           </span>
-          {count > 5000 && (
-            <span className="text-xs text-amber-600">
-              ⚠️ 大量の結果です。範囲を狭めると表示が早くなります。
-            </span>
-          )}
           {timeStr && (
             <span className="text-xs text-slate-500">
               取得: {timeStr}

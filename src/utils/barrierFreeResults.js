@@ -221,6 +221,63 @@ export function barrierFreeTypeLabel(result) {
 }
 
 /**
+ * 縁石要素の「縁石の高さ」分類
+ *
+ * 縁石要素かどうかは既存の仕組み（barrierFreeTypeLabel / カードバッジと同一）で
+ * 判定する: tags.barrier === 'kerb' か kerb 値が存在（bf.kerb ?? tags.kerb != null）。
+ * 縁石要素でなければ null を返す。
+ *
+ * 分類（優先順）:
+ * 1. tags['kerb:height']（m）が数値として解釈できた場合:
+ *    - 0            → 'flat'（段差なし）
+ *    - 0 < h <= 0.03 → 'low'（低め: 3cm以下）
+ *    - h > 0.03     → 'high'（高め: 3cm超）
+ *    - 負数など上記に該当しない不正値 → 'unknown'
+ * 2. 高さが未記録（欠落・空文字・数値解釈不可）の場合は bf.kerb（tags.kerb）の値で判定:
+ *    - 'flush'   → 'flat'
+ *    - 'lowered' → 'low'
+ *    - 'raised'  → 'high'
+ *    - その他・未記録 → 'unknown'
+ *
+ * @param {object} result - 共通結果形状（bf を持つバリアフリー結果）
+ * @returns {'flat'|'low'|'high'|'unknown'|null}
+ */
+export function kerbHeightClass(result) {
+  const r = result || {}
+  const tags = r.tags || {}
+  const bf = r.bf && typeof r.bf === 'object' ? r.bf : null
+  const kerbValue = (bf && bf.kerb) ?? tags.kerb ?? null
+
+  // 縁石要素の判定（既存の仕組みに合わせて）
+  if (!(tags.barrier === 'kerb' || kerbValue != null)) return null
+
+  // kerb:height（m）が数値なら高さで分類（登録済みの高さが優先）
+  const h = parseKerbHeightM(tags['kerb:height'])
+  if (h != null) {
+    if (h === 0) return 'flat'
+    if (h > 0 && h <= 0.03) return 'low'
+    if (h > 0.03) return 'high'
+    return 'unknown' // 負数などの不正値は未記録扱い
+  }
+
+  // 高さが無い場合は kerb 値で分類
+  if (kerbValue === 'flush') return 'flat'
+  if (kerbValue === 'lowered') return 'low'
+  if (kerbValue === 'raised') return 'high'
+  return 'unknown'
+}
+
+/**
+ * kerb:height の値をメートル数値として解釈する。
+ * 未登録・空文字・数値解釈不可は null。
+ */
+function parseKerbHeightM(value) {
+  if (value == null || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
  * ブロック舗装的な点字ブロック情報の表示状態
  * tactile_paving=yes → '有', no → '無', その他 → null（未登録）
  */

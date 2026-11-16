@@ -17,6 +17,7 @@ import { parseAccessibility } from './accessibility'
 import { buildOsmElementUrl } from './editLinks'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from './barrierFreeResults'
 import { barrierFreeLabel } from './barrierFree'
+import { formatOpeningHoursJa } from './openingHours'
 
 /**
  * POI結果から説明文の構造化データを生成する。
@@ -49,7 +50,7 @@ function buildFacilityDescription(poi) {
   }
 
   if (tags.opening_hours) {
-    items.push({ icon: '🕐', text: tags.opening_hours })
+    items.push({ icon: '🕐', text: formatOpeningHoursJa(tags.opening_hours) })
   }
 
   const phone = tags.phone || tags['contact:phone']

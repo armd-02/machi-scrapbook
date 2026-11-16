@@ -43,7 +43,7 @@ describe('PoiDescription — 施設POI（タグあり）', () => {
     expect(screen.getByText('テストカフェ')).toBeTruthy()
     expect(screen.getByText('カフェ')).toBeTruthy()
     expect(screen.getByText(/大阪市/)).toBeTruthy()
-    expect(screen.getByText(/09:00-18:00/)).toBeTruthy()
+    expect(screen.getByText(/9:00〜18:00/)).toBeTruthy()
     expect(screen.getByText(/06-1234-5678/)).toBeTruthy()
     expect(screen.getByText(/Webサイト/)).toBeTruthy()
     expect(screen.getByText(/OSMで見る/)).toBeTruthy()

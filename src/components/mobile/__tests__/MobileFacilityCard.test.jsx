@@ -85,7 +85,7 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.getByText('公園')).toBeTruthy()
     expect(screen.getByText(/06-1234-5678/)).toBeTruthy()
     expect(screen.getByText(/公式サイト/)).toBeTruthy()
-    expect(screen.getByText(/09:00-17:00/)).toBeTruthy()
+    expect(screen.getByText(/9:00〜17:00/)).toBeTruthy()
   })
 
   it('住所・営業時間が未登録なら行ごとに出ない（捏造しない）', () => {
@@ -228,7 +228,7 @@ describe('MobileFacilityCard: カテゴリ別追加項目 (A3)', () => {
     expect(screen.getByText(/🍴 ramen/)).toBeTruthy()
     // 営業時間は基本項目としてラベル付き行で表示される
     expect(screen.getByText('営業時間')).toBeTruthy()
-    expect(screen.getByText(/11:00-23:00/)).toBeTruthy()
+    expect(screen.getByText(/11:00〜23:00/)).toBeTruthy()
   })
 
   it('公共トイレでも登録済みの基本項目は表示され、車椅子バッジも出る', () => {
@@ -240,7 +240,7 @@ describe('MobileFacilityCard: カテゴリ別追加項目 (A3)', () => {
     const phoneLink = screen.getByRole('link', { name: /06-2222-2222/ })
     expect(phoneLink.getAttribute('href')).toBe('tel:06-2222-2222')
     expect(screen.getByRole('link', { name: /公式サイト/ })).toBeTruthy()
-    expect(screen.getByText(/24\/7/)).toBeTruthy()
+    expect(screen.getByText(/24時間営業/)).toBeTruthy()
     // wheelchairはバッジとして引き続き表示
     expect(screen.getByText(/♿ 車椅子対応/)).toBeTruthy()
   })
@@ -249,7 +249,7 @@ describe('MobileFacilityCard: カテゴリ別追加項目 (A3)', () => {
     const r = { type: 'node', id: 32, name: 'テスト駅', tags: { railway: 'station', name: 'テスト駅', opening_hours: '05:00-24:00', 'addr:city': '吹田市' } }
     render(<MobileFacilityCard result={r} onOpen={vi.fn()} />)
     expect(screen.getByText(/吹田市/)).toBeTruthy()
-    expect(screen.getByText(/05:00-24:00/)).toBeTruthy()
+    expect(screen.getByText(/5:00〜24:00/)).toBeTruthy()
   })
 
   it('カテゴリ追加項目は基本4項目と重ならないものだけ表示する（二重表示しない）', () => {
@@ -269,7 +269,7 @@ describe('MobileFacilityCard: カテゴリ別追加項目 (A3)', () => {
     expect(screen.getAllByText(/🍴 coffee/)).toHaveLength(1)
     // 基本項目の値もそれぞれ1回だけ表示（追加行で二重表示されていない）
     expect(screen.getAllByText(/06-1111-2222/)).toHaveLength(1)
-    expect(screen.getAllByText(/08:00-20:00/)).toHaveLength(1)
+    expect(screen.getAllByText(/8:00〜20:00/)).toHaveLength(1)
     expect(screen.getAllByText(/公式サイト/)).toHaveLength(1)
     expect(screen.getAllByText(/大阪市/)).toHaveLength(1)
   })

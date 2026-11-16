@@ -154,7 +154,8 @@ export function parseBarrierFreeElements(elements) {
 /**
  * kerb タグの値の日本語表示名（barrierFreeLabel 用）
  */
-const KERB_VALUE_LABELS = {
+export const KERB_VALUE_LABELS = {
+  flat: 'フラット',
   cut: '段差下がり',
   low: '低縁石',
   none: '段差なし',

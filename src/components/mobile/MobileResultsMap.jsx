@@ -30,6 +30,11 @@ import { useDraggableHeight } from '../../hooks/useDraggableHeight'
  * - kind='poi'      → 結果を点として表示（MapView と同じ青い点レイヤ）
  *   kind='barrier_free' → 歩道を線・縁石/案内信号を点として表示
  *   （MapView と同じレイヤ定義・色を使うため、見た目が一致する）
+ * - (修正) kind='poi': 点（マーカー）タップで onMarkerClick(result) プロパティを
+ *   呼び出す（検索タブの地図（MapView）もマーカータップで onMarkerClick 経由で
+ *   詳細シートを開くのと同一の配線: feature の key（type/id）から結果を解決して
+ *   コールバックに渡す）。kind='barrier_free' にはタップコールバックを設けない
+ *   （従来どおりクリックでのポップアップ等も無い挙動を維持）
  * - 結果の範囲（extent）に fitBounds でカメラを合わせる。範囲が算出できない
  *   場合は前回の検索 bbox に合わせる。
  * - (修正) MobileShell は全タブを常時マウントし非活性タブに hidden を付けるため、
@@ -120,7 +125,7 @@ function extentOfGeoJSON(fc) {
   return { west, south, east, north }
 }
 
-export default function MobileResultsMap({ kind = 'poi' }) {
+export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null }) {
   const { state } = useApp()
   const results = state.results || []
   const bbox = state.bbox
@@ -158,6 +163,11 @@ export default function MobileResultsMap({ kind = 'poi' }) {
   useEffect(() => {
     latestRef.current = { results, bbox }
   }, [results, bbox])
+
+  // (修正) onMarkerClick の最新値。イベントハンドラは地図生成時に一度だけ
+  // 登録されるため、旧クロージャを防ぐために ref 経由で読む（MapView と同様）
+  const onMarkerClickRef = useRef(onMarkerClick)
+  useEffect(() => { onMarkerClickRef.current = onMarkerClick }, [onMarkerClick])
 
   // 最新の結果をソースに反映し、結果範囲にカメラを合わせる
   // (修正) fitBounds はコンテナに実際の表示サイズがあるときだけ行う。
@@ -217,6 +227,18 @@ export default function MobileResultsMap({ kind = 'poi' }) {
       } else {
         map.addSource(POI_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
         map.addLayer(POINT_LAYER_DEF)
+        // (修正) マーカータップ → onMarkerClick コールバック（施設詳細ボトムシート
+        // を開く）。検索タブの MapView と同じ配線: feature の key（type/id）から
+        // 結果を解決して onMarkerClick に渡す。POI の点レイヤのみで、バリアフリー
+        // 側（kind='barrier_free'）のタップ挙動は変更しない。
+        map.on('click', POINT_LAYER_DEF.id, (e) => {
+          const key = e.features?.[0]?.properties?.key
+          if (!key) return
+          const result = latestRef.current.results.find((r) => `${r.type}/${r.id}` === key)
+          if (!result) return
+          const cb = onMarkerClickRef.current
+          if (cb) cb(result)
+        })
       }
       applyData()
     })

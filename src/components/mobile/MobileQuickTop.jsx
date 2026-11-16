@@ -34,6 +34,8 @@
  * （CATEGORY_GROUPS の #63 クイックグループ）。
  */
 
+import GeocodeCandidateList from '../GeocodeCandidateList'
+
 // 目的タイル（10種）。purpose → 目的グループ検索、category → 単一カテゴリ検索。
 // 順序は仕様の表示順（食べる・買う・病院・薬局・役所・手続き・遊ぶ・公園・
 // 泊まる・駅・交通・トイレ・学ぶ・バリアフリー）。
@@ -66,6 +68,15 @@ export const QUICK_TILES = [
  * @param {boolean} areaSet 検索エリアが設定済み（成功）か。true の場合、
  *   場所入力欄を緑系（緑の枠線・薄い緑の背景）に表示する
  * @param {boolean} disabled 検索中などでの無効化
+ * @param {Array | null} [candidates] 入力欄の下に表示する地名候補
+ *   （geocodeCandidates() の戻り値）。サジェスト（入力中の候補）と
+ *   「候補が複数あります」の提示で共通。null・空配列のときは非表示。
+ *   GeocodeCandidateList（共通コンポーネント）で描画される。
+ * @param {string | null} [candidatesHeading] 候補リスト上部の案内文。
+ *   複数候補の提示時（「候補が複数あります。選んでください。」等）、
+ *   サジェスト時は null。
+ * @param {((candidate: object) => void) | null} [onCandidateSelect] 候補タップ時
+ *   のコールバック。候補で検索エリアを設定する（親で処理）。
  */
 export function QuickTopIntro({
   placeQuery = '',
@@ -75,7 +86,10 @@ export function QuickTopIntro({
   searchError = null,
   areaName = null,
   areaSet = false,
-  disabled = false
+  disabled = false,
+  candidates = null,
+  candidatesHeading = null,
+  onCandidateSelect = null
 }) {
   // 入力欄で Enter を押した場合は「検索する」ボタンと同じ動作
   const handleKeyDown = (e) => {
@@ -111,6 +125,17 @@ export function QuickTopIntro({
               : 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg disabled:bg-slate-50'
           }
         />
+        {/* 地名候補リスト（入力欄の下）。サジェスト（入力中の候補）と
+            「候補が複数あります」の提示で共通の GeocodeCandidateList を使う。
+            候補タップで検索エリアが設定され、リストは閉じる（親で制御） */}
+        {candidates && candidates.length > 0 && (
+          <GeocodeCandidateList
+            candidates={candidates}
+            heading={candidatesHeading}
+            onSelect={onCandidateSelect}
+            disabled={disabled}
+          />
+        )}
         {searchError && (
           <p role="alert" className="text-sm text-red-600">{searchError}</p>
         )}

@@ -15,6 +15,7 @@
  */
 import { facilityCategoryId, safeWebsite, formatAddress, facilityTypeLabel } from './facilityLabels'
 import { wheelchairBadge } from './accessibility'
+import { formatOpeningHoursJa } from './openingHours'
 
 /**
  * 属性キー → 表示テキストのレンダラー
@@ -29,7 +30,7 @@ const ATTR_RENDERERS = {
     const p = tags.phone || tags['contact:phone']
     return p ? `📞 ${p}` : null
   },
-  opening_hours: (tags) => (tags.opening_hours ? `🕐 ${tags.opening_hours}` : null),
+  opening_hours: (tags) => (tags.opening_hours ? `🕐 ${formatOpeningHoursJa(tags.opening_hours)}` : null),
   website: (tags) => (safeWebsite(tags) ? '🌐 公式サイト' : null),
   cuisine: (tags) => (tags.cuisine ? `🍴 ${tags.cuisine}` : null),
   wheelchair: (tags) => {

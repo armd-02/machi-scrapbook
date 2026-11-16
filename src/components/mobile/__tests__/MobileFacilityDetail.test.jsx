@@ -7,10 +7,15 @@ import MobileFacilityDetail from '../MobileFacilityDetail'
 /**
  * (#59) 施設詳細ボトムシート
  * - role="dialog" + aria-modal + 名称付きaria-label
- * - 登録済みの情報のみ表示（住所/電話/Web）
- * - 電話はtel:リンク、Webはtarget=_blank + rel=noopener
- * - OSMリンク・タグ一覧（<details>折りたたみ）
- * - フッター: 「経路検索」（座標がある場合のみ）・「iDで編集」「閉じる」
+ * - 施設名＋カテゴリチップ（facilityTypeLabel・カードと同じ見た目）
+ * - 基本行はカードと同じラベル付き行の形式（住所/電話/営業時間/Webサイト）
+ *   - 住所・営業時間は登録済みの情報のみ表示
+ *   - 電話・Webサイトは常時表示。登録あればtel:リンク／外部リンク
+ *     （target=_blank + rel=noopener）、なければ「-」
+ * - カテゴリ別追加項目（keyInfoFor の items を基本4項目・wheelchair で除外）
+ * - メール・FAX（登録時のみ）・SNSリンク（タグがある場合のみ）
+ * - OSMリンク。タグ一覧（<details>折りたたみ）は廃止
+ * - フッター: 「経路検索」（座標がある場合のみ）・「iDで編集」。「閉じる」は右上の✕ボタン
  * (#62)
  * - 座標がある場合、シート上部（スクロール領域先頭）に位置マップ（MiniLocationMap）＋マーカー
  * - 座標がない場合はマップも非表示
@@ -57,17 +62,17 @@ describe('MobileFacilityDetail', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true')
   })
 
-  it('住所・電話・Webサイトが表示される（登録済み情報のみ）', () => {
+  it('住所・電話・Webサイトがカードと同じラベル付き行で表示される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText(/大阪市 梅田 1-1/)).toBeTruthy()
 
-    // 電話: tel: リンク
-    const phoneLink = within(dialog).getByRole('link', { name: /タップで発信/ })
+    // 電話: 電話ラベル付きのtel:リンク
+    const phoneLink = within(dialog).getByRole('link', { name: /^電話/ })
     expect(phoneLink.getAttribute('href')).toBe('tel:+81-6-1234-5678')
 
-    // Webサイト: target=_blank + rel=noopener
-    const webLink = within(dialog).getByRole('link', { name: /Webサイト/ })
+    // Webサイト: Webサイトラベル付きの外部リンク（target=_blank + rel=noopener）
+    const webLink = within(dialog).getByRole('link', { name: /^Webサイト/ })
     expect(webLink.getAttribute('href')).toBe('https://example.com/coffee')
     expect(webLink.getAttribute('target')).toBe('_blank')
     expect(webLink.getAttribute('rel')).toContain('noopener')
@@ -82,25 +87,46 @@ describe('MobileFacilityDetail', () => {
     expect(osmLink.getAttribute('href')).toBe('https://www.openstreetmap.org/node/1001')
   })
 
-  it('タグ一覧は<details>で折りたたまれて表示される', () => {
+  it('カテゴリチップ（facilityTypeLabel）は名前の近くにカードと同じ見目で表示される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
-    const summary = within(dialog).getByText('タグ一覧（8）')
-    expect(summary.closest('details')).toBeTruthy()
-
-    // 展開すると全キー・値が表示される
-    fireEvent.click(summary)
-    expect(within(dialog).getByText('addr:city')).toBeTruthy()
-    expect(within(dialog).getByText('大阪市')).toBeTruthy()
+    const chip = within(dialog).getByText('カフェ')
+    // カードと同じチップ見た目（text-[11px] text-primary-700 bg-primary-50）
+    expect(chip.className).toContain('text-[11px]')
+    expect(chip.className).toContain('text-primary-700')
+    expect(chip.className).toContain('bg-primary-50')
+    // ヘッダー（施設名と同一ブロック）に表示される
+    expect(chip.closest('.border-b')).toBeTruthy()
   })
 
-  it('未登録の情報は捏造せず「未登録」であることを明示する', () => {
+  it('カテゴリ別の追加項目（keyInfoFor）は基本4項目を除外して表示される', () => {
+    renderDetail() // cafe: cuisine が追加項目
+    const dialog = screen.getByRole('dialog')
+    // cafeプロファイルの追加項目 cuisine が表示される
+    expect(within(dialog).getByText('🍴 coffee')).toBeTruthy()
+    // 基本4項目は基本行で1回のみ（追加項目に二重表示されない）
+    expect(within(dialog).getAllByText(/📞 \+81-6-1234-5678/)).toHaveLength(1)
+    expect(within(dialog).getAllByText(/大阪市 梅田 1-1/)).toHaveLength(1)
+  })
+
+  it('タグ一覧（<details>）は表示されない', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByText(/タグ一覧/)).toBeNull()
+    expect(dialog.querySelector('details')).toBeNull()
+  })
+
+  it('電話・Webサイトは未登録でも常時行を表示し「-」と表記する（リンクは生成しない）', () => {
     renderDetail({ type: 'node', id: 9, lat: 34.8, lon: 135.5, tags: { amenity: 'bench' } })
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText(/OSMに登録されていません/)).toBeTruthy()
-    expect(within(dialog).queryByRole('link', { name: /タップで発信/ })).toBeNull()
-    expect(within(dialog).queryByRole('link', { name: /Webサイト/ })).toBeNull()
-    // フッターは「経路検索」（座標があるため）と「閉じる」
+    // 電話・Webサイト行は常時表示（未登録なら「-」）
+    expect(within(dialog).getByText('電話')).toBeTruthy()
+    expect(within(dialog).getByText('Webサイト')).toBeTruthy()
+    expect(within(dialog).getAllByText('-')).toHaveLength(2)
+    // 未登録なのでtel:リンク・外部リンクは出ない
+    expect(within(dialog).queryByRole('link', { name: /^電話/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^Webサイト/ })).toBeNull()
+    // フッターは「経路検索」（座標があるため）、「閉じる」は右上の✕ボタン
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
@@ -143,7 +169,8 @@ describe('MobileFacilityDetail', () => {
       }
     })
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Mo-Fr 09:00-19:00; Sa 09:00-13:00')).toBeTruthy()
+    // 営業時間値が営業時間行（🕐 付き）に表示される（表示のみ日本語化。データは元の値のまま）
+    expect(within(dialog).getByText(/月〜金 9:00〜19:00／土 9:00〜13:00/)).toBeTruthy()
     const mail = within(dialog).getByRole('link', { name: /shop@example.com/ })
     expect(mail.getAttribute('href')).toBe('mailto:shop@example.com')
     expect(within(dialog).getByText(/FAX: \+81-6-9999-8888/)).toBeTruthy()
@@ -199,7 +226,7 @@ describe('MobileFacilityDetail: 位置マップ（#62）', () => {
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
-  it('位置マップの追加でフッターの3アクション（経路検索/iDで編集/閉じる）は維持される', () => {
+  it('位置マップの追加でアクション（経路検索/iDで編集/閉じる）は維持される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
@@ -232,7 +259,7 @@ describe('MobileFacilityDetail: 経路検索ボタン', () => {
     expect(within(dialog).queryByRole('link', { name: /経路検索/ })).toBeNull()
   })
 
-  it('フッターは経路検索/iDで編集/閉じるの3アクションで、「地図で見る」は含まれない', () => {
+  it('アクションは経路検索/iDで編集/閉じる（右上✕）で、「地図で見る」は含まれない', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByRole('button', { name: '地図で見る' })).toBeNull()
@@ -265,8 +292,8 @@ describe('MobileFacilityDetail: バリアフリー情報（#61）', () => {
     })
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('車椅子一部対応')).toBeTruthy()
-    // 説明はバリアフリーセクションのnoteとタグ一覧の両方に出る（≥1）
-    expect(within(dialog).getAllByText('正面入口に段差あり（7cm未満）').length).toBeGreaterThanOrEqual(1)
+    // 説明はバリアフリーセクションのnoteに出る（タグ一覧は廃止されたため1箇所のみ）
+    expect(within(dialog).getAllByText('正面入口に段差あり（7cm未満）')).toHaveLength(1)
   })
 
   it('トイレ・駐車・エレベーター等の複数項目が並ぶ', () => {
@@ -294,5 +321,65 @@ describe('MobileFacilityDetail: バリアフリー情報（#61）', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByText(/バリアフリー情報/)).toBeNull()
+  })
+})
+
+describe('MobileFacilityDetail: SNSリンク', () => {
+  it('SNSタグが登録されている場合のみ、正しいURLでラベル付き外部リンクが表示される', () => {
+    renderDetail({
+      type: 'node', id: 3, lat: 34.8, lon: 135.5,
+      tags: {
+        amenity: 'cafe',
+        phone: '+81-6-1234-5678',
+        website: 'https://example.com/coffee',
+        'contact:instagram': 'saka.cafe',           // アカウント名
+        'contact:facebook': 'https://www.facebook.com/saka.cafe', // http値はそのまま
+        'contact:twitter': '@saka',                 // 先頭@除去してx.com/<名>
+        'contact:youtube': 'saka.channel'           // アカウント名
+      }
+    })
+    const dialog = screen.getByRole('dialog')
+
+    // アカウント名 → https://<ドメイン>/<名>（先頭@除去）
+    const insta = within(dialog).getByRole('link', { name: /^Instagram/ })
+    expect(insta.getAttribute('href')).toBe('https://instagram.com/saka.cafe')
+    // http値はそのままURLとして使用
+    const fb = within(dialog).getByRole('link', { name: /^Facebook/ })
+    expect(fb.getAttribute('href')).toBe('https://www.facebook.com/saka.cafe')
+    const x = within(dialog).getByRole('link', { name: /^X/ })
+    expect(x.getAttribute('href')).toBe('https://x.com/saka')
+    const yt = within(dialog).getByRole('link', { name: /^YouTube/ })
+    expect(yt.getAttribute('href')).toBe('https://youtube.com/saka.channel')
+
+    // すべて外部リンク（target=_blank + rel=noopener）
+    for (const link of [insta, fb, x, yt]) {
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toContain('noopener')
+    }
+    // 表示テキストはアカウント名（先頭@なし）
+    expect(x.textContent).toContain('saka')
+    expect(insta.textContent).toContain('saka.cafe')
+  })
+
+  it('SNSタグが登録されていない場合はSNSリンクが表示されない', () => {
+    renderDetail() // FULL: SNSタグなし
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('link', { name: /^Instagram/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^Facebook/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^X/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^YouTube/ })).toBeNull()
+  })
+
+  it('登録済みのSNSは一部だけならその分のみ表示される', () => {
+    renderDetail({
+      type: 'node', id: 4, lat: 34.8, lon: 135.5,
+      tags: { amenity: 'bar', 'contact:instagram': '@bar.japan' }
+    })
+    const dialog = screen.getByRole('dialog')
+    const insta = within(dialog).getByRole('link', { name: /^Instagram/ })
+    expect(insta.getAttribute('href')).toBe('https://instagram.com/bar.japan')
+    expect(within(dialog).queryByRole('link', { name: /^Facebook/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^X/ })).toBeNull()
+    expect(within(dialog).queryByRole('link', { name: /^YouTube/ })).toBeNull()
   })
 })

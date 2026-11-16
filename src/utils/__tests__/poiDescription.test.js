@@ -25,7 +25,7 @@ describe('buildPoiDescription — 施設POI', () => {
     expect(desc.typeLabel).toBe('カフェ')
     // items の順: 住所 → 営業時間 → 電話 → Web
     expect(desc.items[0]).toEqual({ icon: '📍', text: '大阪市 梅田 1-1' })
-    expect(desc.items[1]).toEqual({ icon: '🕐', text: '09:00-18:00' })
+    expect(desc.items[1]).toEqual({ icon: '🕐', text: '9:00〜18:00' })
     expect(desc.items[2]).toEqual({ icon: '📞', text: '06-1234-5678' })
     expect(desc.items[3]).toEqual({ icon: '🔗', text: 'Webサイト', href: 'https://example.com' })
     expect(desc.osmUrl).toContain('node/123')
@@ -175,5 +175,22 @@ describe('buildPoiDescription — 共通', () => {
     const poi = { type: 'node', id: 42, tags: { amenity: 'toilets' }, lat: 34.6, lon: 135.5 }
     const desc = buildPoiDescription(poi)
     expect(desc.osmUrl).toBe('https://www.openstreetmap.org/node/42')
+  })
+})
+
+describe('buildPoiDescription — 交通系の種別ラベル', () => {
+  const labelOf = (tags) => buildPoiDescription({ type: 'node', id: 1, name: 'x', tags, lat: 34.6, lon: 135.5 }).typeLabel
+  it('バス停は「バス停」と分かる', () => {
+    expect(labelOf({ highway: 'bus_stop', name: '上本町8丁目' })).toBe('バス停')
+    expect(labelOf({ highway: 'platform' })).toBe('バス停')
+  })
+  it('路面電車の停留場は「電停」、地下鉄出入口は「地下鉄出入口」', () => {
+    expect(labelOf({ railway: 'tram_stop' })).toBe('電停')
+    expect(labelOf({ railway: 'subway_entry' })).toBe('地下鉄出入口')
+  })
+  it('バスターミナル・駐車場・駅は区別できる', () => {
+    expect(labelOf({ amenity: 'bus_station' })).toBe('バスターミナル')
+    expect(labelOf({ amenity: 'parking' })).toBe('駐車場')
+    expect(labelOf({ railway: 'station' })).toBe('駅')
   })
 })

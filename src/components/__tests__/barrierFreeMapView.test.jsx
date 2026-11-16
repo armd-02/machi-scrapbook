@@ -303,7 +303,7 @@ describe('bf レイヤ定義（MapLibre仕様）', () => {
       filter: ['==', ['get', 'kind'], 'way']
     })
     expect(BF_LINE_LAYER_DEF.paint['line-color']).toEqual([
-      'match', ['get', 'tactile'], 'yes', '#eab308', 'no', '#dc2626', '#f87171'
+      'match', ['get', 'tactile'], 'yes', '#16a34a', 'no', '#dc2626', '#f87171'
     ])
     expect(BF_LINE_LAYER_DEF.paint['line-width']).toBe(4)
     // トップレベルにcamelCaseプロパティが無い

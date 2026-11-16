@@ -1,0 +1,25 @@
+/**
+ * アプリのアイコン（まちデータ帳）
+ *
+ * 地図上に開いた本（ページ）とピンを表現した SVG。
+ * ヘッダーのタイトルボタン（トップ画面に戻る）で使用する。
+ * 装飾的な画像のため aria-hidden。サイズは className（既定 'w-9 h-9'）で指定する。
+ */
+export default function AppIcon({ className = 'w-9 h-9' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="appIconBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#0d9488" />
+          <stop offset="1" stopColor="#059669" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="46" height="46" rx="11" fill="url(#appIconBg)" />
+      <path fill="#ffffff" d="M8 20.5 C13 18, 18.8 18, 24 21 C29.2 18, 35 18, 40 20.5 V36 C35 33.5, 29.2 33.5, 24 36.5 C18.8 33.5, 13 33.5, 8 36 Z" />
+      <path d="M24 21 V36.5" stroke="#0d9488" strokeWidth="1.6" />
+      <path d="M12.5 24.5 C15.5 23.4, 18 23.4, 20.5 24.6 M12.5 29 C15.5 27.9, 18 27.9, 20.5 29.1 M27.5 24.6 C30 23.4, 32.5 23.4, 35.5 24.5 M27.5 29.1 C30 27.9, 32.5 27.9, 35.5 29" stroke="#99d5cd" strokeWidth="1.7" strokeLinecap="round" fill="none" />
+      <path fill="#f59e0b" d="M24 3.5 C19.6 3.5, 16 7, 16 11.4 C16 16.6, 24 23.5, 24 23.5 C24 23.5, 32 16.6, 32 11.4 C32 7, 28.4 3.5, 24 3.5 Z" />
+      <circle cx="24" cy="11.4" r="3.4" fill="#ffffff" />
+    </svg>
+  )
+}

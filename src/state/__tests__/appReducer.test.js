@@ -31,6 +31,24 @@ describe('createInitialState', () => {
     expect(s.simpleSearch.purpose).toBe('')
     expect(s.municipalitySearch.purpose).toBe('')
   })
+
+  it('resultFilters に perspective（視点フィルタ）の初期値 none が入る', () => {
+    expect(createInitialState().resultFilters.perspective).toBe('none')
+  })
+
+  it('resultFilters に cuisine（料理ジャンル）の初期値空文字と kerbHeight（縁石の高さ）の初期値 any が入る', () => {
+    const rf = createInitialState().resultFilters
+    expect(rf.cuisine).toBe('')
+    expect(rf.kerbHeight).toBe('any')
+  })
+
+  it('SET_RESULT_FILTERS で perspective を変更できる（既存キーは維持される）', () => {
+    let s = createInitialState()
+    s = appReducer(s, { type: 'SET_RESULT_FILTERS', payload: { perspective: 'wheelchair' } })
+    expect(s.resultFilters.perspective).toBe('wheelchair')
+    expect(s.resultFilters.typeFilter).toBe('all')
+    expect(s.resultFilters.nameFilter).toBe('')
+  })
 })
 
 describe('activeSearchOf', () => {

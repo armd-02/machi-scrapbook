@@ -61,7 +61,7 @@ const AMENITY_LABELS = {
   toilets: '公共トイレ', shower: 'シャワー',
   school: '学校', university: '大学', college: '大学・短大', kindergarten: '幼稚園',
   daycare: '保育園', driving_school: '自動車教習所',
-  gym: 'スポーツジム', internet_cafe: 'ネットカフェ', taxi: 'タクシー乗り場',
+  gym: 'スポーツジム', internet_cafe: 'ネットカフェ', taxi: 'タクシー乗り場', bus_station: 'バスターミナル', parking: '駐車場',
   fuel: 'ガソリンスタンド', vending_machine: '自販機', water_point: '水場',
   ambulance_station: '救急センター', courthouse: '裁判所',
   recycling: 'リサイクル回収', waste_basket: 'ごみ箱',
@@ -168,7 +168,7 @@ const SPORT_LABELS = {
 }
 
 const RAILWAY_LABELS = {
-  station: '駅', halt: '駅', platform: 'ホーム',
+  station: '駅', halt: '駅', platform: 'ホーム', tram_stop: '電停', subway_entry: '地下鉄出入口',
   tram: '路面電車', subway: '地下鉄', light_rail: 'ライトレール',
   monorail: 'モノレール', funicular: 'ケーブルカー式鉄道',
   cable_car: 'ロープウェイ', aerial_way: '空中ロープウェイ',
@@ -178,6 +178,10 @@ const RAILWAY_LABELS = {
 const AEROWAY_LABELS = {
   airport: '空港', aerodrome: '飛行場', helipad: 'ヘリポート',
   heliport: 'ヘリポート', terminal: 'ターミナル'
+}
+
+const HIGHWAY_LABELS = {
+  bus_stop: 'バス停', platform: 'バス停'
 }
 
 // 解決順序（先に一致したタグの種類でラベルを確定）
@@ -191,7 +195,8 @@ const TAG_SOURCES = [
   ['craft', CRAFT_LABELS],
   ['sport', SPORT_LABELS],
   ['railway', RAILWAY_LABELS],
-  ['aeroway', AEROWAY_LABELS]
+  ['aeroway', AEROWAY_LABELS],
+  ['highway', HIGHWAY_LABELS]
 ]
 
 /**

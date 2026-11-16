@@ -39,7 +39,7 @@ export function createInitialState() {
     searchSource: 'municipality',
     selectedMunicipality: null,
     municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '' },
-    resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none', missingFilter: 'none' }
+    resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', websiteOnly: false, sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', kerbHeight: 'any' }
   }
 }
 

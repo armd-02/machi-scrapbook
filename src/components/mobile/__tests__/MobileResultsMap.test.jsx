@@ -490,3 +490,78 @@ describe('MobileResultsMap: 操作可能性（修正）', () => {
     expect(container.className).not.toContain('pointer-events-none')
   })
 })
+
+describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）', () => {
+  const poiPre = [
+    { type: 'SET_RESULTS', payload: [poiA, poiB] },
+    { type: 'SET_STATUS', payload: 'success' }
+  ]
+
+  it('POI: 点レイヤのクリックで対応する結果を引いて onMarkerClick が呼ばれる', async () => {
+    const onMarkerClick = vi.fn()
+    render(
+      <Harness preActions={poiPre}>
+        <MobileResultsMap kind="poi" onMarkerClick={onMarkerClick} />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/1')
+    expect(feature).toBeTruthy()
+    act(() => {
+      map.fire('click', 'point-circle', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+
+    // feature の key（type/id）から解決した結果がそのまま渡される
+    expect(onMarkerClick).toHaveBeenCalledTimes(1)
+    expect(onMarkerClick.mock.calls[0][0]).toEqual(poiA)
+  })
+
+  it('POI: タップされた key がどの結果にも対応しない場合は onMarkerClick しない', async () => {
+    const onMarkerClick = vi.fn()
+    render(
+      <Harness preActions={poiPre}>
+        <MobileResultsMap kind="poi" onMarkerClick={onMarkerClick} />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    act(() => {
+      map.fire('click', 'point-circle', {
+        features: [{ properties: { key: 'node/999' } }],
+        lngLat: { lat: 34.7, lng: 135.5 }
+      })
+    })
+    expect(onMarkerClick).not.toHaveBeenCalled()
+  })
+
+  it('バリアフリー: onMarkerClick を渡されてもタップコールバックは配線しない（従来どおり）', async () => {
+    const onMarkerClick = vi.fn()
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [bfFootway, bfKerb] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="barrier_free" onMarkerClick={onMarkerClick} />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    // バリアフリーの線・点レイヤには click ハンドラが存在しない
+    expect(map._handlers['click:bf-line']).toBeUndefined()
+    expect(map._handlers['click:bf-node']).toBeUndefined()
+
+    // クリックを発火させてもコールバックは呼ばれない
+    const point = map._lastGeoJSON.data.features.find((f) => f.geometry.type === 'Point')
+    act(() => {
+      map.fire('click', 'bf-node', { features: [point], lngLat: { lat: 34.1, lng: 135.1 } })
+    })
+    expect(onMarkerClick).not.toHaveBeenCalled()
+  })
+})

@@ -9,6 +9,41 @@ const USER_AGENT = 'OSM-Data-Explorer/0.1 (https://armd-02.github.io/osm-data-ex
 import { isValidBbox } from './searchBbox'
 
 /**
+ * Nominatimの boundingbox（文字列配列 [south,north,west,east]）を
+ * { south, north, west, east } オブジェクトに変換する。無い場合は null。
+ */
+function toBbox(rawBbox) {
+  if (!Array.isArray(rawBbox) || rawBbox.length !== 4) return null
+  return {
+    south: parseFloat(rawBbox[0]),
+    north: parseFloat(rawBbox[1]),
+    west: parseFloat(rawBbox[2]),
+    east: parseFloat(rawBbox[3])
+  }
+}
+
+// addressdetails で「市区町村」レベルに対応するキー（最初に非空のものを採用）
+const CITY_KEYS = ['city', 'town', 'village', 'municipality', 'borough']
+
+/**
+ * addressdetails から都道府県（state）と市区町村（city/town/village等）を抽出
+ * @param {object|null} addressdetails Nominatimの addressdetails
+ * @returns {{ prefecture: string, city: string }}
+ */
+function extractAddress(addressdetails) {
+  const ad = addressdetails || {}
+  const prefecture = (ad.state || ad.province || '').trim()
+  let city = ''
+  for (const key of CITY_KEYS) {
+    if (ad[key] && String(ad[key]).trim()) {
+      city = String(ad[key]).trim()
+      break
+    }
+  }
+  return { prefecture, city }
+}
+
+/**
  * 地名をジオコードする（Nominatim）
  * @param {string} query - 地名（例: "大阪市北区"）
  * @returns {Promise<object|null>} - { lat, lon, display_name, type, boundingbox }
@@ -20,8 +55,9 @@ export async function geocode(query) {
 
   // Nominatim利用規約: 最大1リクエスト/秒
   const elapsed = Date.now() - lastRequestTime
-  if (elapsed < 1000) {
-    await new Promise((resolve) => setTimeout(resolve, 1000 - elapsed))
+  const waitMs = Math.min(1000, Math.max(0, 1000 - elapsed))
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
   }
 
   const params = new URLSearchParams({
@@ -55,14 +91,7 @@ export async function geocode(query) {
       lon: parseFloat(result.lon),
       displayName: result.display_name,
       type: result.type,
-      boundingbox: result.boundingbox
-        ? {
-            south: parseFloat(result.boundingbox[0]),
-            north: parseFloat(result.boundingbox[1]),
-            west: parseFloat(result.boundingbox[2]),
-            east: parseFloat(result.boundingbox[3])
-          }
-        : null
+      boundingbox: toBbox(result.boundingbox)
     }
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -70,6 +99,139 @@ export async function geocode(query) {
     }
     throw error
   }
+}
+
+/**
+ * Nominatim の class:type から候補の種別（日本語）を返す。
+ * 同名・同住所でも実体が違う候補（駅舎・バス停・レンタサイクル等）を
+ * ラベル上で区別するために使う。地名そのもの（place/boundary）は種別なし。
+ */
+const NOMINATIM_KIND_LABELS = {
+  'railway:station': '駅', 'railway:halt': '駅',
+  'railway:tram_stop': '電停', 'railway:subway_entry': '地下鉄出入口',
+  'building:train_station': '駅',
+  'highway:bus_stop': 'バス停', 'highway:platform': 'バス停',
+  'amenity:bus_station': 'バスターミナル', 'amenity:bicycle_rental': 'レンタサイクル',
+  'amenity:parking': '駐車場', 'amenity:fuel': 'ガソリンスタンド',
+  'amenity:taxi': 'タクシー乗り場',
+  'public_transport:station': '駅', 'public_transport:platform': 'ホーム',
+  'aeroway:aerodrome': '空港', 'aeroway:terminal': '空港ターミナル'
+}
+
+function nominatimKind(row) {
+  if (!row || !row.class || !row.type) return ''
+  return NOMINATIM_KIND_LABELS[row.class + ':' + row.type] || ''
+}
+
+/**
+ * 地名のジオコード候補を複数取得する（Nominatim、limit=5）
+ *
+ * トップの地名入力サジェストや、複数候補の提示（候補が2件以上で利用者に
+ * 選ばせる流れ）に使う。geocode() と同じくレート制限（最大1リクエスト/秒）を
+ * 守る（モジュール内の lastRequestTime を共有）。
+ *
+ * @param {string} query - 地名（例: "上本町"）
+ * @returns {Promise<Array>} - 候補の配列。各候補: { lat, lon, displayName,
+ *   name, prefecture, city, type, boundingbox }
+ *   （prefecture/city は addressdetails の state / city・town・village 等から抽出）
+ */
+export async function geocodeCandidates(query) {
+  if (!query || query.trim() === '') return []
+
+  // Nominatim利用規約: 最大1リクエスト/秒（geocode() と共有）
+  const elapsed = Date.now() - lastRequestTime
+  const waitMs = Math.min(1000, Math.max(0, 1000 - elapsed))
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
+  }
+
+  const params = new URLSearchParams({
+    q: query.trim(),
+    format: 'json',
+    limit: '5',
+    addressdetails: '1',
+    countrycodes: 'jp'
+  })
+
+  const url = `${NOMINATIM_URL}?${params.toString()}`
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': USER_AGENT
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`Nominatim APIエラー (${response.status})`)
+    }
+
+    const data = await response.json()
+    lastRequestTime = Date.now()
+
+    const candidates = (data || []).map((row) => {
+      const { prefecture, city } = extractAddress(row.address || row.addressdetails)
+      return {
+        lat: parseFloat(row.lat),
+        lon: parseFloat(row.lon),
+        displayName: row.display_name,
+        name: (row.name || '').trim(),
+        prefecture,
+        city,
+        type: row.type,
+        kind: nominatimKind(row),
+        boundingbox: toBbox(row.boundingbox)
+      }
+    })
+    // 実質同じ候補（同じラベルで中心が約100m以内）の重複を除く
+    const kept = []
+    for (const c of candidates) {
+      const label = geocodeCandidateLabel(c)
+      const dup = kept.some((k) =>
+        geocodeCandidateLabel(k) === label &&
+        Math.abs(k.lat - c.lat) < 0.001 &&
+        Math.abs(k.lon - c.lon) < 0.001)
+      if (!dup) kept.push(c)
+    }
+    return kept
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('ジオコードに失敗しました')
+    }
+    throw error
+  }
+}
+
+/**
+ * displayName の先頭部分（最初のコンマより前）を返す
+ */
+function displayNameLeadingPart(displayName) {
+  if (!displayName) return ''
+  const text = String(displayName)
+  const idx = text.indexOf(',')
+  return (idx >= 0 ? text.slice(0, idx) : text).trim()
+}
+
+/**
+ * ジオコード候補の表示ラベルを作る: 「名称（都道府県市区町村）」形式。
+ * 例: 「上本町（鹿児島県鹿児島市）」「小倉（福岡県北九州市）」
+ * - 市区町村が取れない場合は都道府県だけ: 「○○（鹿児島県）」
+ * - 都道府県・市区町村のどちらも無い場合は displayName の先頭部分だけ
+ * - 名称は name を採用。name が無い場合は displayName の先頭部分を使う
+ */
+export function geocodeCandidateLabel(candidate) {
+  if (!candidate) return ''
+  const name = (candidate.name && candidate.name.trim())
+    ? candidate.name.trim()
+    : displayNameLeadingPart(candidate.displayName)
+  const prefecture = (candidate.prefecture || '').trim()
+  const city = (candidate.city || '').trim()
+  const kind = (candidate.kind || '').trim()
+  const area = prefecture && city ? prefecture + city : (prefecture || city)
+  const parts = [kind, area].filter(Boolean)
+
+  if (!parts.length) return name
+  return `${name}（${parts.join('・')}）`
 }
 
 /**

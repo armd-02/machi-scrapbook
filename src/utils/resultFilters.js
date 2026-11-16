@@ -14,6 +14,15 @@
  *   - purposeFilter: 目的名（その目的に属するカテゴリのいずれかに一致するものだけ）
  *   - websiteOnly:  公式サイトが登録されているものだけ
  *   - missingFilter: 主要属性の欠落で絞り込み（none | any | phone | opening_hours | website | address）(B2)
+ *   - perspective:  視点フィルタ（none | wheelchair | vision | child | elderly）
+ *     利用者目線で「誰にとって使いやすいか」で絞る（matchesPerspective）。
+ *     タグに基づく判定で「登録あり」が確認できるものだけを残し、未登録は含めない。
+ *   - cuisine:      料理ジャンル（tags.cuisine の '; ' 区切り値の一部一致・大小文字無視）。
+ *     選択肢は cuisineFacetValues（フィルタ適用前の結果から集計）が提供する。
+ *   - kerbHeight:   縁石の高さ（any | flat | low | high | unknown）。
+ *     bf を持つ結果のみ kerbHeightClass（barrierFreeResults.js）で分類し、
+ *     一致するものだけ残す。bf を持たない結果は除外される。
+ *     バリアフリー一覧専用の絞り込み（施設一覧にはUIを出さない）。
  *   - sortDir:      施設名で並び替え（none | asc | desc）
  *
  * (#44) catFilter / purposeFilter は検索フォームのカテゴリ・目的選択のミラー
@@ -24,6 +33,189 @@ import { categoryMatchesElement } from './categoryMatch'
 import { facilityName } from './facilityLabels'
 import { getCategoriesForPurpose } from '../data/categories'
 import { missingAttributesOf } from './statistics'
+import { kerbHeightClass } from './barrierFreeResults'
+
+// ===== 視点フィルタ =====
+
+/**
+ * 視点フィルタ（matchesPerspective）
+ *
+ * データ項目ではなく「誰にとって使いやすいか」で結果を絞る。
+ * タグ（tags）またはバリアフリー整形フィールド（bf）に基づく判定で、
+ * 「登録あり」が確認できるものだけを残し、未登録は含めない。
+ *
+ * 視点:
+ *   - wheelchair（車椅子）: tags.wheelchair が 'yes' / 'designated' ／
+ *     bf.kerb が 'flush' / 'lowered' ／
+ *     tags['kerb:height'] が数値として解釈できて 0.03（m）以下
+ *   - vision（目の不自由な方）: tags.tactile_paving === 'yes' ／
+ *     bf.tactile === 'yes' ／ bf.hasSound ／ bf.hasVibration
+ *   - child（子ども連れ）: tags.diaper が存在し 'no' でない ／
+ *     tags.changing_table === 'yes' ／ tags.kids_area === 'yes' ／ tags.highchair === 'yes'
+ *   - elderly（お年寄り）: tags.wheelchair が 'yes' / 'designated' ／
+ *     tags.ramp === 'yes' ／ tags['ramp:wheelchair'] === 'yes' ／ tags.elevator === 'yes'
+ *
+ * perspective が 'none'（または不明な値）なら全件が該当する（フィルタしない）。
+ *
+ * @param {object} result - 結果要素（tags を持ち、バリアフリー結果は bf も持つ）
+ * @param {string} perspective - 視点ID（'none' | 'wheelchair' | 'vision' | 'child' | 'elderly'）
+ * @returns {boolean}
+ */
+export function matchesPerspective(result, perspective) {
+  if (!perspective || perspective === 'none') return true
+
+  const r = result || {}
+  const tags = r.tags || {}
+  const bf = r.bf && typeof r.bf === 'object' ? r.bf : null
+
+  switch (perspective) {
+    case 'wheelchair':
+      // 車椅子: 施設タグ / バリアフリーの縁石情報 のいずれかが登録済みで良好
+      // !! で真偽値を正規化（bf 側の undefined が || 経由で外に漏れない）
+      return !!(
+        tags.wheelchair === 'yes' || tags.wheelchair === 'designated' ||
+        (bf && (bf.kerb === 'flush' || bf.kerb === 'lowered')) ||
+        kerbHeightLe(tags['kerb:height'], 0.03)
+      )
+    case 'vision':
+      // 目の不自由な方: 点字ブロック / 音声・振動案内 のいずれかが登録済み
+      // !! で真偽値を正規化（bf.hasSound 等の undefined が || 経由で外に漏れない）
+      return !!(
+        tags.tactile_paving === 'yes' ||
+        (bf && (bf.tactile === 'yes' || bf.hasSound || bf.hasVibration))
+      )
+    case 'child':
+      // 子ども連れ: おむつ台・授乳・キッズエリア・ハイチェア のいずれかが登録済み
+      return (
+        (tags.diaper && tags.diaper !== 'no') ||
+        tags.changing_table === 'yes' ||
+        tags.kids_area === 'yes' ||
+        tags.highchair === 'yes'
+      )
+    case 'elderly':
+      // お年寄り: 車椅子対応・スロープ・エレベーター のいずれかが登録済み
+      return (
+        tags.wheelchair === 'yes' || tags.wheelchair === 'designated' ||
+        tags.ramp === 'yes' ||
+        tags['ramp:wheelchair'] === 'yes' ||
+        tags.elevator === 'yes'
+      )
+    default:
+      // 不明な視点IDはフィルタしない（安全側の挙動）
+      return true
+  }
+}
+
+/**
+ * kerb:height の値が数値として解釈できて maxM（m）以下か
+ * （未登録・空文字・数値解釈不可は false）
+ */
+function kerbHeightLe(value, maxM) {
+  if (value == null || value === '') return false
+  const n = Number(value)
+  return Number.isFinite(n) && n <= maxM
+}
+
+// ===== 料理ジャンルファセット（cuisine） =====
+
+/**
+ * cuisine タグ値 → 日本語表示ラベル の辞書（一般的な値のみ）。
+ * 載っていない値はそのまま表示する（cuisineFacetValues がフォールバック）。
+ */
+const CUISINE_LABELS = {
+  ramen: 'ラーメン',
+  udon: 'うどん',
+  soba: 'そば',
+  sushi: '寿司',
+  japanese: '和食',
+  tempura: '天ぷら',
+  ramen_bar: 'ラーメン',
+  italian: 'イタリアン',
+  chinese: '中華',
+  french: 'フレンチ',
+  indian: 'インド料理',
+  nepalese: 'ネパール料理',
+  thai: 'タイ料理',
+  vietnamese: 'ベトナム料理',
+  korean: '韓国料理',
+  malay: 'マレー料理',
+  burger: 'ハンバーガー',
+  pizza: 'ピザ',
+  steak: 'ステーキ',
+  barbecue: 'バーベキュー',
+  yakiniku: '焼肉',
+  izakaya: '居酒屋',
+  curry: 'カレー',
+  noodle: '麺',
+  pasta: 'パスタ',
+  bakery: 'パン',
+  bread: 'パン',
+  sweets: 'スイーツ',
+  dessert: 'スイーツ',
+  ice_cream: 'アイスクリーム',
+  cafe: 'カフェ',
+  coffee_shop: 'カフェ',
+  tea: 'お茶',
+  beer: 'ビール',
+  wine: 'ワイン',
+  bar: 'バー',
+  pub: 'パブ',
+  fast_food: 'ファストフード',
+  mexican: 'メキシカン',
+  spanish: 'スペイン料理',
+  greek: 'ギリシャ料理',
+  turkish: 'トルコ料理',
+  persian: 'ペルシア料理',
+  moroccan: 'モロッコ料理',
+  russian: 'ロシア料理',
+  american: 'アメリカ料理',
+  australian: 'オーストラリア料理',
+  brazilian: 'ブラジル料理',
+  swiss: 'スイス料理',
+  dutch: 'オランダ料理',
+  scandinavian: '北欧料理',
+  mediterranean: '地中海料理',
+  seafood: '海鮮',
+  vegetarian: 'ベジタリアン',
+  vegan: 'ヴィーガン',
+  halal: 'ハラル',
+  kosher: 'コーシャ',
+  buffet: 'ビュッフェ'
+}
+
+/**
+ * 結果の tags.cuisine（';' 区切り）を集計したファセット値を返す。
+ *
+ * - 値は小文字に正規化して集計する（'Ramen' と 'ramen' は同一値）。
+ *   フィルタ（applyResultFilters の cuisine）も大小文字無視で判定するため、
+ *   チップの value とフィルタ値を同じ正規化で扱える。
+ * - label は CUISINE_LABELS の日本語表記。載っていない値はそのまま。
+ * - count の多い順に並び、同件数の場合は値の昇順で決める（安定した表示）。
+ * - 最大 limit 件（既定10）まで返す。
+ *
+ * @param {Array} results - Overpass result 配列（フィルタ適用前の結果を渡す）
+ * @param {number} limit - 返すファセット値の最大件数（既定10）
+ * @returns {Array<{value:string, label:string, count:number}>}
+ */
+export function cuisineFacetValues(results, limit = 10) {
+  const counts = new Map()
+  for (const r of Array.isArray(results) ? results : []) {
+    const raw = r && r.tags ? r.tags.cuisine : null
+    if (raw == null || raw === '') continue
+    for (const part of String(raw).split(';')) {
+      const value = part.trim().toLowerCase()
+      if (!value) continue
+      counts.set(value, (counts.get(value) || 0) + 1)
+    }
+  }
+  const items = [...counts.entries()].map(([value, count]) => ({
+    value,
+    label: CUISINE_LABELS[value] || value,
+    count
+  }))
+  items.sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+  return items.slice(0, limit)
+}
 
 /**
  * アクティブなフィルタが1つでも存在するか
@@ -37,6 +229,9 @@ export function hasActiveFilters(filters) {
     (f.purposeFilter || '') ||
     f.websiteOnly ||
     (f.missingFilter && f.missingFilter !== 'none') ||
+    (f.perspective && f.perspective !== 'none') ||
+    ((f.cuisine || '').trim() !== '') ||
+    (f.kerbHeight && f.kerbHeight !== 'any') ||
     (f.sortDir && f.sortDir !== 'none')
   )
 }
@@ -85,6 +280,30 @@ export function applyResultFilters(results, filters) {
       const missing = missingAttributesOf(r)
       if (f.missingFilter === 'any') return missing.length > 0
       return missing.includes(f.missingFilter)
+    })
+  }
+
+  // 視点フィルタ: 「誰にとって使いやすいか」で絞る（登録ありのものだけ残す）
+  if (f.perspective && f.perspective !== 'none') {
+    out = out.filter((r) => matchesPerspective(r, f.perspective))
+  }
+
+  // 料理ジャンル: tags.cuisine（';' 区切り）に値を含む結果だけ残す（部分一致・大小文字無視）
+  const cuisine = (f.cuisine || '').trim().toLowerCase()
+  if (cuisine) {
+    out = out.filter((r) => {
+      const raw = r && r.tags ? r.tags.cuisine : null
+      if (raw == null || raw === '') return false
+      return String(raw).split(';').some((part) => part.trim().toLowerCase().includes(cuisine))
+    })
+  }
+
+  // 縁石の高さ（バリアフリー一覧専用）: bf を持つ結果のうち kerbHeightClass が
+  // 一致するものだけ残し、bf を持たない結果（および縁石でない要素）は除外する
+  if (f.kerbHeight && f.kerbHeight !== 'any') {
+    out = out.filter((r) => {
+      if (!r || !r.bf || typeof r.bf !== 'object') return false
+      return kerbHeightClass(r) === f.kerbHeight
     })
   }
 

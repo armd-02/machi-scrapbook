@@ -428,7 +428,7 @@ describe('PC: 地図の表示タイミングはモバイルと同一', () => {
     // 施設カードをタップ（カード内の施設名h3をクリック。onClickはカードdivへ伝播する）
     fireEvent.click(screen.getByRole('heading', { name: /テスト珈琲店/ }))
 
-    // ボトムシート（dialog）が開く: 名称・住所・OSMリンク・タグ
+    // ボトムシート（dialog）が開く: 名称・住所・カテゴリチップ・OSMリンク
     const dialog = await waitFor(() => {
       const d = screen.queryByRole('dialog', { name: /施設詳細: テスト珈琲店/ })
       expect(d).toBeTruthy()
@@ -436,7 +436,8 @@ describe('PC: 地図の表示タイミングはモバイルと同一', () => {
     }, { timeout: 3000 })
     expect(within(dialog).getByText(/大阪市 梅田 1-1/)).toBeTruthy()
     expect(within(dialog).getByText(/OSMで見る（node\/1001）/)).toBeTruthy()
-    expect(within(dialog).getByText('cafe')).toBeTruthy()
+    // カテゴリチップ（amenity=cafe → カフェ。タグ一覧は廃止されたため生値は出ない）
+    expect(within(dialog).getByText('カフェ')).toBeTruthy()
 
     // 「閉じる」でシートが閉じられる
     fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
@@ -532,7 +533,10 @@ describe('PC: バリアフリー検索（モバイルと同一）', () => {
 
     // 一覧タブにBFカード（名称・表示名）・件数表示が表示される
     expect(screen.getByText('中央通り歩道')).toBeTruthy()
-    expect(screen.getByText('縁石（未記録）')).toBeTruthy()
+    // 名称が無い縁石: タイトルは種別ラベル「縁石」、バッジも「縁石」（カード内で計2件）
+    const kerbCard = screen.getByText('node/3004').closest('.shadow-sm')
+    expect(within(kerbCard).getAllByText('縁石')).toHaveLength(2)
+    expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
     expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
 
     // 凡例が表示される（自治体モードでは一覧タブ側のみ。モバイルと同一）

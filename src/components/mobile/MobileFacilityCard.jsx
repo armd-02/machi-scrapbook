@@ -7,6 +7,7 @@ import {
 } from '../../utils/facilityLabels'
 import { wheelchairBadge } from '../../utils/accessibility'
 import { keyInfoFor } from '../../utils/categoryProfiles'
+import { formatOpeningHoursJa } from '../../utils/openingHours'
 import { missingAttributesOf, ATTRIBUTE_LABELS } from '../../utils/statistics'
 
 // テスト・他コンポーネントの互換のために再エクスポート
@@ -44,7 +45,7 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
   const address = formatAddress(tags)
   const phone = tags.phone || tags['contact:phone']
   const website = safeWebsite(tags)
-  const openingHours = tags.opening_hours || ''
+  const openingHours = formatOpeningHoursJa(tags.opening_hours) || ''
   // (A3) カテゴリプロファイルの追加項目（基本4項目・wheelchair は除外）
   const extraItems = keyInfoFor(result).items.filter(
     (it) => !BASE_KEYS.has(it.key) && it.key !== 'wheelchair'

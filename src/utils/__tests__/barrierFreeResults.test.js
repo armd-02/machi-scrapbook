@@ -9,7 +9,8 @@ import {
   tactileStatus,
   lengthLabel,
   signalLabels,
-  filterByBbox
+  filterByBbox,
+  kerbHeightClass
 } from '../barrierFreeResults'
 
 /**
@@ -236,6 +237,87 @@ describe('barrierFreeTypeLabel', () => {
   })
   it('undefined でもクラッシュしない', () => {
     expect(barrierFreeTypeLabel(undefined)).toBe('バリアフリー要素')
+  })
+})
+
+// ===== 縁石の高さ分類（kerbHeightClass） =====
+
+/** 共通結果形状の縁石ノードを作るヘルパー（bf.kerb と tags を指定） */
+const kerbResult = (tags = {}, kerb = null) => ({
+  type: 'node',
+  id: 1,
+  tags,
+  bf: { kind: 'node', tactile: null, lengthM: null, kerb, hasSound: false, hasVibration: false, geometry: [135.0, 34.0] }
+})
+
+describe('kerbHeightClass', () => {
+  it('bf.kerb=flush → flat（段差なし）', () => {
+    expect(kerbHeightClass(kerbResult({}, 'flush'))).toBe('flat')
+  })
+
+  it('kerb:height が 0 → flat（高さが登録されていればそれが優先）', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0' }, null))).toBe('flat')
+    // 高さ0が登録されていれば、bf.kerb が raised であっても flat
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0' }, 'raised'))).toBe('flat')
+  })
+
+  it('kerb:height が 0 より大で 0.03 以下 → low（低め）', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0.01' }, null))).toBe('low')
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0.02' }, null))).toBe('low')
+  })
+
+  it('kerb:height が 0.03（境界値）→ low', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0.03' }, null))).toBe('low')
+  })
+
+  it('kerb:height が 0.03 より大 → high（高め）', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0.031' }, null))).toBe('high')
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '0.05' }, null))).toBe('high')
+  })
+
+  it('高さが未記録の場合は bf.kerb=lowered → low', () => {
+    expect(kerbHeightClass(kerbResult({}, 'lowered'))).toBe('low')
+  })
+
+  it('高さが未記録の場合は bf.kerb=raised → high', () => {
+    expect(kerbHeightClass(kerbResult({}, 'raised'))).toBe('high')
+  })
+
+  it('flush/lowered/raised 以外の kerb 値（例: cut）→ unknown', () => {
+    expect(kerbHeightClass(kerbResult({}, 'cut'))).toBe('unknown')
+  })
+
+  it('barrier=kerb のみ（kerb 値・高さとも未記録）→ unknown', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb' }, null))).toBe('unknown')
+  })
+
+  it('kerb:height が数値解釈不可なら kerb 値で判定にフォールバックする', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': 'abc' }, 'flush'))).toBe('flat')
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '' }, 'lowered'))).toBe('low')
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': 'abc' }, null))).toBe('unknown')
+  })
+
+  it('kerb:height が負数（不正値）なら unknown', () => {
+    expect(kerbHeightClass(kerbResult({ barrier: 'kerb', 'kerb:height': '-1' }, null))).toBe('unknown')
+  })
+
+  it('tags.kerb のみ（bf.kerb が null）でも判定される', () => {
+    const r = kerbResult({ barrier: 'kerb', kerb: 'raised' }, null)
+    expect(kerbHeightClass(r)).toBe('high')
+  })
+
+  it('縁石でない要素は null を返す', () => {
+    // 歩道ウェイ（bf は持つが縁石ではない）
+    expect(kerbHeightClass({ type: 'way', id: 2, tags: { highway: 'footway' }, bf: { kind: 'way', tactile: 'yes', kerb: null } })).toBeNull()
+    // 案内信号ノード（bf は持つが縁石ではない）
+    expect(kerbHeightClass({ type: 'node', id: 3, tags: { 'traffic_signals:sound': 'yes' }, bf: { kind: 'node', kerb: null, hasSound: true, hasVibration: false } })).toBeNull()
+    // bf を持たないPOI
+    expect(kerbHeightClass({ type: 'node', id: 4, tags: { amenity: 'cafe' } })).toBeNull()
+  })
+
+  it('undefined / 空オブジェクトでもクラッシュしない', () => {
+    expect(kerbHeightClass(undefined)).toBeNull()
+    expect(kerbHeightClass({})).toBeNull()
   })
 })
 
