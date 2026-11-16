@@ -28,7 +28,8 @@ function StatusBanner() {
     return (
       <div className="bg-red-50 border-b border-red-200 px-4 py-2.5">
         <div className="flex items-start gap-2">
-          <span className="text-red-600 text-sm font-medium shrink-0 mt-0.5">
+          {/* whitespace-pre-line: メッセージ内の改行（\n）を保持して表示。改行なしのメッセージには影響しない */}
+          <span className="text-red-600 text-sm font-medium shrink-0 mt-0.5 whitespace-pre-line">
             ⚠️ {label ? `${label}: ` : ''}{error}
           </span>
         </div>

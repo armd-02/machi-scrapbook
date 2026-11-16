@@ -1,27 +1,22 @@
 // @vitest-environment jsdom
 /**
- * (回帰) PCレイアウト「地図から探す」: ページを開いた直後の「検索する」ボタン
+ * PCレイアウト（>=1024px）「地図から探す」: 「この表示範囲で検索」ボタン
  *
- * ユーザー報告: 地図モードでページを開いた直後、地図は表示されているのに
- * 「検索する」ボタンが押せなく、横に「検索範囲が設定されていません。」と出る。
+ * 旧PC専用レイアウト（SearchTabContent）は廃止され、PCはモバイルと同じシェル
+ * （MobileShell）を中央寄せmax-widthコンテナ内で表示する。そのため本テストは
+ * PC幅（matchMedia matches=false）でモバイル共通の検索タブ（MobileSearchTab）の
+ * 地図モードフッターボタンを検証する。
  *
- * 原因: SearchTabContent は毎レンダリングで makeCriteria() → getMapInstance()
- * を読むが、地図インスタンスは MapView のマウント後 effect で登録される。
- * 初回レンダリング時点ではまだ null であり、state.bbox も無い（初回開いた
- * ページ）ため criteria.ok=false になる。setMapInstance(map) はReact状態の
- * 変更を伴わないため、地図準備完了後も SearchTabContent は再レンダリングせず
- * 古い criteria（no_bbox）がそのまま残る → ボタンが無効化したままになる。
- *
- * 修正: 地図が load/move/zoom した時点で boundsVersion を bump して再レンダリング
- * し、criteria を地図表示範囲で再計算させる（モバイル版 boundsVersion と同一方式）。
- *
- * 検証（設計維持を含む）:
- * - 地図のロード完了時点で「検索する」が押せるようになる（no_bbox で無い）
+ * 固定する契約（旧PC版の回帰契約を新レイアウトへ引き継ぐ）:
+ * - 地図モードでページを開いた直後（地図インスタンスがまだ未登録）は無効でも、
+ *   地図のロード完了（load/move/zoom → boundsVersion bump → 再レンダリング）で
+ *   有効化される（no_bboxのまま無効なまま残らない — 旧PC版のP0回帰の同一問題）
  * - 押下すると「押下時点の地図表示範囲（getBounds）」で検索が実行される（#41方式）。
- *   初期表示範囲（モック既定 34.8,135.4,34.9,135.6）がクエリに反映される。
+ *   初期表示範囲（モック既定 34.8,135.4,34.9,135.6）がクエリに反映される
+ * - 地図を移動（moveend）した後の押下は、その時点の表示範囲で検索する
+ * - 範囲が広すぎ（too_large）になると無効化され、縮小すると再有効化される
  *
- * (#66) 初期検索ソースがmunicipalityになったため、各テストは「地図から探す」で
- * mapモードへ明示切替してから、地図モードの検索ボタンを検証する。
+ * フッター配置（fullWidth版・固定フッター内）の検証は pcSearchFooterButton.test.jsx。
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -39,7 +34,8 @@ vi.mock('maplibre-gl', async () => {
 
 const overpassCalls = []
 
-// (#66) municipalities.json のモックフィクスチャ（初期ソースがmunicipalityのため）
+// municipalities.json のモックフィクスチャ（MunicipalitySearchがdata.municipalitiesを
+// イテレーションするため、空データだとクラッシュする）
 const MUNI_FIXTURE = {
   count: 1,
   municipalities: [
@@ -52,6 +48,7 @@ beforeEach(() => {
   overpassCalls.length = 0
   global.ResizeObserver = global.ResizeObserver || MockResizeObserver
   if (!window.matchMedia) {
+    // matches: false → PC幅（>=1024px）: モバイルシェルをmax-widthコンテナ内で表示
     window.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
   }
   if (mockState.api) mockState.api.resetState()
@@ -72,7 +69,6 @@ beforeEach(() => {
         ] })
       }
     }
-    // (#66) 初期ソースがmunicipalityのため、municipalities.jsonは有効なフィクスチャを返す
     if (u.includes('municipalities.json')) {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_FIXTURE }
     }
@@ -91,16 +87,18 @@ const IT_TIMEOUT = 15000
 // モックの地図は getBounds() が常に既定範囲を返す
 const INITIAL_BOUNDS = '34.800000,135.400000,34.900000,135.600000'
 
-// (#66) 「地図から探す」でmapモードへ明示切替し、地図モードの検索ボタンが出るまで待つ
+// 従来フォーム表示→「地図から探す」タブでmapモードへ切替し、
+// フッターの地図モード検索ボタンが出るまで待つ
 async function enterMapMode() {
-  fireEvent.click(screen.getByRole('button', { name: '地図から探す' }))
+  fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
+  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
   }, { timeout: 5000 })
 }
 
 describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン', () => {
-  it('入力なし・地図がロード完了すると「検索する」が押せるようになる', async () => {
+  it('入力なし・地図がロード完了すると「この表示範囲で検索」が押せるようになる', async () => {
     render(<App />)
     await enterMapMode()
 
@@ -110,7 +108,7 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
     }, { timeout: 5000 })
 
     // 地図のロード完了後にcriteriaが地図表示範囲で再計算され、
-    // 「検索する」ボタンが有効化される（no_bboxのまま無効ではない）
+    // ボタンが有効化される（no_bboxのまま無効ではない）
     await waitFor(() => {
       const btn = screen.getByRole('button', { name: 'この表示範囲で検索' })
       expect(btn.hasAttribute('disabled')).toBe(false)
@@ -130,7 +128,7 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
       expect(btn.hasAttribute('disabled')).toBe(false)
     }, { timeout: 5000 })
 
-    // 入力（カテゴリ・キーワード）なしで「検索する」を押す
+    // 入力（カテゴリ・キーワード）なしでボタンを押す
     fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
 
     // 検索が実行され、クエリに地図の初期表示範囲（getBounds）が反映される
@@ -194,7 +192,8 @@ describe('(回帰) PC地図モード: ページ開いた直後の検索ボタン
       expect(btn.hasAttribute('disabled')).toBe(true)
     }, { timeout: 5000 })
     // too_large失敗時にcheckBboxSizeのメッセージ（2500km²超の「広すぎ」段階）が表示される
-    expect(screen.getByText(/検索範囲が広すぎます/)).toBeTruthy()
+    // （検索範囲カードの検証表示＋PoiDescriptionのアンバー表示の両方で出るため複数件）
+    expect(screen.getAllByText(/検索範囲が広すぎます/).length).toBeGreaterThanOrEqual(1)
 
     // 範囲を縮小（area < 40000 km²）+ moveend発火
     bounds._southWest = { lat: 34.8, lng: 135.4 }

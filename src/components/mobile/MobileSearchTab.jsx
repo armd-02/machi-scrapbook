@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useApp } from '../../context/AppContext'
 import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
-import { boundsToBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocode } from '../../utils/geo'
+import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
+import { checkBboxSize, geocode, searchAreaFromGeocode } from '../../utils/geo'
 import SimpleSearch from '../SimpleSearch'
 import MunicipalitySearch from '../MunicipalitySearch'
 import AdvancedSearch from '../AdvancedSearch'
@@ -27,6 +27,25 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   「トップへ戻る」でトップへ戻れる。地図は両ビューで同一の単一インスタンス
  *   （ツリー内で安定した位置に描画するため再マウントせず、位置・範囲を引き継ぐ）。
  *   自治体モードでは地図ブロックは hidden で非表示（マウントは維持）。
+ *   (#63) トップ表示（view='top'）には地図を描画しない（mapBlock は hidden、
+ *   マウントは維持）。タイル検索は「地図の表示範囲」ではなく「設定済みの
+ *   検索エリア」（state.bbox）で行う。検索エリアは次の2つの方法で設定される:
+ *     ① 「検索する」押下時の geocode（地名・駅名の結果の範囲を検索エリアに設定。
+ *        駅など小さな範囲は約1km正方形に拡大）
+ *     ② 「都道府県から探す」セクションで自治体を選択（そのbboxをエリアに設定）
+ *   操作の流れ（#63 のタイル即検索は「選択→検索する」に分割）:
+ *     ① 地名・駅名を入力（または「都道府県から探す」で自治体を選ぶ）
+ *     ② 目的タイルを1つ選択（タップは選択だけ。選択中はハイライト表示。
+ *        別のタイルを押すと選択が移る）
+ *     ③ タイル下の「検索する」ボタン（または場所入力欄で Enter）で検索実行。
+ *        入力に地名があれば geocode → 検索エリア確定（成功で入力欄が緑・
+ *        「検索エリアに「○○」を設定しました」表示）。入力が空で自治体などで
+ *        エリアが設定済みならそれを使う。場所が決まらなければ検索せず
+ *        案内・エラー表示、タイル（種別）が未選択なら検索せず
+ *        「種別を選んでください」趣旨の案内を表示する。
+ *   場所と種別がそろえばその範囲・種別で施設検索を実行し、成功で一覧タブへ
+ *   自動切替される（MobileShell 側の既存挙動）。
+ *   詳細フォーム側（form 表示の地図モード含む）と結果画面の動作は変更しない。
  * - (top) 場所入力（QuickTopIntro）のすぐ下・地図（mapBlock）の上に「都道府県から探す」
  *   折りたたみセクション（既定は閉じた状態）。
  *   見出しタップで MunicipalitySearch（variant="mobile"：都道府県→市区町村→任意でカテゴリ等）
@@ -47,63 +66,136 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // (#63) 場所指定（クイックトップの地名入力）。親コンポーネントがview切替に
   // 関係なく同じインスタンスを維持するため、入力状態はこのコンポーネントが保持する
   const [placeQuery, setPlaceQuery] = useState('')
-  const [moving, setMoving] = useState(false)
-  const [moveError, setMoveError] = useState(null)
-  const [movedName, setMovedName] = useState(null)
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState(null)
+  // 検索エリアとして設定した場所の表示名（成功フィードバック用）
+  const [areaName, setAreaName] = useState(null)
+  // 「検索する」で geocode → 検索エリア設定に成功したか。true の場合、
+  // 場所入力欄を緑色で表示する。入力内容の編集やエラー時は解除される
+  const [placeAreaSet, setPlaceAreaSet] = useState(false)
+  // (top) 選択中の目的タイル（QUICK_TILES の要素）。タップで選択だけを行い、
+  // 別のタイルを押すと選択が移る（同時に選べるのは1つだけ）。
+  // 施設検索はタイル下の「検索する」ボタンで実行される
+  const [selectedTile, setSelectedTile] = useState(null)
 
   // (top) 「都道府県から探す」折りたたみセクションの開閉（既定は閉じた状態）
   const [muniSectionOpen, setMuniSectionOpen] = useState(false)
 
-  // 地名をgeocodeして地図の表示範囲を移動（既存機構の再利用: geocode + jumpTo）
-  const handlePlaceMove = async () => {
+  // (top) 「検索する」ボタン・場所入力欄 Enter で実行する統一検索フロー。
+  // ① 場所の確定: 入力欄に地名・駅名があれば geocode して検索エリアを設定
+  //   （成功で入力欄を緑にし「検索エリアに「○○」を設定しました」を表示）。
+  //   入力が空なら既存の検索エリア（「都道府県から探す」の自治体選択などで
+  //   設定済みの state.bbox）を使う。地図を移動しない: 駅など小さな範囲
+  //   （面積が1km²未満）の結果は searchAreaFromGeocode が約1km正方形に拡大する。
+  // ② 場所が決まらなければ（入力が空でエリア未設定、または geocode で
+  //   見つからない）検索せず、従来の案内・エラー表示を出す。
+  // ③ タイル（種別）が未選択なら検索せず「種別を選んでください」案内。
+  // ④ 場所と種別がそろえば、その範囲・種別で施設検索を実行
+  //   （成功で MobileShell が一覧タブへ自動切替）。
+  const handleTopSearch = async () => {
+    if (state.status === 'loading' || searching) return
+
+    // ① 場所の確定
     const q = placeQuery.trim()
-    if (!q || moving) return
-    setMoving(true)
-    setMoveError(null)
-    setMovedName(null)
-    try {
-      const result = await geocode(q)
-      if (!result) {
-        setMoveError('場所が見つかりませんでした。別の表記で試してください。')
+    let areaBbox = state.bbox
+    if (q) {
+      setSearching(true)
+      setSearchError(null)
+      setAreaName(null)
+      // 検索中は緑を解除。成功時のみ再度設定される（見つからなかった場合は緑にならない）
+      setPlaceAreaSet(false)
+      try {
+        const result = await geocode(q)
+        if (!result) {
+          setSearchError('場所が見つかりませんでした。別の表記で試してください。')
+          return
+        }
+        // (#63) ジオコード結果の範囲を検索エリア（state.bbox）として設定する。
+        // トップ画面には地図を描画しないため、地図の表示範囲は使わない。
+        areaBbox = searchAreaFromGeocode(result)
+        dispatch({ type: 'SET_BBOX', payload: areaBbox })
+        setAreaName(result.displayName)
+        // 入力値は残して緑で表示（場所が決まったことが入力欄の見た目で分かる）。
+        // 編集されたら handlePlaceQueryChange が緑と検索エリアを解除する。
+        setPlaceAreaSet(true)
+      } catch (error) {
+        setSearchError(error.message || '地名検索に失敗しました')
         return
+      } finally {
+        setSearching(false)
       }
-      const map = getMapInstance()
-      if (map) {
-        // MapToolbarと同じ方針: 最小ズーム15で地点に寄り添う
-        map.jumpTo({ center: [result.lon, result.lat], zoom: Math.max(map.getZoom(), 15) })
-      }
-      setMovedName(result.displayName)
-      setPlaceQuery('')
-    } catch (error) {
-      setMoveError(error.message || '地名検索に失敗しました')
-    } finally {
-      setMoving(false)
     }
-  }
 
-  // (#63) 目的タイル: 目的・カテゴリ条件で即検索（成功で親がリストタブへ切替）
-  const handleTileTap = (tile) => {
-    if (state.status === 'loading') return
-    const conditions = tile.purpose
-      ? { category: '', cuisine: '', keyword: '', purpose: tile.purpose }
-      : { category: tile.category, cuisine: '', keyword: '', purpose: '' }
+    // ② 場所が未設定（入力が空でエリア未設定、または geocode で見つからない）
+    if (!areaBbox || !isValidBbox(areaBbox)) {
+      dispatch({ type: 'SET_STATUS', payload: 'error' })
+      dispatch({
+        type: 'SET_ERROR',
+        // 文の区切りで改行（\n）。表示側は StatusBanner が whitespace-pre-line で改行を保持する
+        payload: '場所がまだ設定されていません。\n地名・駅名を入力して「検索する」を押すか、\n「都道府県から探す」で自治体を選択してください。',
+        errorType: 'validation'
+      })
+      return
+    }
 
-    // トップは常に地図表示範囲で検索する。自治体モードなら先に地図モードへ切替
+    // ③ 種別（目的タイル）が未選択
+    if (!selectedTile) {
+      dispatch({ type: 'SET_STATUS', payload: 'error' })
+      dispatch({
+        type: 'SET_ERROR',
+        payload: '種別を選んでください。\n目的の施設にあたる目的タイルを1つタップしてください。',
+        errorType: 'validation'
+      })
+      return
+    }
+
+    // ④ 施設検索（旧タイル即検索と同じ方式: 更新後の状態スナップショット
+    //    → buildSearchCriteria → search）
+    const conditions = selectedTile.purpose
+      ? { category: '', cuisine: '', keyword: '', purpose: selectedTile.purpose }
+      : { category: selectedTile.category, cuisine: '', keyword: '', purpose: '' }
+
+    // 地図モードで検索する。自治体モード等なら先に地図モードへ切替
+    // （目的タイル・フォーム経由のいずれの流れでも地図モードで検索する既存設計を維持）
     if (state.searchSource !== 'map') {
       dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'map' })
     }
     dispatch({ type: 'SET_SIMPLE_SEARCH', payload: conditions })
 
-    // stale-state競合を避けるため、更新後の状態からスナップショットを構築 (#47)
-    // 地図が非表示（hidden）の場合getBoundsは縮退するため、表示中のときのみ採用。
-    // 非表示時は buildSearchCriteria 側で前回範囲(state.bbox)にフォールバックする
-    const mapBounds = state.searchSource === 'map' ? readMapBounds() : null
+    // stale-state競合を避けるため、更新後の状態からスナップショットを構築 (#47)。
+    // 検索は確定した検索エリア（areaBbox）の範囲で実行する。トップ画面には
+    // 地図を描画しないため、地図の表示範囲（mapBounds）は使わない。
+    // 直前に geocode した場合、dispatch は非同期で state.bbox にはまだ反映
+    // されていないため、スナップショットに新しいエリアを直接含める。
     const next = {
       ...state,
+      bbox: areaBbox,
       searchSource: 'map',
       simpleSearch: { ...state.simpleSearch, ...conditions }
     }
-    search(buildSearchCriteria(next, mapBounds ? { mapBounds } : {}))
+    const criteria = buildSearchCriteria(next, {})
+    // criteria が ok でない場合、壊れた criteria を search() に渡さない
+    // （渡すと useSearch 側の検証エラーが発火し、通信エラーとして表示される）。
+    // 代わりに criteria 自身の message / suggestion をエラー表示する。
+    if (criteria.ok !== true) {
+      dispatch({ type: 'SET_STATUS', payload: 'error' })
+      dispatch({
+        type: 'SET_ERROR',
+        payload: criteria.message,
+        errorType: 'validation',
+        errorSuggestion: criteria.suggestion
+      })
+      return
+    }
+    search(criteria)
+  }
+
+  // (top) 目的タイル: タップは「選択」だけ（検索は実行しない）。
+  // 同時に選べるのは1つだけ: 別のタイルを押すと選択が移る。
+  // 実際の施設検索はタイル下の「検索する」ボタン（handleTopSearch）で実行される。
+  const handleTileSelect = (tile) => {
+    if (state.status === 'loading') return
+    setSelectedTile(tile)
   }
 
   // (top) 自治体セクションの「検索する」: #47 パターン（更新後の状態スナップショット →
@@ -126,6 +218,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     if (criteria.ok !== true) return
     search(criteria)
   }
+  // 場所入力の内容が編集されたら、緑のスタイルと検索エリアを未設定に戻す。
+  // 入力内容と検索エリアが食い違う状態を作らないため（「検索する」の未設定ガードが
+  // 再び働く）。エラー表示・成功フィードバックも一緒に消す。
+  const handlePlaceQueryChange = (value) => {
+    setPlaceQuery(value)
+    setPlaceAreaSet(false)
+    setAreaName(null)
+    setSearchError(null)
+    dispatch({ type: 'SET_BBOX', payload: null })
+  }
+
   // 地図上のマーカータップで選択されたPOI（説明枠の表示用）
   const [tappedPoi, setTappedPoi] = useState(null)
   useEffect(() => {
@@ -149,6 +252,26 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   const setMode = (mode) => {
     dispatch({ type: 'SET_SEARCH_MODE', payload: mode })
   }
+
+  // (#63) 「都道府県から探す」セクション（またはフォームの自治体モード）で
+  // 自治体が選択されたら、その範囲を検索エリア（state.bbox）として保持する。
+  // これでトップ画面でタイルを選択して「検索する」を押すと、その自治体の範囲で
+  // 検索できる（入力が空ならこのエリアがそのまま使われる）。
+  // セクション自身の「検索する」ボタンの動作は変えない（自治体モードの条件は
+  // 自治体のbboxを直接使用するため）。選択解除（null）時はエリアを消さない。
+  const prevMunRef = useRef(state.selectedMunicipality)
+  useEffect(() => {
+    const mun = state.selectedMunicipality
+    if (mun === prevMunRef.current) return
+    prevMunRef.current = mun
+    if (mun && mun.bbox && isValidBbox(mun.bbox)) {
+      dispatch({ type: 'SET_BBOX', payload: { ...mun.bbox } })
+      // 自治体選択で検索エリアが上書きされるため、地名入力由来の緑・フィードバックを
+      // 解除する（入力内容と検索エリアが食い違う状態を防ぐ）
+      setPlaceAreaSet(false)
+      setAreaName(null)
+    }
+  }, [state.selectedMunicipality, dispatch])
 
   // 地図が動いた場合（地理コード等）に範囲情報を再計算
   // （地図のアンマウント/再マウントに追従させるため searchSource を依存に含める）
@@ -225,10 +348,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 地図ブロック（両ビュー共通・ツリー内で安定した位置＝2番目の子要素）。
   // 同一のJSX要素を同じ位置に描画し続けることで、トップ⇄フォーム切替時に
   // MapViewが再マウントされず、地図の位置・表示範囲が引き継がれる (#63)。
-  // 自治体モードでは hidden で非表示（マウントは維持。表示復帰時のresizeは
-  // MapView側のResizeObserverが処理する #60）
+  // 非表示になるのは: ①トップ表示（view='top'、#63でトップには地図を描画しない）
+  // ②自治体モード（source !== 'map'）。いずれもマウントは維持し、表示復帰時の
+  // resizeは MapView側のResizeObserverが処理する #60）
   const mapBlock = (
-    <div hidden={searchSource !== 'map'} className="rounded-xl overflow-hidden border border-slate-200">
+    <div hidden={view !== 'form' || searchSource !== 'map'} data-testid="map-block" className="rounded-xl overflow-hidden border border-slate-200">
       <div className="relative h-[240px]" style={mapHeight.containerStyle}>
         <MapView
           onMarkerClick={onMarkerClick}
@@ -313,11 +437,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
           <div className="space-y-3">
             <QuickTopIntro
               placeQuery={placeQuery}
-              onPlaceQueryChange={setPlaceQuery}
-              moving={moving}
-              moveError={moveError}
-              movedName={movedName}
-              onPlaceMove={handlePlaceMove}
+              onPlaceQueryChange={handlePlaceQueryChange}
+              searching={searching}
+              searchError={searchError}
+              areaName={areaName}
+              areaSet={placeAreaSet}
+              onSearch={handleTopSearch}
               disabled={state.status === 'loading'}
             />
 
@@ -361,8 +486,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
 
         {view === 'top' ? (
           <QuickTopTiles
-            onTileTap={handleTileTap}
+            onTileTap={handleTileSelect}
+            onSearch={handleTopSearch}
             onOpenDetailed={() => onViewChange('form')}
+            selectedTileId={selectedTile ? selectedTile.id : null}
+            searching={searching}
             disabled={state.status === 'loading'}
           />
         ) : (

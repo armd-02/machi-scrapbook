@@ -14,7 +14,7 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 検索タブ内の地図モード検索 → クエリに地図BBOXが反映される
 // - 検索成功時の「一覧」タブ自動切替
 // - 検索タブの「この表示範囲で検索」明示トリガー（地図移動だけでは検索しない）
-// - 施設カードタップ → 詳細ボトムシート → 「地図で見る」
+// - 施設カードタップ → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
 // - (#66) 初期検索ソースがmunicipalityになったため、地図モード検証テストは
@@ -69,6 +69,14 @@ const BF_ELEMENTS_HIGASHIOSAKA = [
   { type: 'node', id: 3004, lat: 34.65, lon: 135.48, tags: { barrier: 'kerb' } },
 ]
 
+// (#63) 「梅田」ジオコード検索エリア（34.69–34.71 / 135.49–135.51）の内側にある
+// バリアフリー要素。バリアフリー検索の結果はクライアント側で検索bboxにより
+// フィルタされるため、タイル検索テストでは要素を検索エリア内に置く。
+const BF_ELEMENTS_UMEDA = [
+  { type: 'way', id: 3005, tags: { highway: 'footway', tactile_paving: 'yes', name: '中央通り歩道' }, geometry: [ { lat: 34.695, lon: 135.495 }, { lat: 34.7, lon: 135.5 }, { lat: 34.705, lon: 135.505 } ] },
+  { type: 'node', id: 3006, lat: 34.7, lon: 135.5, tags: { barrier: 'kerb' } },
+]
+
 // ===== フック =====
 let mediaMatches = true
 let mediaListeners = []
@@ -100,6 +108,23 @@ function setupFetchMock() {
     const u = String(url)
     if (u.includes('municipalities.json')) {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
+    }
+    // (#63) Nominatimジオコード（QuickTopIntroの「検索」検証用）
+    if (u.includes('nominatim')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: async () => [
+          {
+            lat: '34.700000',
+            lon: '135.500000',
+            display_name: '大阪府大阪市北区梅田1丁目',
+            type: 'suburb',
+            boundingbox: ['34.69', '34.71', '135.49', '135.51'],
+          },
+        ],
+      }
     }
     if (u.includes('interpreter') || u.includes('sakura') || u.includes('overpass')) {
       const body = options.body || ''
@@ -191,6 +216,28 @@ async function switchToMapMode() {
   }, { timeout: 3000 })
 }
 
+// (#63) 「検索エリアが設定済み」状態をテスト上で再現する: 地名を入力して
+// タイル下の「検索する」を押す（fetchモックが「梅田」のNominatim結果を返す →
+// 検索エリアに設定される）。成功フィードバックの表示を待って返す。
+// この時点ではタイル未選択なので「種別を選んでください」の案内も同時に現れる。
+// 後続でタイル選択+「検索する」で実際に検索するテストがこれを利用する。
+// （トップ画面には地図を描画しないため、旧「ユーザーが地図を動かした」の
+// 再現方法はなくなった。検索エリアはジオコードまたは自治体選択で設定される。）
+async function setAreaByGeocode() {
+  fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
+  fireEvent.click(getTopSearchButton())
+  await waitFor(() => {
+    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+  }, { timeout: 8000 })
+}
+
+// (#63) タイル下の「検索する」ボタン。「目的から探す」セクション内にスコープする:
+// 下部ナビの「検索」タブや「都道府県から探す」セクションの「検索する」と同名のため。
+// タイルタップは選択のみのため、施設検索はこのボタン（または場所入力でEnter）で実行される。
+function getTopSearchButton() {
+  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '検索する' })
+}
+
 async function selectMunicipality(prefText, munText, prefLabel = '都道府県', munLabel = '市区町村') {
   await waitFor(() => {
     expect(screen.getByText(prefLabel)).toBeTruthy()
@@ -257,66 +304,63 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     expect(screen.queryByText('施設検索')).toBeNull()
   }, IT_TIMEOUT)
 
-  it('幅>=1024px: 現行のPCレイアウトのまま（モバイルナビなし）', async () => {
+  it('幅>=1024px: モバイルと同じシェルが中央寄せmax-widthコンテナ内で表示される（PC・モバイル共通レイアウト）', async () => {
     mediaMatches = false
-    renderApp()
+    window.history.replaceState(null, '', '/')
+    const view = render(<App />)
+    const container = view.container
 
-    // 廃止された上部タブバーは存在しない（nav要素がPCレイアウトに無い）
-    expect(screen.queryByRole('navigation')).toBeNull()
+    // 中央寄せmax-widthコンテナ（max-w-[520px]）
+    const wrapper = container.querySelector('.mx-auto')
+    expect(wrapper).toBeTruthy()
+    expect(wrapper.className).toContain('max-w-[520px]')
 
-    // タイトル行右端: ハンバーガーメニューボタン（旧タブバーの代替）
-    const menuBtn = screen.getByRole('button', { name: 'メニュー' })
-    expect(menuBtn).toBeTruthy()
-    // デフォルト画面は施設検索で、画面の中身は既存構成のまま（地図切替ボタン等）
-    expect(screen.getByText('地図を隠す')).toBeTruthy()
-
-    // メニューからの画面切替（新仕様: PCでもタイトル行右端のハンバーガーメニューで切替）
-    fireEvent.click(menuBtn)
-    // メニューを開くと、3つの画面項目+フッター項目が揃って表示される
-    const menu = await screen.findByRole('menu', { name: 'メニュー' })
-    for (const label of ['施設検索', '店名→座標CSV', '集計・出力', 'まちデータ帳とは']) {
-      expect(within(menu).getByRole('menuitem', { name: label })).toBeTruthy()
+    // コンテナ内はモバイルと同じシェル: 下部ナビ3タブ＋一般向けトップ表示
+    const nav = screen.getByRole('navigation', { name: 'モバイルナビゲーション' })
+    for (const label of ['検索', '一覧', 'その他']) {
+      expect(within(nav).getByRole('button', { name: label })).toBeTruthy()
     }
-    // 「店名→座標CSV」を選択して切替
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '店名→座標CSV' }))
-    // 店名→座標CSV画面（BatchMatch）に切り替わり、メニューは閉じる
-    await screen.findByRole('button', { name: '照合' })
-    await waitFor(() => {
-      expect(screen.queryByRole('menu')).toBeNull()
-    })
-
-    // モバイル下部ナビは存在しない
-    expect(screen.queryByRole('navigation', { name: 'モバイルナビゲーション' })).toBeNull()
-  }, IT_TIMEOUT)
-
-  it('matchMedia change でレイアウトが追従する（回転・キーボード表示に対応）', async () => {
-    mediaMatches = false
-    renderApp()
-    // PCレイアウト: タイトル行右端のハンバーガーメニューボタン + 施設検索画面（地図切替）
-    expect(screen.getByRole('button', { name: 'メニュー' })).toBeTruthy()
-    expect(screen.getByText('地図を隠す')).toBeTruthy()
-
-    // 横画面へ回転（幅が1024px未満になる）→ モバイルシェル
-    fireMediaChange(true)
-    // 下部ナビが出現し、モバイルの検索タブが表示される
-    await waitFor(() => {
-      expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
-    }, { timeout: 3000 })
-    // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素（intro・「くわしく探す」）を確認
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(tabIsCurrent('検索')).toBe(true)
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
-    // PC固有の要素（メニューボタン・地図切替）は消える
+
+    // (#63) トップ画面には地図を描画しない（マウントされたままhidden）
+    const mapBlock = screen.queryByTestId('map-block')
+    expect(mapBlock).toBeTruthy()
+    expect(mapBlock.hasAttribute('hidden')).toBe(true)
+
+    // 旧PCレイアウト固有の要素（ハンバーガーメニュー・地図切替）は存在しない
     expect(screen.queryByRole('button', { name: 'メニュー' })).toBeNull()
     expect(screen.queryByText('地図を隠す')).toBeNull()
+  }, IT_TIMEOUT)
 
-    // 元に戻る → PCレイアウト
+  it('matchMedia change でレイアウトが追従する（回転・キーボード表示に対応）: コンテナの出現・消滅', async () => {
+    mediaMatches = false
+    window.history.replaceState(null, '', '/')
+    const view = render(<App />)
+    const container = view.container
+
+    // PC幅: 中央寄せコンテナ＋モバイルシェル
+    expect(container.querySelector('.mx-auto')).toBeTruthy()
+    expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
+
+    // 横画面へ回転（幅が1024px未満になる）→ モバイル: コンテナが消え、シェルがビューポート全体に
+    fireMediaChange(true)
+    await waitFor(() => {
+      expect(container.querySelector('.mx-auto')).toBeNull()
+    }, { timeout: 3000 })
+    // シェル自体は同じコンポーネントがそのまま表示され続ける
+    // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素を確認
+    expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
+    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
+
+    // 元に戻る → PC: コンテナが復帰
     fireMediaChange(false)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'メニュー' })).toBeTruthy()
+      expect(container.querySelector('.mx-auto')).toBeTruthy()
     }, { timeout: 3000 })
-    // 施設検索画面が復帰し、モバイル下部ナビは消える
-    expect(screen.getByText('地図を隠す')).toBeTruthy()
-    expect(screen.queryByRole('navigation', { name: 'モバイルナビゲーション' })).toBeNull()
+    expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
   }, IT_TIMEOUT)
 })
 
@@ -360,9 +404,10 @@ describe('(#59) 検索タブ: 地図モード検索', () => {
 
     // (#44) 選択カテゴリ（カフェ）で結果が絞り込まれる: cafeカードのみ表示
     // （モックはクエリ非依存の3件を返すが、reducerのミラーでcatFilter=cafeが適用される）
-    expect(screen.getByRole('button', { name: /テスト珈琲店/ })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /ラーメン屋テスト/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /テスト書店/ })).toBeNull()
+    // 電話帳型カード: 施設名はh3（heading）で表示される
+    expect(screen.getByRole('heading', { name: /テスト珈琲店/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /ラーメン屋テスト/ })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /テスト書店/ })).toBeNull()
     expect(screen.getByText(/3件中、\s*1\s*件を表示/)).toBeTruthy()
   }, IT_TIMEOUT)
 
@@ -460,8 +505,8 @@ describe('(#59/#60) 検索タブ: 地図の明示的な検索トリガー', () =
   }, IT_TIMEOUT)
 })
 
-describe('(#59) 施設カード→詳細ボトムシート→地図で見る', () => {
-  it('カードタップ→詳細表示→「地図で見る」で地図タブに移動する', async () => {
+describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
+  it('カードタップ→詳細表示→「閉じる」→地図へ→マーカータップで再オープン', async () => {
     renderApp()
 
     // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
@@ -476,8 +521,8 @@ describe('(#59) 施設カード→詳細ボトムシート→地図で見る', (
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
 
-    // 施設カードをタップ
-    fireEvent.click(screen.getByRole('button', { name: /テスト珈琲店/ }))
+    // 施設カードをタップ（カード内の施設名h3をクリック。onClickはカードdivへ伝播する）
+    fireEvent.click(screen.getByRole('heading', { name: /テスト珈琲店/ }))
 
     // ボトムシート（dialog）が開く: 名称・住所・OSMリンク・タグ
     const dialog = await waitFor(() => {
@@ -494,21 +539,19 @@ describe('(#59) 施設カード→詳細ボトムシート→地図で見る', (
     // 説明はnoteとタグ一覧の両方に出る（≥1）
     expect(within(dialog).getAllByText('段差なし').length).toBeGreaterThanOrEqual(1)
 
-    // 「地図で見る」: シートが閉じられ検索タブ（地図モード）へ移動
-    fireEvent.click(within(dialog).getByRole('button', { name: '地図で見る' }))
+    // 「閉じる」でシートが閉じられる
+    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     }, { timeout: 3000 })
-    expect(tabIsCurrent('検索')).toBe(true)
 
-    // (#60) activeResultId経由で地図が施設（テスト珈琲店 34.85,135.5）へパンする
-    const map0 = getMapInstance()
+    // 下部ナビから検索タブ（地図モード）へ切替。状態は保持されるため地図が表示される
+    clickTab('検索')
     await waitFor(() => {
-      // MapLibreのpanToは[経度, 緯度]順
-      expect(map0._calls.some((c) => c.name === 'panTo' && Array.isArray(c.args[0]) && c.args[0][0] === 135.5 && c.args[0][1] === 34.85)).toBe(true)
+      expect(screen.getByTestId('map-block').hasAttribute('hidden')).toBe(false)
     }, { timeout: 3000 })
 
-    // 「閉じる」でシートが閉じられる（再オープンして確認）
+    // マーカータップ: シートが再オープンし、activeResultId経由で地図が施設（テスト珈琲店 34.85,135.5）へパンする
     const map = getMapInstance()
     const feature2 = map._lastGeoJSON?.data?.features?.find((f) => f.properties.key === 'node/1001')
     expect(feature2).toBeTruthy()
@@ -523,11 +566,16 @@ describe('(#59) 施設カード→詳細ボトムシート→地図で見る', (
       expect(d).toBeTruthy()
       return d
     }, { timeout: 3000 })
+    await waitFor(() => {
+      // MapLibreのpanToは[経度, 緯度]順
+      expect(map._calls.some((c) => c.name === 'panTo' && Array.isArray(c.args[0]) && c.args[0][0] === 135.5 && c.args[0][1] === 34.85)).toBe(true)
+    }, { timeout: 3000 })
+
+    // 「閉じる」でシートが閉じられ、検索タブは維持される
     fireEvent.click(within(dialog2).getByRole('button', { name: '閉じる' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     }, { timeout: 3000 })
-    // 検索タブは維持される
     expect(tabIsCurrent('検索')).toBe(true)
   }, IT_TIMEOUT)
 })
@@ -557,8 +605,8 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
     await waitFor(() => {
       expect(screen.getByText(/3件中、1件を表示/)).toBeTruthy()
     }, { timeout: 3000 })
-    expect(screen.getByRole('button', { name: /テスト珈琲店/ })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /ラーメン屋テスト/ })).toBeNull()
+    expect(screen.getByRole('heading', { name: /テスト珈琲店/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /ラーメン屋テスト/ })).toBeNull()
   }, IT_TIMEOUT)
 
   it('検索0件時は専用のガイダンス（EditPanel）が表示される', async () => {
@@ -812,51 +860,145 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     // 従来フォームへの「くわしく探す」導線
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
+    // タイル下の「検索する」ボタン（施設検索の実行入口）が表示される
+    expect(getTopSearchButton()).toBeTruthy()
+    // 場所入力欄の右にあった旧「検索」ボタンはなくなった（検索は「検索する」で実行）
+    expect(within(screen.getByRole('region', { name: 'どこで探すか' })).queryByRole('button')).toBeNull()
+
     // 従来フォーム固有の要素はトップでは表示されない
     expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
     expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
     expect(screen.queryByPlaceholderText('例: 珈琲、ラーメン')).toBeNull()
+
+    // (#63) トップ画面には地図を描画しない: 地図ブロックはマウントされたまま
+    // hidden で非表示（フォーム表示・地図モードでのみ表示される）
+    const mapBlock = screen.queryByTestId('map-block')
+    expect(mapBlock).toBeTruthy()
+    expect(mapBlock.hasAttribute('hidden')).toBe(true)
+  }, IT_TIMEOUT)
+
+  it('目的タイル（食べる）を選択して「検索する」を押す: 初期ソースが自治体でも検索エリアで検索される（no_bboxにならない）', async () => {
+    renderApp()
+    // (#63) タイル検索には検索エリアの設定が必要: ジオコードで「梅田」を設定する
+    await setAreaByGeocode()
+
+    // 回帰テスト: 初期ソースがmunicipalityのとき、旧実装は mapBounds 読み取りの条件が
+    // `state.searchSource === 'map'` だったため、dispatch で地図モードへ切替した直後の
+    // ハンドラ内で切り替え前の古い state を見て mapBounds が null になり、
+    // buildSearchCriteria が no_bbox で失敗していた（バナーは「接続エラー」と表示）。
+    // 修正後は切り替え前のソースに関係なく更新後の状態からスナップショットを
+    // 構築するため、トップのまま検索が実行される。
+    // タイルタップは選択だけ（タップで検索しない）。検索は「検索する」で実行される
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // Overpassクエリがジオコード結果の範囲（梅田）で送出される
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
+    // 「食べる」目的グループのunionがクエリに含まれる
+    expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('amenity=restaurant')
+
+    // 成功で一覧タブへ自動切替され、検証エラーのバナーは出ない
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+    expect(screen.queryByText(/検索範囲が設定されていません/)).toBeNull()
+  }, IT_TIMEOUT)
+
+  it('検索エリアが大きすぎる場合のタイル検索: 壊れたcriteriaをsearch()に渡さず検証エラーを表示（「接続エラー」ラベルなし）', async () => {
+    renderApp()
+
+    // ジオコード結果のboundingboxが巨大（約230万km²、40000km²の閾値超）になるよう
+    // fetchモックを上書きする（searchAreaFromGeocodeは面積が1km²以上ならそのまま使う）
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
+      const u = String(url)
+      if (u.includes('nominatim')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: async () => [
+            { lat: '38.0', lon: '137.5', display_name: '日本', type: 'country', boundingbox: ['31', '45', '129', '146'] },
+          ],
+        }
+      }
+      if (u.includes('interpreter') || u.includes('sakura') || u.includes('overpass')) {
+        const body = options.body || ''
+        const q = new URLSearchParams(body).get('data') || body
+        overpassCalls.push(q)
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: overpassElements }),
+        }
+      }
+      return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
+    })
+
+    // 地名を入力して「検索する」を押す（巨大bboxが検索エリアに設定される。
+    // タイル未選択のため同時に「種別を選んでください」の案内が出る）
+    fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
+    fireEvent.click(getTopSearchButton())
+    await waitFor(() => {
+      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // タイルを選択してから「検索する」を押す（検索が実行されcriteria検証が走る）
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // criteria自身のmessage（「検索範囲が広すぎます」）が検証エラーとして表示される
+    await waitFor(() => {
+      expect(screen.getByText(/検索範囲が広すぎます/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // 壊れたcriteriaをsearch()に渡さない: Overpassクエリは送出されない
+    expect(overpassCalls).toHaveLength(0)
+
+    // 検証エラーは通信エラーではない: 「接続エラー」ラベルが付かない
+    expect(screen.queryByText(/接続エラー/)).toBeNull()
+
+    // 一覧タブへ自動切替されず、「検索」タブのまま
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(tabIsCurrent('一覧')).toBe(false)
   }, IT_TIMEOUT)
 
   it('目的タイル（食べる）: 目的グループの施設種類unionで検索が実行され、成功で一覧タブへ切替', async () => {
     renderApp()
+    // (#63) タイル選択前に検索エリアを設定（ジオコード）する
+    await setAreaByGeocode()
 
-    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
-    // フォーム経由で地図モードへ切替してからトップへ戻る
-    openFormView()
-    await switchToMapMode()
-    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-
+    // タイルを選択して「検索する」で検索を実行
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     // 「食べる」目的グループ: 飲食系カテゴリのunionがクエリに反映される
     expect(overpassCalls[0]).toContain('amenity=cafe')
     expect(overpassCalls[0]).toContain('amenity=restaurant')
     expect(overpassCalls[0]).toContain('fast_food|bar')
-    // 検索範囲は地図の現在表示範囲
-    expect(overpassCalls[0]).toContain('34.800000,135.400000,34.900000,135.600000')
+    // 検索範囲はジオコード結果の範囲（梅田）
+    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
 
     // 成功で一覧タブへ自動切替され、目的で絞り込まれる（書店=「買う」グループ外は除外）
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
     expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
     expect(screen.getByText(/3件中、\s*2\s*件を表示/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /テスト珈琲店/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /ラーメン屋テスト/ })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /テスト書店/ })).toBeNull()
+    expect(screen.getByRole('heading', { name: /テスト珈琲店/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /ラーメン屋テスト/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /テスト書店/ })).toBeNull()
   }, IT_TIMEOUT)
 
   it('複合タイル（病院・薬局）: 病院＋薬局のunionクエリが送出され、両カテゴリのみ表示される', async () => {
     renderApp()
     overpassElements = MEDICAL_ELEMENTS
+    // (#63) タイル選択前に検索エリアを設定（ジオコード）する
+    await setAreaByGeocode()
 
-    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
-    // フォーム経由で地図モードへ切替してからトップへ戻る
-    openFormView()
-    await switchToMapMode()
-    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-
+    // タイルを選択して「検索する」で検索を実行
     fireEvent.click(screen.getByRole('button', { name: '病院・薬局' }))
+    fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     // 「病院・薬局」= 病院・クリニック＋薬局・ドラッグストア カテゴリのunion
@@ -868,22 +1010,22 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
     expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
     expect(screen.getByText(/3件中、\s*2\s*件を表示/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /テスト病院/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /テスト薬局/ })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /テスト書店/ })).toBeNull()
+    expect(screen.getByRole('heading', { name: /テスト病院/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /テスト薬局/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /テスト書店/ })).toBeNull()
   }, IT_TIMEOUT)
 
   it('バリアフリータイル: バリアフリー専用クエリ（footway等）が送出され、成功で一覧タブへ切替', async () => {
     renderApp()
-    overpassElements = BF_ELEMENTS
+    // バリアフリー結果はクライアント側で検索bboxによりフィルタされるため、
+    // 「梅田」ジオコードエリア内の要素を使う
+    overpassElements = BF_ELEMENTS_UMEDA
+    // (#63) タイル選択前に検索エリアを設定（ジオコード）する
+    await setAreaByGeocode()
 
-    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
-    // フォーム経由で地図モードへ切替してからトップへ戻る
-    openFormView()
-    await switchToMapMode()
-    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-
+    // タイルを選択して「検索する」で検索を実行
     fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
+    fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     // バリアフリー専用クエリ（POIタグ指定ではなく歩道・縁石など）
@@ -899,19 +1041,17 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
 
   it('単一カテゴリタイル（トイレ）: そのカテゴリで検索が実行される', async () => {
     renderApp()
+    // (#63) タイル選択前に検索エリアを設定（ジオコード）する
+    await setAreaByGeocode()
 
-    // (#66) 初期ソースが自治体のため、タイル検索（地図モード）を検証するため
-    // フォーム経由で地図モードへ切替してからトップへ戻る
-    openFormView()
-    await switchToMapMode()
-    fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-
+    // タイルを選択して「検索する」で検索を実行
     fireEvent.click(screen.getByRole('button', { name: 'トイレ' }))
+    fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
-    // 単一カテゴリタイル: カテゴリのタグ条件（amenity=toilets）で地図範囲を検索
+    // 単一カテゴリタイル: カテゴリのタグ条件（amenity=toilets）で検索エリアを検索
     expect(overpassCalls[0]).toContain('amenity=toilets')
-    expect(overpassCalls[0]).toContain('34.800000,135.400000,34.900000,135.600000')
+    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
   }, IT_TIMEOUT)
 
   it('「くわしく探す」で従来フォームへ移り、「トップへ戻る」でトップへ戻れる（地図インスタンスは保持）', async () => {
@@ -942,5 +1082,264 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
 
     // 切替で地図が再マウントされていない（単一インスタンス。位置・表示範囲が引き継がれる）
     expect(getMapInstance()).toBe(mapBefore)
+  }, IT_TIMEOUT)
+})
+
+describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索する」の制御', () => {
+  it('開いた直後（検索エリア未設定）でタイル選択+「検索する」: 検索は実行されず（Overpass問い合わせなし）検証メッセージが表示される', async () => {
+    renderApp()
+
+    // 検索エリアの設定（地名のgeocode・自治体選択）を何もしないまま
+    // タイルを選択して「検索する」を押す
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // 検証メッセージ（StatusBanner）が表示される（地図移動に言及しない文言）
+    await waitFor(() => {
+      expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // 検索は実行されない: Overpassクエリは送出されない
+    expect(overpassCalls).toHaveLength(0)
+
+    // 一覧タブへ自動切替されず、「検索」タブのまま
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(tabIsCurrent('一覧')).toBe(false)
+
+    // 検証エラーであり通信エラーではない: 「接続エラー」ラベルが付かない
+    expect(screen.queryByText(/接続エラー/)).toBeNull()
+
+    // ガイダンス文言（地名の「検索する」または自治体選択の案内）も表示される
+    expect(screen.getByText(/「都道府県から探す」で自治体を選択してください/)).toBeTruthy()
+
+    // (改行) 案内メッセージは文の区切りで改行され、3行で表示される。
+    // 表示側は whitespace-pre-line により改行を保持する（文の途中で折り返さない）
+    const banner = screen.getByText(/場所がまだ設定されていません/)
+    const lines = banner.textContent.split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toBe('⚠️ 場所がまだ設定されていません。')
+    expect(lines[1]).toBe('地名・駅名を入力して「検索する」を押すか、')
+    expect(lines[2]).toBe('「都道府県から探す」で自治体を選択してください。')
+    expect(banner.className).toContain('whitespace-pre-line')
+  }, IT_TIMEOUT)
+
+  it('自治体選択（トップの「都道府県から探す」）の後、タイルでその自治体の範囲で検索が実行される', async () => {
+    renderApp()
+
+    // トップの「都道府県から探す」セクションを開き、市区町村を選択する。
+    // 選択でそのbboxが検索エリア（state.bbox）に設定される
+    const section = screen.getByRole('region', { name: '都道府県から探す' })
+    fireEvent.click(within(section).getByRole('button', { name: /都道府県から探す/ }))
+
+    // 都道府県選択（sr-only select。MobileSearchTabMunicipality.test.jsx と同一パターン）
+    const prefSelect = await waitFor(() => {
+      const sel = within(section).getByLabelText('どの県で探す？')
+      expect(sel).toBeTruthy()
+      return sel
+    }, { timeout: 3000 })
+    const prefOpt = [...prefSelect.querySelectorAll('option')].find((o) => o.textContent === '大阪府')
+    expect(prefOpt).toBeTruthy()
+    fireEvent.change(prefSelect, { target: { value: prefOpt.value } })
+
+    // 市区町村入力→候補クリック
+    const munInput = await waitFor(() => {
+      const i = within(section).getByLabelText('どの市区町村で探す？')
+      expect(i).toBeTruthy()
+      return i
+    }, { timeout: 3000 })
+    fireEvent.change(munInput, { target: { value: '東大阪市' } })
+    const munOpt = await waitFor(() => {
+      const lb = within(section).getByRole('listbox')
+      const opt = within(lb).getByRole('option', { name: '東大阪市（区）' })
+      return opt
+    }, { timeout: 3000 })
+    fireEvent.click(munOpt)
+
+    // 目的タイルを選択し「検索する」を押す（入力が空なので自治体の検索エリアが
+    // そのまま使われる。セクション内の目的チップと同名のボタンがあるため
+    // 「目的から探す」リージョン内に絞る）
+    fireEvent.click(
+      within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' })
+    )
+    fireEvent.click(getTopSearchButton())
+
+    // 検索が実行され、東大阪市（自治体のbbox）の範囲でクエリが送出される
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('amenity=restaurant')
+    expect(overpassCalls[0]).toContain('34.560000,135.340000,34.720000,135.520000')
+
+    // 検証メッセージは表示されず、成功で一覧タブへ自動切替
+    expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('地名入力で「検索する」（geocode）の後、タイル選択+「検索する」でその範囲で検索が実行される', async () => {
+    renderApp()
+
+    // 地名を入力して「検索する」を押す（fetchモックがNominatim結果を返す → 検索エリア設定）
+    // この時点ではタイル未選択なので「種別を選んでください」の案内も出る
+    fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
+    fireEvent.click(getTopSearchButton())
+
+    // 検索エリア設定の成功フィードバックが表示される
+    await waitFor(() => {
+      expect(screen.getByText(/検索エリアに「.*」を設定しました/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // タイルを選択してから「検索する」を押す
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // ガードを通過して検索が実行される
+    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
+    // 「食べる」目的グループのunion＋ジオコード結果の範囲（梅田）
+    expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('amenity=restaurant')
+    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
+
+    // 検証メッセージは表示されず、成功で一覧タブへ自動切替
+    expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+})
+
+// 検索エリア設定成功時に場所入力欄を緑色表示。入力編集で緑と検索エリアを
+// 解除（未設定ガードが再び働く）、見つからなかった場合は緑にならない。
+// 都道府県から探すでの自治体選択は緑の対象外（既存の地名入力欄のみが対象）。
+describe('(place) 場所入力欄の緑色表示（検索エリア設定成功の視覚フィードバック）', () => {
+  const PLACE_INPUT = '地名・駅名（例: 大阪駅）'
+
+  it('場所検索（geocode）に成功すると、場所入力欄に緑色のスタイル（緑枠・薄い緑背景）が当たる', async () => {
+    renderApp()
+    await setAreaByGeocode()
+
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    // 緑色の枠線と薄い緑の背景
+    expect(input.className).toContain('border-green-500')
+    expect(input.className).toContain('bg-green-50')
+    // 入力値は残る（決まった場所が欄内に緑で見える）
+    expect(input.value).toBe('梅田')
+    // 既存の成功フィードバック文はそのまま残る
+    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('成功後に場所入力欄を編集すると: 緑が解除され検索エリアは未設定に戻り、「検索する」で未設定ガード（案内メッセージ）が出る', async () => {
+    renderApp()
+    await setAreaByGeocode()
+
+    // 入力内容を編集（編集すると緑と検索エリアが解除される）
+    fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '奈良' } })
+
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    // 緑が解除される
+    expect(input.className).not.toContain('border-green-500')
+    expect(input.className).not.toContain('bg-green-50')
+    // 成功フィードバックも消える（食い違う状態にならない）
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+
+    // 入力を空に戻す（= 入力が空で検索エリアも未設定）
+    fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '' } })
+
+    // 検索エリアが未設定に戻った: タイル選択+「検索する」で未設定ガードが再び働く
+    fireEvent.click(within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+    await waitFor(() => {
+      expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
+    }, { timeout: 8000 })
+    // 検索は実行されない
+    expect(overpassCalls).toHaveLength(0)
+    // 一覧タブへ切替されず、「検索」タブのまま
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(tabIsCurrent('一覧')).toBe(false)
+  }, IT_TIMEOUT)
+
+  it('場所が見つからなかった場合（エラー表示時）: 場所入力欄は緑にならない', async () => {
+    // Nominatimが空配列を返す（結果なし → 「場所が見つかりませんでした」）
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
+      const u = String(url)
+      if (u.includes('nominatim')) {
+        return { ok: true, status: 200, headers: new Map(), json: async () => [] }
+      }
+      if (u.includes('interpreter') || u.includes('sakura') || u.includes('overpass')) {
+        const body = options.body || ''
+        const q = new URLSearchParams(body).get('data') || body
+        overpassCalls.push(q)
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: overpassElements }),
+        }
+      }
+      return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
+    })
+    renderApp()
+
+    fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: 'zzz見つからない' } })
+    fireEvent.click(getTopSearchButton())
+
+    // エラーが表示される
+    await waitFor(() => {
+      expect(screen.getByText(/場所が見つかりませんでした/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    // 緑にならない
+    expect(input.className).not.toContain('border-green-500')
+    expect(input.className).not.toContain('bg-green-50')
+    // 成功フィードバックは出ない
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+    // 検索エリアも設定されていない: タイル選択+「検索する」で検索は実行されず、
+    // geocodeエラー（場所が見つかりませんでした）が表示され続ける
+    fireEvent.click(within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+    await waitFor(() => {
+      expect(screen.getByText(/場所が見つかりませんでした/)).toBeTruthy()
+    }, { timeout: 8000 })
+    expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+    expect(overpassCalls).toHaveLength(0)
+  }, IT_TIMEOUT)
+
+  it('都道府県から探すで自治体を選んだ場合: 場所入力欄は緑にならない（既存の地名入力の緑も解除）', async () => {
+    renderApp()
+
+    // まず地名検索でエリアを設定し、入力欄を緑にする
+    await setAreaByGeocode()
+    let input = screen.getByPlaceholderText(PLACE_INPUT)
+    expect(input.className).toContain('border-green-500')
+
+    // その後、「都道府県から探す」で自治体を選択
+    const section = screen.getByRole('region', { name: '都道府県から探す' })
+    fireEvent.click(within(section).getByRole('button', { name: /都道府県から探す/ }))
+    const prefSelect = await waitFor(() => {
+      const sel = within(section).getByLabelText('どの県で探す？')
+      expect(sel).toBeTruthy()
+      return sel
+    }, { timeout: 3000 })
+    const prefOpt = [...prefSelect.querySelectorAll('option')].find((o) => o.textContent === '大阪府')
+    expect(prefOpt).toBeTruthy()
+    fireEvent.change(prefSelect, { target: { value: prefOpt.value } })
+    const munInput = await waitFor(() => {
+      const i = within(section).getByLabelText('どの市区町村で探す？')
+      expect(i).toBeTruthy()
+      return i
+    }, { timeout: 3000 })
+    fireEvent.change(munInput, { target: { value: '東大阪市' } })
+    const munOpt = await waitFor(() => {
+      const lb = within(section).getByRole('listbox')
+      const opt = within(lb).getByRole('option', { name: '東大阪市（区）' })
+      return opt
+    }, { timeout: 3000 })
+    fireEvent.click(munOpt)
+
+    // 場所入力欄は緑にならない（自治体選択は緑の対象外。既存の緑も解除され
+    // 入力内容と検索エリアが食い違う状態にならない）
+    await waitFor(() => {
+      input = screen.getByPlaceholderText(PLACE_INPUT)
+      expect(input.className).not.toContain('border-green-500')
+    }, { timeout: 8000 })
   }, IT_TIMEOUT)
 })

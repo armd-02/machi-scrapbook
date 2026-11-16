@@ -54,26 +54,29 @@ export function useSearch() {
       : (criteria ? criteria.bbox : null)
 
     // 縮退・逆順BBOX（Overpassが"bbox order must be [south, west, north, east]"
-    // で拒否する形状、例: 非表示地図コンテナからのgetBounds()）を検証する
+    // で拒否する形状、例: 非表示地図コンテナからのgetBounds()）を検証する。
+    // これは通信エラーではなく検証エラーなので、errorType は 'network' にせず
+    // 'validation'（StatusBannerにラベルを付けない）とする。
+    // 案内文は「検索する」ボタンの押下を前提にしない（一般向けトップでも通用する）
     if (!bbox || !isValidBbox(bbox)) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
         type: 'SET_ERROR',
         payload: '検索範囲が設定されていません。',
-        errorType: 'network',
-        errorSuggestion: '地図を移動・拡大して検索したい範囲を表示し、「検索する」を押してください。'
+        errorType: 'validation',
+        errorSuggestion: '地図を移動・拡大して検索したい範囲を表示してください。'
       })
       return
     }
 
-    // 範囲が大きすぎる場合のチェック
+    // 範囲が大きすぎる場合のチェック（同様に検証エラーとして扱う）
     const sizeCheck = checkBboxSize(bbox)
     if (sizeCheck.areaKm2 > 40000) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
         type: 'SET_ERROR',
         payload: sizeCheck.message,
-        errorType: 'network',
+        errorType: 'validation',
         errorSuggestion: '地図をズームインして範囲を狭めてください。'
       })
       return

@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 /**
- * PCレイアウト: 「検索する」ボタンの固定フッター配置（モバイル版との配置統一）
+ * PCレイアウト（>=1024px）: 検索ボタンの固定フッター配置（モバイル版との統一）
  *
- * PC「施設検索」画面（SearchTabContent）の検索ボタンの配置契約を固定する:
- * - ボタンはスロールーム（.search-workspace）の外・画面下端の固定フッターにある
- *   （スクロールしても常に視認可能 — モバイル版と同一方式・P0再発防止）
- * - 固定フッターは「上に境界線・白背景・左右上下に余白」のバー（shrink-0）
+ * 旧PC専用レイアウト（SearchTabContent）は廃止され、PCはモバイルと同じシェル
+ * （MobileShell）を中央寄せmax-widthコンテナ内で表示する。検索タブ（MobileSearchTab）の
+ * フッター配置契約はモバイル・PC共通になり、本ファイルはPC幅（matches=false）でそれを検証する。
+ *
+ * 固定する契約:
+ * - ボタンはスロールーム（overflow-y-autoのコンテナ）の外・タブ下端の固定フッターにある
+ *   （スクロールしても常に視認可能 — P0再発防止）
+ * - 固定フッターは「上に境界線・白背景・shrink-0」のバー
  * - fullWidth版（横幅いっぱい・min 48px の大型タップターゲット）が使われている
  * - ラベルは検索ソースで切り替わる: 地図モード「この表示範囲で検索」/
  *   自治体モード「検索する」（モバイル版と同一規則）
- * - 検索条件カードのヘッダー行には検索ボタンが残っていない
- *   （折りたたみトグル＋共有URLのみ）
  *
  * ボタンの動作（criteria/status/onSearch/onCancel）は SearchActionButton 側の
  * テスト（SearchActionButton.test.jsx）と pcMapSearchButton.test.jsx がカバーするため、
@@ -33,7 +35,7 @@ class MockResizeObserver { observe() {} unobserve() {} disconnect() {} }
 beforeEach(() => {
   global.ResizeObserver = global.ResizeObserver || MockResizeObserver
   if (!window.matchMedia) {
-    // matches: false → PCレイアウト（モバイル切替しない）
+    // matches: false → PC幅（>=1024px）: モバイルシェルをmax-widthコンテナ内で表示
     window.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
   }
   if (mockState.api) mockState.api.resetState()
@@ -80,11 +82,16 @@ function findFixedFooter(btn) {
   return null
 }
 
+// 従来フォーム表示（「くわしく探す」）へ切替する
+function openFormView() {
+  fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
+}
+
 describe('PC: 検索ボタンの固定フッター配置（モバイル版との統一）', () => {
-  it('フッター（スロールーム外）にfullWidth版の大きな検索ボタンが表示される', async () => {
+  it('フッター（スロールーム外）にfullWidth版の大きな検索ボタンが表示される（地図モード）', async () => {
     render(<App />)
-    // (#66) 初期ソースがmunicipalityのため、まず地図モードへ切替
-    fireEvent.click(screen.getByRole('button', { name: '地図から探す' }))
+    openFormView()
+    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
 
     const btn = screen.getByRole('button', { name: 'この表示範囲で検索' })
 
@@ -99,10 +106,8 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
     expect(footer.className).toContain('border-t')
     expect(footer.className).toContain('bg-white')
 
-    // スロールーム（.search-workspace）の外に存在する
-    const workspace = document.querySelector('.search-workspace')
-    expect(workspace).toBeTruthy()
-    expect(workspace.contains(btn)).toBe(false)
+    // スロールーム（overflow-y-autoコンテナ）の外に存在する
+    expect(btn.closest('[class*="overflow-y-auto"]')).toBeNull()
 
     // 地図ロード完了後にボタンが有効化される（押下時点範囲で検索できる）
     await waitFor(() => {
@@ -114,42 +119,46 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
   it('ラベルは検索ソースで切り替わる: 地図モード「この表示範囲で検索」⇄ 自治体モード「検索する」', async () => {
     render(<App />)
 
-    // (#66) 既定は自治体モード: 「検索する」のみ
+    // 従来フォーム表示へ切替（#66: 既定の初期ソースは自治体モード）
+    openFormView()
+    // 既定は自治体モード: 「検索する」のみ
     expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
 
     // 地図モードへ切替 → 「この表示範囲で検索」に切り替わる
-    fireEvent.click(screen.getByText('地図から探す'))
+    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
       expect(screen.queryByRole('button', { name: '検索する' })).toBeNull()
     }, { timeout: 5000 })
 
     // 自治体モードへ戻す → 「検索する」に復帰
-    fireEvent.click(screen.getByText('自治体から探す'))
+    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
     }, { timeout: 5000 })
   }, IT_TIMEOUT)
 
-  it('検索条件カードのヘッダー行に検索ボタンが残っていない（折りたたみトグル＋共有URLのみ）', () => {
+  it('自治体モードでも固定フッターは同一構造（fullWidth版・スロールーム外）', async () => {
     render(<App />)
 
-    // ヘッダー行（「検索条件」ラベルの親div: flex items-center gap-2 px-3）
-    const label = screen.getByText('検索条件')
-    const headerRow = label.parentElement
-    expect(headerRow).toBeTruthy()
-    expect(headerRow.className).toContain('px-3')
+    openFormView()
+    // 既定の自治体モードのフッターボタン
+    const btn = screen.getByRole('button', { name: '検索する' })
 
-    // フッターの検索ボタンはヘッダー行に含まれない
-    // (#66) 初期ソースがmunicipalityのため、フッターの検索ボタンは「検索する」
-    const searchBtn = screen.getByRole('button', { name: '検索する' })
-    expect(headerRow.contains(searchBtn)).toBe(false)
+    // fullWidth版: 横幅いっぱい・min 48px の大型タップターゲット
+    expect(btn.className).toContain('w-full')
+    expect(btn.className).toContain('min-h-[48px]')
 
-    // 行内のボタンは折りたたみトグルと「共有URL」の2つだけ
-    const rowButtons = [...headerRow.querySelectorAll('button')]
-    expect(rowButtons.length).toBe(2)
-    expect(rowButtons[1].textContent).toContain('共有URL')
+    // 固定フッター内（上に境界線・白背景・shrink-0）
+    const footer = findFixedFooter(btn)
+    expect(footer).toBeTruthy()
+    expect(footer.className).toContain('shrink-0')
+    expect(footer.className).toContain('border-t')
+    expect(footer.className).toContain('bg-white')
+
+    // スロールームの外に存在する
+    expect(btn.closest('[class*="overflow-y-auto"]')).toBeNull()
   }, IT_TIMEOUT)
 })

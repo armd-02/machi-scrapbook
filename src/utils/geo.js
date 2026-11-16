@@ -5,6 +5,9 @@
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 const USER_AGENT = 'OSM-Data-Explorer/0.1 (https://armd-02.github.io/osm-data-explorer/)'
 
+// (#63) 検索エリア判定（searchAreaFromGeocode）でBBOXの妥当性を確認するのに使う
+import { isValidBbox } from './searchBbox'
+
 /**
  * 地名をジオコードする（Nominatim）
  * @param {string} query - 地名（例: "大阪市北区"）
@@ -110,6 +113,48 @@ export function checkBboxSize(bbox) {
   }
 
   return { tooLarge: false, areaKm2, message: null }
+}
+
+// 地球の平均半径（km）。緯度・経度1°のkm換算に使う
+const EARTH_RADIUS_KM = 6371
+
+/**
+ * (#63) 指定点を中心にした約 sideKm 正方形のBBOXを生成する。
+ * ジオコード結果が駅などの小さな範囲だった場合、それを約1km正方形に
+ * 拡大して検索エリアにするのに使う。
+ * @param {{lat: number, lon: number}} center 中心点
+ * @param {number} [sideKm=1] 一辺の長さ（km）
+ * @returns {{south: number, west: number, north: number, east: number}}
+ */
+export function squareBboxAround(center, sideKm = 1) {
+  const { lat, lon } = center
+  const KM_PER_DEG = (Math.PI / 180) * EARTH_RADIUS_KM
+  const latRad = (lat * Math.PI) / 180
+  const halfLat = sideKm / 2 / KM_PER_DEG
+  const halfLon = sideKm / 2 / (KM_PER_DEG * Math.cos(latRad))
+  return {
+    south: lat - halfLat,
+    west: lon - halfLon,
+    north: lat + halfLat,
+    east: lon + halfLon
+  }
+}
+
+/**
+ * (#63) ジオコード結果から検索エリア（BBOX）を決定する。
+ * 結果の boundingbox が有効で、面積が thresholdKm2 km² 以上ならそのまま使う。
+ * それ未満（駅など点状の小さな範囲）なら、ジオコード点を中心にした
+ * 約 sideKm km 正方形に拡大して使う。
+ * @param {object} result geocode() の戻り値 { lat, lon, displayName, type, boundingbox }
+ * @param {{ sideKm?: number, thresholdKm2?: number }} [options]
+ * @returns {{south: number, west: number, north: number, east: number}}
+ */
+export function searchAreaFromGeocode(result, { sideKm = 1, thresholdKm2 = 1 } = {}) {
+  const bbox = result.boundingbox
+  if (bbox && isValidBbox(bbox) && calculateBboxAreaKm2(bbox) >= thresholdKm2) {
+    return bbox
+  }
+  return squareBboxAround({ lat: result.lat, lon: result.lon }, sideKm)
 }
 
 /**

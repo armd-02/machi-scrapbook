@@ -79,7 +79,7 @@ export default function MobileListTab({ onOpenDetail }) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto min-h-0 bg-slate-100 px-3 py-3 space-y-3">
         {status === 'idle' && (
           <p className="text-sm text-slate-500 text-center pt-8">
             検索を実行すると、結果がこの一覧に表示されます。
@@ -186,7 +186,7 @@ export default function MobileListTab({ onOpenDetail }) {
           </div>
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {visible.map((r) => (
             <MobileFacilityCard
               key={`${r.type}/${r.id}`}
@@ -278,7 +278,7 @@ function BarrierFreeMobileList() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto min-h-0 bg-slate-100 px-3 py-3 space-y-3">
         {status === 'idle' && (
           <p className="text-sm text-slate-500 text-center pt-8">
             検索を実行すると、結果がこの一覧に表示されます。
@@ -355,7 +355,7 @@ function BarrierFreeMobileList() {
           </div>
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {visible.map((r) => (
             <BarrierFreeCard key={`${r.type}/${r.id}`} result={r} />
           ))}
@@ -395,7 +395,7 @@ function BarrierFreeCard({ result }) {
   const hasBadges = showTypeBadge || showTactile || length != null || showSignals
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
+    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5">
       <div className="flex items-center gap-2">
         {showTypeBadge && (
           <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-xs shrink-0">

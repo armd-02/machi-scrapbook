@@ -16,7 +16,8 @@ const h = vi.hoisted(() => ({
   app: { state: null, dispatch: () => {} },
   actions: [],
   overpassCalls: [],
-  overpassResults: []
+  overpassResults: [],
+  overpassError: null // 設定されていると executeOverpassQuery がそれをthrowする（通信エラー擬制）
 }))
 
 vi.mock('../../context/AppContext', () => ({
@@ -29,6 +30,7 @@ vi.mock('../../utils/overpass', async (importOriginal) => {
     ...actual,
     executeOverpassQuery: async (query, options = {}) => {
       h.overpassCalls.push({ query, options })
+      if (h.overpassError) throw h.overpassError
       return {
         results: h.overpassResults,
         meta: {
@@ -100,6 +102,7 @@ beforeEach(() => {
   h.actions.length = 0
   h.overpassCalls.length = 0
   h.overpassResults.length = 0
+  h.overpassError = null
   h.app.dispatch = (action) => { h.actions.push(action) }
 })
 
@@ -216,5 +219,68 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
     await runSearch({ ...SMALL_BBOX })
 
     expect(resultsPayload()).toHaveLength(2)
+  })
+})
+
+describe('useSearch: 検証エラーは接続エラー（network）として扱わない', () => {
+  it('BBOX未設定: errorTypeはvalidation（networkではない）でクエリは送出されない', async () => {
+    h.app.state = makeState({ bbox: null })
+    await runSearch({ ok: true, bbox: null, searchSource: 'map', searchMode: 'simple', keyword: '', query: 'MOCK_QUERY' })
+
+    // クエリは送出されない
+    expect(h.overpassCalls).toHaveLength(0)
+
+    const err = dispatched('SET_ERROR')[0]
+    expect(err.payload).toBe('検索範囲が設定されていません。')
+    expect(err.errorType).toBe('validation')
+    expect(err.errorType).not.toBe('network')
+    // 案内文は「検索する」ボタンの押下を前提にしない（一般向けトップでも通用する）
+    expect(err.errorSuggestion).toBe('地図を移動・拡大して検索したい範囲を表示してください。')
+    expect(err.errorSuggestion).not.toContain('検索する」を押して')
+    expect(dispatched('SET_STATUS').at(-1).payload).toBe('error')
+  })
+
+  it('縮退・逆順BBOX: 同様にvalidationの検証エラーになる', async () => {
+    // south > north の逆順BBOX（isValidBbox で無効扱い）
+    const reversed = { south: 34.72, west: 135.5, north: 34.7, east: 135.52 }
+    h.app.state = makeState()
+    await runSearch({ ok: true, bbox: reversed, searchSource: 'map', searchMode: 'simple', keyword: '', query: 'MOCK_QUERY' })
+
+    expect(h.overpassCalls).toHaveLength(0)
+    const err = dispatched('SET_ERROR')[0]
+    expect(err.payload).toBe('検索範囲が設定されていません。')
+    expect(err.errorType).toBe('validation')
+    expect(err.errorType).not.toBe('network')
+  })
+
+  it('範囲が広すぎる（40000km²超）: 同様にvalidationの検証エラーになる', async () => {
+    const HUGE = { south: -30, west: 100, north: 50, east: 200 }
+    h.app.state = makeState()
+    await runSearch({ ok: true, bbox: HUGE, searchSource: 'map', searchMode: 'simple', keyword: '', query: 'MOCK_QUERY' })
+
+    expect(h.overpassCalls).toHaveLength(0)
+    const err = dispatched('SET_ERROR')[0]
+    // checkBboxSize は面積>2500km²の時点で「広すぎます」メッセージを返す（>40000km²の
+    // 「大きすぎます」分岐は到達しない既存挙動）。useSearch はそのmessageをそのまま使う
+    expect(err.payload).toMatch(/検索範囲が広すぎます/)
+    expect(err.errorType).toBe('validation')
+    expect(err.errorType).not.toBe('network')
+    expect(err.errorSuggestion).toBe('地図をズームインして範囲を狭めてください。')
+  })
+
+  it('本物の通信エラー（fetch失敗）: errorTypeは従来どおりnetworkのまま', async () => {
+    const { OverpassError } = await import('../../utils/overpass')
+    h.app.state = makeState()
+    h.overpassError = new OverpassError('Overpass APIに接続できませんでした', 'network', '時間をおいて再試行してください。')
+
+    await runSearch({ ok: true, bbox: SMALL_BBOX, searchSource: 'map', searchMode: 'simple', keyword: '', queryKind: 'poi', query: 'MOCK_QUERY' })
+
+    // 検索開始時に SET_ERROR(payload: null) で旧エラーをクリアするため、
+    // 実際のエラーは最後の SET_ERROR dispatch
+    const err = dispatched('SET_ERROR').at(-1)
+    expect(err.payload).toBe('Overpass APIに接続できませんでした')
+    expect(err.errorType).toBe('network')
+    expect(err.errorSuggestion).toBe('時間をおいて再試行してください。')
+    expect(dispatched('SET_STATUS').at(-1).payload).toBe('error')
   })
 })

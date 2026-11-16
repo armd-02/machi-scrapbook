@@ -100,9 +100,18 @@ export function createMapLibreMock(options = {}) {
       },
       // テストからイベントを擬似発火する（onと同様の引数形式）
       // 例: fire('load') / fire('click', 'point-circle', eventObj)
+      // レイヤーを持たない MapLibre イベント（movestart/zoomstart 等）は
+      // fire(type, eventObj) で発火する（例: fire('movestart', { originalEvent: {...} })）。
+      // targetが通常オブジェクトの場合は第1payload引数として扱う。
       fire(type, target, ...args) {
-        const k = (typeof target === 'function' || target === undefined) ? type : `${type}:${target}`
-        ;(this._handlers[k] || []).slice().forEach((cb) => cb(...args))
+        let key = type
+        let payloadArgs = args
+        if (typeof target === 'string') {
+          key = `${type}:${target}`
+        } else if (typeof target !== 'function' && target !== undefined) {
+          payloadArgs = [target, ...args]
+        }
+        ;(this._handlers[key] || []).slice().forEach((cb) => cb(...payloadArgs))
         return this
       },
 

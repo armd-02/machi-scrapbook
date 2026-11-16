@@ -5,11 +5,16 @@ import MobileFacilityCard, { facilityName, formatAddress, safeWebsite } from '..
 import { facilityTypeLabel } from '../../../utils/facilityLabels'
 
 /**
- * (#59 / #44) モバイル施設カード
- * - 生活者目線UI: 施設名・日本語の施設タイプ・住所・電話・公式サイト・営業時間
+ * (#59 / #44 / 電話帳型改訂) モバイル施設カード
+ * - 生活者目線UI: 施設名（大きめ・太字）＋カテゴリラベルを先頭に、
+ *   ラベル付きの基本項目行（住所・電話・営業時間・Webサイト）を並べる
+ * - 電話はtel:リンク、Webサイトは外部リンクとして個別にタップ可能
+ *   （カードはbuttonでなくdiv。リンクタップで詳細シートは開かない）
+ * - カテゴリ別追加項目（keyInfoFor）は基本4項目と重ならないものだけ表示
  * - OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
- * - 未登録の情報を捏造しない（行ごとに出さない）
- * - タップで onOpen(result)
+ * - 住所・営業時間は未登録なら行ごとに出さない（捏造しない）
+ * - 電話・Webサイトは常時行を表示。未登録なら「-」（リンクにはしない）
+ * - カード全体タップで onOpen(result)
  */
 
 afterEach(() => cleanup())
@@ -49,7 +54,9 @@ describe('ユーティリティ関数（facilityLabels.js 経由の再エクス�
 describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
   it('名称・日本語の施設タイプ・住所を表示する', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /テスト珈琲店/ })).toBeTruthy()
+    // 施設名は大きめ・太字のh3（電話帳型カード）
+    const heading = screen.getByRole('heading', { name: 'テスト珈琲店' })
+    expect(heading).toBeTruthy()
     // 施設タイプは日本語ラベル（amenity=cafe → カフェ）
     expect(screen.getByText('カフェ')).toBeTruthy()
     expect(screen.getByText(/大阪市 梅田 1-1 12/)).toBeTruthy()
@@ -81,20 +88,114 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.getByText(/09:00-17:00/)).toBeTruthy()
   })
 
-  it('未登録の情報は表示されない（捏造しない）', () => {
+  it('住所・営業時間が未登録なら行ごとに出ない（捏造しない）', () => {
     const bare = { type: 'node', id: 9, lat: 34.8, lon: 135.5, tags: { amenity: 'bench' } }
     render(<MobileFacilityCard result={bare} onOpen={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /名前のない要素/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '名前のない要素' })).toBeTruthy()
     expect(screen.queryByText(/大阪市/)).toBeNull()
     expect(screen.queryByText(/公式サイト/)).toBeNull()
     expect(screen.queryByText(/📞/)).toBeNull()
+    // 住所・営業時間は未登録なので行自体が存在しない
+    expect(screen.queryByText('住所')).toBeNull()
+    expect(screen.queryByText('営業時間')).toBeNull()
   })
 
-  it('タップで onOpen(result) が呼ばれる', () => {
+  it('電話・Webサイトは未登録でも常時行を表示し「-」と表記する（モバイル）', () => {
+    // 電話・Webサイトともに未登録のCOFFEE
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    expect(screen.getByText('電話')).toBeTruthy()
+    expect(screen.getByText('Webサイト')).toBeTruthy()
+    // 「-」が電話行・Webサイト行のそれぞれ1つずつ（合計2つ）
+    expect(screen.getAllByText('-')).toHaveLength(2)
+    // 未登録なのでtel:リンク・外部リンクは出ない
+    expect(screen.queryByRole('link', { name: /電話/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /公式サイト/ })).toBeNull()
+  })
+
+  it('カード全体タップで onOpen(result) が呼ばれる', () => {
     const onOpen = vi.fn()
     render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
-    fireEvent.click(screen.getByRole('button', { name: /テスト珈琲店/ }))
+    // 施設名（h3）はカードdivの内側なので、クリックはカード全体onClickへ伝播する
+    fireEvent.click(screen.getByRole('heading', { name: 'テスト珈琲店' }))
     expect(onOpen).toHaveBeenCalledWith(COFFEE)
+  })
+
+  it('カードはbutton要素ではなくdiv（リンクを内包する電話帳型カード）', () => {
+    // overpass.js が tags.name を上位に正規化した形（result.name 付き）を模す
+    const full = {
+      type: 'way', id: 77, lat: 34.8, lon: 135.5,
+      name: 'みらい公園',
+      tags: {
+        name: 'みらい公園', leisure: 'park',
+        phone: '06-1234-5678',
+        website: 'https://park.example.jp',
+      },
+    }
+    render(<MobileFacilityCard result={full} onOpen={vi.fn()} />)
+    const card = screen.getByRole('heading', { name: 'みらい公園' }).closest('div[class*="border"]')
+    expect(card.tagName).toBe('DIV')
+    expect(card.getAttribute('role')).not.toBe('button')
+  })
+
+  it('基本項目行は住所・電話・営業時間・Webサイトの順にラベル付きで表示される', () => {
+    const full = {
+      type: 'way', id: 78, lat: 34.8, lon: 135.5,
+      tags: {
+        name: 'みらい公園', leisure: 'park',
+        phone: '06-1234-5678',
+        website: 'https://park.example.jp',
+        opening_hours: '09:00-17:00',
+        'addr:city': '高槻市',
+      },
+    }
+    render(<MobileFacilityCard result={full} onOpen={vi.fn()} />)
+    // ラベル表示（現行ルール: 登録済みのみ。この結果は4項目すべて登録済み）
+    expect(screen.getByText('住所')).toBeTruthy()
+    expect(screen.getByText('電話')).toBeTruthy()
+    expect(screen.getByText('営業時間')).toBeTruthy()
+    expect(screen.getByText('Webサイト')).toBeTruthy()
+    // 行の順序: 住所 < 電話 < 営業時間 < Webサイト
+    const rows = ['住所', '電話', '営業時間', 'Webサイト'].map((label) => screen.getByText(label))
+    expect(rows[0].compareDocumentPosition(rows[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rows[1].compareDocumentPosition(rows[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rows[2].compareDocumentPosition(rows[3]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('電話はtel:リンク、Webサイトはtarget=_blankの外部リンクとして個別にタップできる', () => {
+    const full = {
+      type: 'way', id: 79, lat: 34.8, lon: 135.5,
+      tags: {
+        name: 'みらい公園', leisure: 'park',
+        phone: '06-1234-5678',
+        website: 'https://park.example.jp',
+      },
+    }
+    render(<MobileFacilityCard result={full} onOpen={vi.fn()} />)
+    const phoneLink = screen.getByRole('link', { name: /06-1234-5678/ })
+    expect(phoneLink.getAttribute('href')).toBe('tel:06-1234-5678')
+    const webLink = screen.getByRole('link', { name: /公式サイト/ })
+    expect(webLink.getAttribute('href')).toBe('https://park.example.jp')
+    expect(webLink.getAttribute('target')).toBe('_blank')
+    expect(webLink.getAttribute('rel')).toContain('noopener')
+  })
+
+  it('リンクタップはstopPropagationで詳細シートを開かない', () => {
+    const onOpen = vi.fn()
+    const full = {
+      type: 'way', id: 80, lat: 34.8, lon: 135.5,
+      tags: {
+        name: 'みらい公園', leisure: 'park',
+        phone: '06-1234-5678',
+        website: 'https://park.example.jp',
+      },
+    }
+    render(<MobileFacilityCard result={full} onOpen={onOpen} />)
+    // 電話リンクをタップ → onOpenは呼ばれない（発信のみ）
+    fireEvent.click(screen.getByRole('link', { name: /06-1234-5678/ }))
+    expect(onOpen).not.toHaveBeenCalled()
+    // Webサイトリンクをタップ → onOpenは呼ばれない（外部リンクのみ）
+    fireEvent.click(screen.getByRole('link', { name: /公式サイト/ }))
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   it('(#61) wheelchairが登録されていれば車椅子バッジを表示する', () => {
@@ -120,30 +221,57 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
   })
 })
 
-describe('MobileFacilityCard: カテゴリ別情報設計 (A3)', () => {
-  it('飲食店にはカテゴリに意味のあるcuisine属性を表示する', () => {
+describe('MobileFacilityCard: カテゴリ別追加項目 (A3)', () => {
+  it('飲食店にはカテゴリに意味のあるcuisine属性を追加項目として表示する', () => {
     const r = { type: 'node', id: 30, name: '梅田ラーメン', tags: { amenity: 'restaurant', name: '梅田ラーメン', cuisine: 'ramen', opening_hours: '11:00-23:00' } }
     render(<MobileFacilityCard result={r} onOpen={vi.fn()} />)
     expect(screen.getByText(/🍴 ramen/)).toBeTruthy()
+    // 営業時間は基本項目としてラベル付き行で表示される
+    expect(screen.getByText('営業時間')).toBeTruthy()
     expect(screen.getByText(/11:00-23:00/)).toBeTruthy()
   })
 
-  it('公共トイレには電話・Web・営業時間を出さない（意味のない属性を抑制）', () => {
+  it('公共トイレでも登録済みの基本項目は表示され、車椅子バッジも出る', () => {
+    // 電話帳型カードでは基本4項目（住所・電話・営業時間・Webサイト）は
+    // カテゴリに関わらず登録済みなら表示される（A3の項目抑制は追加項目に限定）
     const r = { type: 'node', id: 31, tags: { amenity: 'toilets', phone: '06-2222-2222', website: 'https://toilet.example', opening_hours: '24/7', 'addr:city': '北区', wheelchair: 'yes' } }
     render(<MobileFacilityCard result={r} onOpen={vi.fn()} />)
     expect(screen.getByText(/北区/)).toBeTruthy()
-    expect(screen.queryByText(/06-2222-2222/)).toBeNull()
-    expect(screen.queryByText(/公式サイト/)).toBeNull()
-    expect(screen.queryByText(/24\/7/)).toBeNull()
+    const phoneLink = screen.getByRole('link', { name: /06-2222-2222/ })
+    expect(phoneLink.getAttribute('href')).toBe('tel:06-2222-2222')
+    expect(screen.getByRole('link', { name: /公式サイト/ })).toBeTruthy()
+    expect(screen.getByText(/24\/7/)).toBeTruthy()
     // wheelchairはバッジとして引き続き表示
     expect(screen.getByText(/♿ 車椅子対応/)).toBeTruthy()
   })
 
-  it('駅には営業時間属性を出さない', () => {
+  it('駅でも登録済みの営業時間は基本項目として表示される', () => {
     const r = { type: 'node', id: 32, name: 'テスト駅', tags: { railway: 'station', name: 'テスト駅', opening_hours: '05:00-24:00', 'addr:city': '吹田市' } }
     render(<MobileFacilityCard result={r} onOpen={vi.fn()} />)
     expect(screen.getByText(/吹田市/)).toBeTruthy()
-    expect(screen.queryByText(/05:00-24:00/)).toBeNull()
+    expect(screen.getByText(/05:00-24:00/)).toBeTruthy()
+  })
+
+  it('カテゴリ追加項目は基本4項目と重ならないものだけ表示する（二重表示しない）', () => {
+    // cafeプロファイルのattrs: address, phone, opening_hours, cuisine, website
+    // → 基本4項目（address/phone/opening_hours/website）は基本行で済み、
+    //   追加行に出るのは cuisine のみ
+    const r = {
+      type: 'node', id: 33, name: 'テストカフェ',
+      tags: {
+        amenity: 'cafe', name: 'テストカフェ', cuisine: 'coffee',
+        phone: '06-1111-2222', website: 'https://cafe.example',
+        opening_hours: '08:00-20:00', 'addr:city': '大阪市',
+      },
+    }
+    render(<MobileFacilityCard result={r} onOpen={vi.fn()} />)
+    // cuisine は追加項目として1回だけ表示
+    expect(screen.getAllByText(/🍴 coffee/)).toHaveLength(1)
+    // 基本項目の値もそれぞれ1回だけ表示（追加行で二重表示されていない）
+    expect(screen.getAllByText(/06-1111-2222/)).toHaveLength(1)
+    expect(screen.getAllByText(/08:00-20:00/)).toHaveLength(1)
+    expect(screen.getAllByText(/公式サイト/)).toHaveLength(1)
+    expect(screen.getAllByText(/大阪市/)).toHaveLength(1)
   })
 })
 

@@ -4,11 +4,12 @@
  *
  * 凡例は地図上のオーバーレイ（absolute配置）ではなく、地図本体の下に
  * 通常のレイアウトフローで描画する。
- * - PC: SearchTabContent（App.jsx の施設検索画面）— 凡例は地図コンテナ
- *   （.search-split）の外側かつその後のドキュメント順にある。
- * - モバイル: MobileSearchTab — 同上（地図コンテナは MapView の absolute
- *   容器の親 div）。(#63) 初期表示は一般向けトップ（凡例は描画されない）ため、
- *   凡例の配置は従来フォーム（view="form"）で検証する。
+ * - PC幅（matches=false）とモバイル幅（matches=true）の両方で MobileSearchTab
+ *   （従来フォーム view="form"・地図モード searchSource="map"）を描画し、
+ *   凡例が地図コンテナ（MapView の absolute 容器の親 div）の外側かつ
+ *   その後のドキュメント順にあることを検証する。
+ *   （旧PCレイアウトのSearchTabContentは廃止され、PCはモバイルと同じシェル
+ *    を中央寄せmax-widthコンテナ内で表示するため、コンポーネントは共通。）
  * - 表示条件（barrier_free かつ結果1件以上）を満たさない場合は非表示。
  */
 import React from 'react'
@@ -16,7 +17,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 import { AppContext } from '../../context/AppContext'
 import { createInitialState } from '../../state/appReducer'
-import { SearchTabContent } from '../../App'
 import MobileSearchTab from '../mobile/MobileSearchTab'
 
 const mockState = vi.hoisted(() => ({ api: null }))
@@ -39,10 +39,21 @@ const BF_RESULT = {
 
 const makeBfState = (over = {}) => ({
   ...createInitialState(),
+  searchSource: 'map',
   resultKind: 'barrier_free',
   results: [BF_RESULT],
   ...over
 })
+
+// matchMediaスタブ（幅の切替を制御）
+function setMatchMedia(matches) {
+  window.matchMedia = () => ({
+    matches,
+    media: '(max-width: 1023.98px)',
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })
+}
 
 // 凡例のルート要素（「凡例」テキストを含む div）
 const legendRootOf = (view) => {
@@ -50,11 +61,8 @@ const legendRootOf = (view) => {
   return el ? el.closest('div') : null
 }
 
-// 地図コンテナを特定する
-// - PC: .search-split（地図本体のコンテナ）
-// - モバイル: MapView の absolute 容器（.absolute.inset-0）の親 div
-const mapContainerOf = (view, kind) => {
-  if (kind === 'pc') return view.container.querySelector('.search-split')
+// 地図コンテナを特定する（MapView の absolute 容器（.absolute.inset-0）の親 div）
+const mapContainerOf = (view) => {
   const mapRoot = view.container.querySelector('.absolute.inset-0')
   return mapRoot ? mapRoot.parentElement : null
 }
@@ -63,7 +71,14 @@ beforeEach(() => {
   global.ResizeObserver = global.ResizeObserver || MockResizeObserver
   if (mockState.api) mockState.api.resetState()
   // municipalities.json等のフェッチは空データで応答
-  global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }))
+  // 自治体モードの再レンダでMunicipalitySearchがmunicipalities.jsonをfetchする。
+  // 空配列の妥当なpayloadを返すことで、data.municipalities未定義によるクラッシュを避ける。
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes('municipalities.json')) {
+      return { ok: true, json: async () => ({ count: 0, source: 'test-fixture', municipalities: [] }) }
+    }
+    return { ok: true, json: async () => ({}) }
+  })
 })
 
 afterEach(() => {
@@ -78,15 +93,14 @@ const renderInContext = (view, state) =>
     </AppContext.Provider>
   )
 
-describe('PC（SearchTabContent）', () => {
-  it('凡例は地図コンテナの外側・その後のドキュメント順（地図本体の下）にある', () => {
-    const state = makeBfState()
+const legendPlacementTests = (label) => {
+  it(`凡例は地図コンテナの外側・その後のドキュメント順（地図本体の下）にある（${label}）`, () => {
     const view = renderInContext(
-      <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
-      state
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
+      makeBfState()
     )
 
-    const mapContainer = mapContainerOf(view, 'pc')
+    const mapContainer = mapContainerOf(view)
     expect(mapContainer).toBeTruthy()
     const legendRoot = legendRootOf(view)
     expect(legendRoot).toBeTruthy()
@@ -96,31 +110,31 @@ describe('PC（SearchTabContent）', () => {
     // 地図コンテナの「後」に描画されている
     expect(mapContainer.compareDocumentPosition(legendRoot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // 地図本体の高さは固定（凡例の表示・非表示で地図の高さが変わらない）
-    expect(mapContainer.className).toMatch(/h-\[520px\]/)
+    expect(mapContainer.className).toMatch(/h-\[240px\]/)
   })
 
-  it('POI検索の結果では凡例を表示しない', () => {
+  it(`POI検索の結果では凡例を表示しない（${label}）`, () => {
     const view = renderInContext(
-      <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
       makeBfState({ resultKind: 'poi' })
     )
     expect(legendRootOf(view)).toBeNull()
   })
 
-  it('バリアフリー検索でも結果が0件なら凡例を表示しない', () => {
+  it(`バリアフリー検索でも結果が0件なら凡例を表示しない（${label}）`, () => {
     const view = renderInContext(
-      <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
       makeBfState({ results: [] })
     )
     expect(legendRootOf(view)).toBeNull()
   })
 
-  it('凡例の表示・非表示の切替で地図コンテナに影響しない（高さ・クラス不変）', () => {
+  it(`凡例の表示・非表示の切替で地図コンテナに影響しない（高さ・クラス不変）（${label}）`, () => {
     const view = renderInContext(
-      <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />,
+      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
       makeBfState()
     )
-    const mapContainer = mapContainerOf(view, 'pc')
+    const mapContainer = mapContainerOf(view)
     const before = mapContainer.className
     expect(view.queryByText('凡例')).toBeTruthy()
 
@@ -128,7 +142,7 @@ describe('PC（SearchTabContent）', () => {
     act(() => {
       view.rerender(
         <AppContext.Provider value={{ state: makeBfState({ resultKind: 'poi' }), dispatch: vi.fn() }}>
-          <SearchTabContent searchCollapsed={false} setSearchCollapsed={vi.fn()} showMap setShowMap={vi.fn()} />
+          <MobileSearchTab view="form" onViewResults={vi.fn()} />
         </AppContext.Provider>
       )
     })
@@ -136,33 +150,16 @@ describe('PC（SearchTabContent）', () => {
 
     // 地図コンテナは変化していない（地図の高さ・操作に影響しない）
     expect(mapContainer.className).toBe(before)
-    expect(mapContainer.className).toMatch(/h-\[520px\]/)
-  })
-})
-
-describe('モバイル（MobileSearchTab）', () => {
-  it('凡例は地図コンテナの外側・その後のドキュメント順（地図本体の下）にある', () => {
-    const view = renderInContext(
-      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
-      makeBfState({ searchSource: 'map' })
-    )
-
-    const mapContainer = mapContainerOf(view, 'mobile')
-    expect(mapContainer).toBeTruthy()
-    const legendRoot = legendRootOf(view)
-    expect(legendRoot).toBeTruthy()
-
-    expect(mapContainer.contains(legendRoot)).toBe(false)
-    expect(mapContainer.compareDocumentPosition(legendRoot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 地図本体の高さは固定（凡例の表示・非表示で地図の高さが変わらない）
     expect(mapContainer.className).toMatch(/h-\[240px\]/)
   })
+}
 
-  it('POI検索の結果では凡例を表示しない', () => {
-    const view = renderInContext(
-      <MobileSearchTab view="form" onViewResults={vi.fn()} />,
-      makeBfState({ resultKind: 'poi' })
-    )
-    expect(legendRootOf(view)).toBeNull()
-  })
+describe('PC幅（>=1024px・matches=false）: MobileSearchTab・地図モード', () => {
+  beforeEach(() => setMatchMedia(false))
+  legendPlacementTests('PC')
+})
+
+describe('モバイル幅（<1024px・matches=true）: MobileSearchTab・地図モード', () => {
+  beforeEach(() => setMatchMedia(true))
+  legendPlacementTests('モバイル')
 })

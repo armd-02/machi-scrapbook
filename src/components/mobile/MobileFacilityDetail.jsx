@@ -14,7 +14,7 @@ import MiniLocationMap from './MiniLocationMap'
  *        小型マップ（MiniLocationMap）＋マーカーを表示する
  * 主ナビゲーションのタブではなく、施設カード／地図マーカーから開くオーバーレイ。
  */
-export default function MobileFacilityDetail({ detail, onClose, onShowOnMap }) {
+export default function MobileFacilityDetail({ detail, onClose }) {
   const { result } = detail
   const tags = result.tags || {}
   const name = facilityName(result)
@@ -29,7 +29,7 @@ export default function MobileFacilityDetail({ detail, onClose, onShowOnMap }) {
   const hasCoords = result.lat != null && result.lon != null
 
   return (
-    <div className="fixed inset-0 z-50" role="presentation">
+    <div className="absolute inset-0 z-50" role="presentation">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
       <div
         role="dialog"
@@ -131,13 +131,15 @@ export default function MobileFacilityDetail({ detail, onClose, onShowOnMap }) {
 
         <div className="px-4 py-3 border-t border-slate-100 flex gap-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {hasCoords && (
-            <button
-              type="button"
-              onClick={() => onShowOnMap(result)}
-              className="flex-1 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg"
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${result.lat},${result.lon}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 min-h-[44px] px-4 flex items-center justify-center bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 text-sm font-medium rounded-lg"
+              title="Googleマップで経路検索"
             >
-              地図で見る
-            </button>
+              🧭 経路検索
+            </a>
           )}
           {/* (B3) iD編集導線: 対象施設を特定した状態でiDへジャンプ */}
           <a

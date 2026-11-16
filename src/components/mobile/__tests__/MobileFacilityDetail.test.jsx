@@ -10,10 +10,11 @@ import MobileFacilityDetail from '../MobileFacilityDetail'
  * - 登録済みの情報のみ表示（住所/電話/Web）
  * - 電話はtel:リンク、Webはtarget=_blank + rel=noopener
  * - OSMリンク・タグ一覧（<details>折りたたみ）
- * - 「地図で見る」（座標がある場合のみ）と「閉じる」
+ * - フッター: 「経路検索」（座標がある場合のみ）・「iDで編集」「閉じる」
  * (#62)
- * - 座標がある場合、シート上部に位置マップ（MiniLocationMap）＋マーカー
+ * - 座標がある場合、シート上部（スクロール領域先頭）に位置マップ（MiniLocationMap）＋マーカー
  * - 座標がない場合はマップも非表示
+ * - 「地図で見る」ボタンは削除済み（シート内に位置マップが表示されるため不要）
  */
 
 // vi.mockファクトリはファイル先頭にホイスされるため、共通モックは動的importで参照。
@@ -45,7 +46,6 @@ function renderDetail(result = FULL, props = {}) {
     <MobileFacilityDetail
       detail={{ result }}
       onClose={props.onClose || vi.fn()}
-      onShowOnMap={props.onShowOnMap || vi.fn()}
     />
   )
 }
@@ -100,25 +100,23 @@ describe('MobileFacilityDetail', () => {
     expect(within(dialog).getByText(/OSMに登録されていません/)).toBeTruthy()
     expect(within(dialog).queryByRole('link', { name: /タップで発信/ })).toBeNull()
     expect(within(dialog).queryByRole('link', { name: /Webサイト/ })).toBeNull()
-    // 「地図で見る」は座標があるため表示される
-    expect(within(dialog).getByRole('button', { name: '地図で見る' })).toBeTruthy()
-  })
-
-  it('座標がない要素では「地図で見る」ボタンが表示されない', () => {
-    renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).queryByRole('button', { name: '地図で見る' })).toBeNull()
+    // フッターは「経路検索」（座標があるため）と「閉じる」
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 
-  it('「閉じる」で onClose、「地図で見る」で onShowOnMap(result) が呼ばれる', () => {
-    const onClose = vi.fn()
-    const onShowOnMap = vi.fn()
-    renderDetail(FULL, { onClose, onShowOnMap })
+  it('座標がない要素では「経路検索」リンクが表示されず、iDで編集・閉じるが残る', () => {
+    renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
     const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('link', { name: /経路検索/ })).toBeNull()
+    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
+  })
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '地図で見る' }))
-    expect(onShowOnMap).toHaveBeenCalledWith(FULL)
+  it('「閉じる」で onClose が呼ばれる', () => {
+    const onClose = vi.fn()
+    renderDetail(FULL, { onClose })
+    const dialog = screen.getByRole('dialog')
 
     fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -184,6 +182,16 @@ describe('MobileFacilityDetail: 位置マップ（#62）', () => {
     expect(mockState.api._state.markers[0]._lngLat).toEqual([135.5, 34.85])
   })
 
+  it('座標がある場合、位置マップはスクロール領域の先頭に表示される', () => {
+    renderDetail()
+    // スクロール可能な本文コンテナの最初の子要素がマップ本体
+    const content = document.querySelector('.overflow-y-auto')
+    expect(content).toBeTruthy()
+    const mapEl = content.firstElementChild
+    expect(mapEl.getAttribute('role')).toBe('img')
+    expect(mapEl.getAttribute('aria-label')).toContain('位置マップ')
+  })
+
   it('座標がない要素では位置マップも非表示', () => {
     renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
     const dialog = screen.getByRole('dialog')
@@ -191,10 +199,44 @@ describe('MobileFacilityDetail: 位置マップ（#62）', () => {
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
-  it('位置マップの追加で既存の3ボタン（地図で見る/iDで編集/閉じる）は維持される', () => {
+  it('位置マップの追加でフッターの3アクション（経路検索/iDで編集/閉じる）は維持される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByRole('button', { name: '地図で見る' })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
+  })
+
+  it('フッターに「地図で見る」ボタンは存在しない（シート内に位置マップが表示されるため）', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: '地図で見る' })).toBeNull()
+    // 位置マップ自体は表示されたまま
+    expect(within(dialog).getByRole('img', { name: /位置マップ/ })).toBeTruthy()
+  })
+})
+
+describe('MobileFacilityDetail: 経路検索ボタン', () => {
+  it('座標がある場合、フッターに「経路検索」リンクが表示される', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    const link = within(dialog).getByRole('link', { name: /経路検索/ })
+    expect(link.getAttribute('href')).toBe('https://www.google.com/maps/dir/?api=1&destination=34.85,135.5')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toContain('noreferrer')
+  })
+
+  it('座標がない要素では「経路検索」リンクが表示されない', () => {
+    renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('link', { name: /経路検索/ })).toBeNull()
+  })
+
+  it('フッターは経路検索/iDで編集/閉じるの3アクションで、「地図で見る」は含まれない', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: '地図で見る' })).toBeNull()
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
     expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })

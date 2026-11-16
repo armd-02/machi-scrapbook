@@ -23,7 +23,7 @@ import MobileFacilityDetail from './MobileFacilityDetail'
  * 検索完了時は結果（一覧）タブへ、エラー時は検索タブへ自動切替する。
  */
 export default function MobileShell() {
-  const { state, dispatch } = useApp()
+  const { state } = useApp()
   const [tab, setTab] = useState('search')
   const [detail, setDetail] = useState(null) // { result, origin }
   // (#63) 検索タブ内のビュー（'top' 一般向けトップ | 'form' 従来検索フォーム）。
@@ -53,19 +53,6 @@ export default function MobileShell() {
   const openDetail = (result, origin) => setDetail({ result, origin })
   const closeDetail = () => setDetail(null)
 
-  // 詳細シートから「地図で見る」: 検索タブ（地図モード）へ移動し、
-  // activeResultId 経由で MapView が施設へパンする（地図マウント前に切替を
-  // 送っても、MapView側のeffectがマウント後に適用するため遅延処理不要）
-  const showOnMap = (result) => {
-    setDetail(null)
-    if (state.searchSource !== 'map') {
-      dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'map' })
-    }
-    setTab('search')
-    if (result.lat == null || result.lon == null) return
-    dispatch({ type: 'SET_ACTIVE_RESULT', payload: `${result.type}/${result.id}` })
-  }
-
   const selectTab = (id) => {
     if (detail) setDetail(null)
     setTab(id)
@@ -77,7 +64,7 @@ export default function MobileShell() {
   const panelProps = (id) => (tab === id ? {} : { hidden: true })
 
   return (
-    <div className="flex flex-col h-dvh bg-slate-50 text-slate-800">
+    <div className="flex flex-col h-dvh bg-slate-50 text-slate-800 relative">
       <header className="shrink-0 bg-white border-b border-slate-200 px-4 py-2.5">
         <h1 className="text-sm font-semibold text-slate-800">まちデータ帳</h1>
       </header>
@@ -104,7 +91,7 @@ export default function MobileShell() {
       <MobileBottomNav active={tab} onSelect={selectTab} />
 
       {detail && (
-        <MobileFacilityDetail detail={detail} onClose={closeDetail} onShowOnMap={showOnMap} />
+        <MobileFacilityDetail detail={detail} onClose={closeDetail} />
       )}
     </div>
   )
