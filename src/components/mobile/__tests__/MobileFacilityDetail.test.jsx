@@ -19,9 +19,23 @@ import { resetMemochoStore } from '../../../hooks/useMemocho'
  * - OSMリンク。タグ一覧（<details>折りたたみ）は廃止
  * - フッター: 「経路検索」（座標がある場合のみ）・「iDで編集」。「閉じる」は右上の✕ボタン
  * (#62)
- * - 座標がある場合、シート上部（スクロール領域先頭）に位置マップ（MiniLocationMap）＋マーカー
- * - 座標がない場合はマップも非表示
+ * - 座標がある場合、ヘッダーと情報エリアの間（スクロール領域の外）に位置マップ
+ *   （MiniLocationMap）＋マーカーを表示。地図エリアは flex-1（最小高さ220px）で
+ *   シート高さに応じて伸縮する。地図自体はインタラクティブ（パン/ピンチズーム可、
+ *   回転・pitchは無効）
+ * - 座標がない場合は地図エリア自体も非表示（その分情報エリアが広がる）
  * - 「地図で見る」ボタンは削除済み（シート内に位置マップが表示されるため不要）
+ * 固定高さシート（h-[85dvh]）
+ * - 2段階（half/full）シートと取っ手のドラッグ/タップ切替は廃止（実機フィードバック）
+ * - 開いた時点で 85dvh の固定高さ。全項目（基本4項目・カテゴリ追加項目・メール/FAX・
+ *   SNS・バリアフリー情報・座標・OSMリンク）を最初から表示する
+ * - 取っ手のバーは撤去。シートは flex column: ヘッダー（auto）→ 地図エリア
+ *   （座標がある場合のみ・flex-1・最小高さ220px・スクロール領域の外）→ 情報エリア
+ *   （flex-1・overflow-y-auto）→ フッター（auto・常に最下部に固定）。地図自体は
+ *   インタラクティブ（パン/ピンチズーム可・回転・pitch無効）
+ * - 「本体地図で見る」導線（onShowOnMap）は廃止: 詳細内地図がインタラクティブに
+ *   なったため不要。onShowOnMap prop・role=button ラッパー・「本体地図で見る」
+ *   ラベルは削除済み
  */
 
 // vi.mockファクトリはファイル先頭にホイスされるため、共通モックは動的importで参照。
@@ -82,10 +96,12 @@ describe('MobileFacilityDetail', () => {
     expect(webLink.getAttribute('rel')).toContain('noopener')
   })
 
-  it('OSM ID・座標・OSMリンクが表示される', () => {
+  it('OSM ID・座標・OSMリンクが表示される（最初から表示される）', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
+    // OSM ID（type/id）はヘッダーに表示される
     expect(within(dialog).getByText('node/1001')).toBeTruthy()
+    // 座標行・OSMリンクも最初から表示される（2段階廃止）
     expect(within(dialog).getByText(/34.85, 135.5/)).toBeTruthy()
     const osmLink = within(dialog).getByRole('link', { name: /OSMで見る/ })
     expect(osmLink.getAttribute('href')).toBe('https://www.openstreetmap.org/node/1001')
@@ -106,11 +122,11 @@ describe('MobileFacilityDetail', () => {
   it('カテゴリ別の追加項目（keyInfoFor）は基本4項目を除外して表示される', () => {
     renderDetail() // cafe: cuisine が追加項目
     const dialog = screen.getByRole('dialog')
-    // cafeプロファイルの追加項目 cuisine が表示される
-    expect(within(dialog).getByText('🍴 coffee')).toBeTruthy()
     // 基本4項目は基本行で1回のみ（追加項目に二重表示されない）
     expect(within(dialog).getAllByText(/📞 \+81-6-1234-5678/)).toHaveLength(1)
     expect(within(dialog).getAllByText(/大阪市 梅田 1-1/)).toHaveLength(1)
+    // cafeプロファイルの追加項目 cuisine は最初から表示される（2段階廃止）
+    expect(within(dialog).getByText('🍴 coffee')).toBeTruthy()
   })
 
   it('タグ一覧（<details>）は表示されない', () => {
@@ -175,6 +191,7 @@ describe('MobileFacilityDetail', () => {
     const dialog = screen.getByRole('dialog')
     // 営業時間値が営業時間行（🕐 付き）に表示される（表示のみ日本語化。データは元の値のまま）
     expect(within(dialog).getByText(/月〜金 9:00〜19:00／土 9:00〜13:00/)).toBeTruthy()
+    // メール・FAXも最初から表示される（2段階廃止）
     const mail = within(dialog).getByRole('link', { name: /shop@example.com/ })
     expect(mail.getAttribute('href')).toBe('mailto:shop@example.com')
     expect(within(dialog).getByText(/FAX: \+81-6-9999-8888/)).toBeTruthy()
@@ -213,21 +230,54 @@ describe('MobileFacilityDetail: 位置マップ（#62）', () => {
     expect(mockState.api._state.markers[0]._lngLat).toEqual([135.5, 34.85])
   })
 
-  it('座標がある場合、位置マップはスクロール領域の先頭に表示される', () => {
+  it('位置マップはインタラクティブな設定で生成される（パン/ピンチズーム有効・回転・pitch無効）', () => {
     renderDetail()
-    // スクロール可能な本文コンテナの最初の子要素がマップ本体
-    const content = document.querySelector('.overflow-y-auto')
-    expect(content).toBeTruthy()
-    const mapEl = content.firstElementChild
-    expect(mapEl.getAttribute('role')).toBe('img')
-    expect(mapEl.getAttribute('aria-label')).toContain('位置マップ')
+    const map = mockState.api._state.maps[0]
+    expect(map).toBeTruthy()
+    // 操作: ドラッグパン・ホイールズーム・ピンチズームは有効、キーボードはオフ
+    expect(map._options.dragPan).toBe(true)
+    expect(map._options.scrollZoom).toBe(true)
+    expect(map._options.touchZoomRotate).toBe(true)
+    expect(map._options.keyboard).toBe(false)
+    // 回転・pitchは全地図の方針どおり無効
+    expect(map._options.dragRotate).toBe(false)
+    expect(map._options.maxPitch).toBe(0)
+    expect(map._options.pitchWithRotate).toBe(false)
+    // ピンチズームの捻り回転のみ無効化（ピンチズーム自体は有効なまま）
+    expect(map.touchZoomRotate._rotationDisabled).toBe(true)
   })
 
-  it('座標がない要素では位置マップも非表示', () => {
+  it('座標がある場合、位置マップはスクロール領域の外（ヘッダーと情報エリアの間）に配置される', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    // 情報エリア（スクロール領域）は dialog の直接子
+    const infoArea = dialog.querySelector('.overflow-y-auto')
+    expect(infoArea).toBeTruthy()
+    expect(infoArea.className).toContain('flex-1')
+    const mapEl = within(dialog).getByRole('img', { name: /位置マップ/ })
+    // 地図はスクロール領域の外にある
+    expect(infoArea.contains(mapEl)).toBe(false)
+    // 地図エリア（ラッパー）は dialog の直接子で、情報エリアより前に来る
+    const zone = mapEl.parentElement
+    expect(zone.parentElement).toBe(dialog)
+    const children = Array.from(dialog.children)
+    expect(children.indexOf(zone)).toBeLessThan(children.indexOf(infoArea))
+    // 地図エリアは flex-1（シート高さに応じて伸縮）＋最小高さ220px
+    expect(zone.className).toContain('flex-1')
+    expect(zone.className).toContain('min-h-[220px]')
+  })
+
+  it('座標がない要素では地図エリア自体も非表示（その分情報エリアが広がる）', () => {
     renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByRole('img')).toBeNull()
     expect(mockState.api._state.maps).toHaveLength(0)
+    // flex-1 の子要素は情報エリアのみ（地図エリアの分の高さを情報エリアが占める）
+    const flexChildren = Array.from(dialog.children).filter((el) =>
+      typeof el.className === 'string' && el.className.includes('flex-1')
+    )
+    expect(flexChildren).toHaveLength(1)
+    expect(flexChildren[0]).toBe(dialog.querySelector('.overflow-y-auto'))
   })
 
   it('位置マップの追加でアクション（経路検索/iDで編集/閉じる）は維持される', () => {
@@ -280,6 +330,7 @@ describe('MobileFacilityDetail: バリアフリー情報（#61）', () => {
       tags: { amenity: 'restaurant', wheelchair: 'yes' }
     })
     const dialog = screen.getByRole('dialog')
+    // バリアフリー情報は最初から表示される（2段階廃止）
     expect(within(dialog).getByText(/バリアフリー情報/)).toBeTruthy()
     expect(within(dialog).getByText('車椅子対応')).toBeTruthy()
   })
@@ -435,5 +486,97 @@ describe('まちメモ帳ボタン（第2ピース・フッター）', () => {
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
     expect(within(dialog).queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
+  })
+})
+
+describe('MobileFacilityDetail: 固定高さシート（h-[85dvh]）', () => {
+  it('シートは開いた時点で高さ85dvhの固定（h-[85dvh]）', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.className).toContain('h-[85dvh]')
+    // max-h（上限指定）ではなく固定高さ
+    expect(dialog.className).not.toContain('max-h-[85dvh]')
+  })
+
+  it('取っ手のバーは撤去されている（ドラッグ/タップ切替の廃止）', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'シートの大きさを切り替える' })).toBeNull()
+  })
+
+  it('全項目が最初から表示される（基本項目・ミニ地図・追加項目・SNS・バリアフリー・座標・OSMリンク・フッター）', () => {
+    renderDetail({
+      type: 'node', id: 1001, lat: 34.85, lon: 135.5,
+      name: 'テスト珈琲店', // overpass.js が tags.name を上位に正規化した結果を模す
+      tags: {
+        name: 'テスト珈琲店', amenity: 'cafe', cuisine: 'coffee',
+        'addr:city': '大阪市', 'addr:suburb': '梅田', 'addr:street': '1-1',
+        phone: '+81-6-1234-5678', website: 'https://example.com/coffee',
+        'contact:instagram': 'saka.cafe',
+        wheelchair: 'yes'
+      }
+    })
+    const dialog = screen.getByRole('dialog')
+    // 基本項目
+    expect(within(dialog).getByText('テスト珈琲店')).toBeTruthy()
+    expect(within(dialog).getByText('カフェ')).toBeTruthy()
+    expect(within(dialog).getByText(/大阪市 梅田 1-1/)).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /^電話/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /^Webサイト/ })).toBeTruthy()
+    // ミニ地図
+    expect(within(dialog).getByRole('img', { name: /位置マップ/ })).toBeTruthy()
+    // 従来 full のみだった項目も最初から表示される
+    expect(within(dialog).getByText('🍴 coffee')).toBeTruthy()
+    expect(within(dialog).getByText(/34.85, 135.5/)).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /OSMで見る/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /^Instagram/ })).toBeTruthy()
+    expect(within(dialog).getByText(/バリアフリー情報/)).toBeTruthy()
+    // フッター3ボタン＋閉じる
+    expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
+  })
+
+  it('情報エリアは flex-1＋内部スクロール、フッターは最下部に固定される', () => {
+    renderDetail()
+    const dialog = screen.getByRole('dialog')
+    // 情報エリア: flex-1（画面に応じて伸縮）+ overflow-y-auto（超過時のみ内部スクロール）
+    const infoArea = dialog.querySelector('.overflow-y-auto')
+    expect(infoArea).toBeTruthy()
+    expect(infoArea.className).toContain('flex-1')
+    // フッターはシート（dialog）の最後の直接子要素（最下部に固定）
+    const footer = dialog.lastElementChild
+    expect(footer.className).toContain('border-t')
+    expect(within(footer).getByRole('button', { name: /メモ帳/ })).toBeTruthy()
+  })
+
+  it('✕と背景タップで閉じる挙動は現行どおり', () => {
+    const onClose = vi.fn()
+    renderDetail(FULL, { onClose })
+    const dialog = screen.getByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    cleanup()
+    const onClose2 = vi.fn()
+    renderDetail(FULL, { onClose: onClose2 })
+    const backdrop = document.querySelector('.bg-black\\/40')
+    fireEvent.click(backdrop)
+    expect(onClose2).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('MobileFacilityDetail: 「本体地図で見る」導線は廃止（onShowOnMap 削除）', () => {
+  it('地図エリアは導線としてタップ可能になっていない（role=button 付与なし・「本体地図で見る」ラベルなし）', () => {
+    renderDetail(FULL)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'この施設を本体地図に表示' })).toBeNull()
+    expect(within(dialog).queryByText('本体地図で見る')).toBeNull()
+    // 地図自体はインタラクティブに表示されたまま（pointer-events: none なし）
+    const mapEl = within(dialog).getByRole('img', { name: /位置マップ/ })
+    expect(mapEl.className).not.toContain('pointer-events-none')
+    expect(mapEl.parentElement.getAttribute('role')).toBeNull()
   })
 })

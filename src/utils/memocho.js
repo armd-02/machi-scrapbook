@@ -5,9 +5,11 @@
  * React 非依存の純粋な関数群。
  *
  * アイテムの形:
- *   { type, id, name, lat, lon, tags, memo, addedAt }
+ *   { type, id, name, lat, lon, tags, memo, addedAt, mapImage?, rating }
  *   - type: 'node' | 'way' | 'relation'
  *   - id:   数値
+ *   - mapImage?: 地図サムネイル（dataURL）。未設定なら省略
+ *   - rating: 0〜5 の評価（整数）。0 ＝ 未評価
  *   - 一意キー: `${type}/${id}`
  */
 
@@ -70,7 +72,7 @@ export function hasMemocho(items, key) {
  *
  * - name: tags.name → tags['name:ja'] → '名称なし' の優先順
  * - tags: 浅いコピー（元のオブジェクトと独立）
- * - memo: '' / addedAt: 現在時刻の ISO 文字列
+ * - memo: '' / rating: 0（未評価）/ addedAt: 現在時刻の ISO 文字列
  * - 既に同じキーが登録済みなら配列をそのまま返す（重複追加しない）
  */
 export function addMemocho(items, result) {
@@ -91,6 +93,7 @@ export function addMemocho(items, result) {
     lon: typeof result.lon === 'number' ? result.lon : null,
     tags,
     memo: '',
+    rating: 0,
     addedAt: new Date().toISOString(),
   }
   return [...items, snapshot]
@@ -109,6 +112,17 @@ export function updateMemo(items, key, memo) {
 /** そのキーのアイテムの mapImage（地図サムネイル dataURL）を差し替えた新しい配列を返す */
 export function updateMapImage(items, key, mapImage) {
   return items.map((item) => (memochoKeyOf(item) === key ? { ...item, mapImage } : item))
+}
+
+/**
+ * そのキーのアイテムの rating（0〜5 の評価、0 ＝ 未評価）を差し替えた
+ * 新しい配列を返す。rating が 0〜5 の整数以外の場合は変更しない。
+ */
+export function updateRating(items, key, rating) {
+  if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 0 || rating > 5) {
+    return items
+  }
+  return items.map((item) => (memochoKeyOf(item) === key ? { ...item, rating } : item))
 }
 
 /**
@@ -187,6 +201,14 @@ function normalizeItem(item) {
     item.mapImage.length <= 200000
       ? item.mapImage
       : null
+  // 評価（0〜5、0 ＝ 未評価）。0〜5 の整数以外は未評価として扱う（寛容な方式）
+  const rating =
+    typeof item.rating === 'number' &&
+    Number.isInteger(item.rating) &&
+    item.rating >= 0 &&
+    item.rating <= 5
+      ? item.rating
+      : 0
 
   const normalized = {
     type: item.type,
@@ -199,6 +221,7 @@ function normalizeItem(item) {
     addedAt,
   }
   if (mapImage) normalized.mapImage = mapImage
+  normalized.rating = rating
   return normalized
 }
 

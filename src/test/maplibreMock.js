@@ -22,6 +22,8 @@
  * - Map: on/off/fire, addSource/getSource/addLayer/removeLayer/removeSource,
  *   querySourceFeatures, fitBounds/panTo/easeTo/jumpTo,
  *   getBounds/getZoom/getCenter, getCanvas, addControl, resize, remove
+ * - touchZoomRotate: enable/disable/enableRotation/disableRotation
+ *   （disableRotation の呼び出し・状態を検証するため _rotationDisabled を保持）
  * - GeoJSONSource（addSourceで生成・getSourceで取得）: setData(data)
  *
  * 注: 実maplibre-glのMapにはsetGeoJSON()メソッドが存在しない（mapbox-gl由来のAPI）。
@@ -159,6 +161,16 @@ export function createMapLibreMock(options = {}) {
       removeMarker(m) { this._markers = this._markers.filter((x) => x !== m); return this },
       resize() { return this._record('resize') },
       remove() { this._removed = true },
+
+      // 実MapLibreの TwoFingersTouchZoomRotateHandler を模す。
+      // disableRotation() はピンチズームを残して捻り回転のみ無効化する。
+      touchZoomRotate: {
+        _rotationDisabled: false,
+        enable() { return this },
+        disable() { return this },
+        enableRotation() { this._rotationDisabled = false; return this },
+        disableRotation() { this._rotationDisabled = true; return this },
+      },
     }
     state.maps.push(map)
 

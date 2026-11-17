@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import MobileFacilityCard from './MobileFacilityCard'
 import { useMemocho } from '../../hooks/useMemocho'
-import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../../utils/memocho'
-import { toCSV, downloadFile } from '../../utils/export'
+import { memochoKeyOf } from '../../utils/memocho'
 import { captureMapImage } from '../../utils/mapCapture'
+import { linkifySegments } from '../../utils/linkify'
 
 /**
  * (まちメモ帳 第3ピース) まちメモ帳セクション
@@ -12,16 +12,43 @@ import { captureMapImage } from '../../utils/mapCapture'
  * MobileFacilityCard と同じ見た目のカードで一覧表示する（スナップショットを
  * result として渡す）。カードタップで施設詳細シートが開く（onOpenDetail prop）。
  *
- * - 各カードにメモ欄（テキスト入力）: その場で編集でき、フォーカスを外すと
- *   setMemo で保存される
+ * - 各カードに複数行メモ欄: 未編集中は表示モード（改行を保持して描画し、http(s)://
+ *   URL を target=_blank のリンク化）、タップで編集モード（複数行 textarea）に切替、
+ *   フォーカスを外すと setMemo で保存される
+ * - 各カードに星5つの評価行（メモ欄の上）: 星をタップして 1〜5 を設定できる。
+ *   現在の値と同じ星をタップすると 0（未評価）に解除される
  * - カード右上の✕ボタンで登録を削除できる
- * - 見出し右端の ☰ サンドイッチメニュー（aria-label「まちメモ帳メニュー」）:
- *     - JSONで書き出し: serializeMemocho → machi-memocho.json
- *     - CSVで書き出し:  toCSV（includeMemo で末尾に memo 列を追加）→ machi-memocho.csv
- *     - 読み込み:      .json ファイル選択 → parseMemochoJSON → importItems で合流
- *     - すべて削除:    2段階確認（window.confirm は使わない）
- * - 読み込みの結果・エラーはセクション内のメッセージで表示する
+ * - 書き出し（JSON/CSV）・読み込み・全消去は、#79 でヘッダー右端の
+ *   ハンバーガーメニュー（HeaderMenu）に統一されたため、本コンポーネントには
+ *   メニューボタン・ファイル入力は持たない
  */
+
+// リンクタップ時のイベント伝播を止める（編集モードへの切替・詳細シート展開を防止）
+const stopMemoLink = (e) => e.stopPropagation()
+
+/**
+ * 表示モード用のメモ描画: 文字列を linkifySegments で分割し、
+ * http:// / https:// で始まる URL を <a>（target=_blank・rel=noopener）に変換する。
+ * 改行はコンテナの whitespace-pre-wrap で保持される。
+ */
+function renderMemoWithLinks(memo) {
+  return linkifySegments(memo).map((seg, i) =>
+    seg.type === 'url' ? (
+      <a
+        key={i}
+        href={seg.value}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stopMemoLink}
+        className="text-primary-600 underline"
+      >
+        {seg.value}
+      </a>
+    ) : (
+      <React.Fragment key={i}>{seg.value}</React.Fragment>
+    )
+  )
+}
 
 const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細の「メモ帳に追加」から登録できます。'
 
@@ -29,19 +56,9 @@ const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細
 const attemptedMapKeys = new Set()
 
 export default function MemochoSection({ onOpenDetail }) {
-  const { items, remove, setMemo, importItems, setMapImage } = useMemocho()
+  const { items, remove, setMemo, setMapImage, setRating } = useMemocho()
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [confirmWipe, setConfirmWipe] = useState(false)
-  const [notice, setNotice] = useState(null) // { kind: 'ok' | 'err', text }
   const [memoDrafts, setMemoDrafts] = useState({}) // { [key]: 編集途中のメモ }
-  const fileInputRef = useRef(null)
-  const sectionRef = useRef(null)
-
-  const closeMenu = () => {
-    setMenuOpen(false)
-    setConfirmWipe(false)
-  }
 
   // 地図サムネイル: 座標があり未生成のアイテムを1件ずつ順番に生成して保存する。
   // 失敗したアイテムはセッション内では再試行しない（attemptedMapKeys）。
@@ -67,72 +84,6 @@ export default function MemochoSection({ onOpenDetail }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
-  // セクション外をタップしたらメニューを閉じる（2段階削除の確認もリセット）
-  useEffect(() => {
-    if (!menuOpen) return
-    const onPointerDown = (e) => {
-      if (sectionRef.current && !sectionRef.current.contains(e.target)) closeMenu()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [menuOpen])
-
-  // ===== メニューの各アクション =====
-
-  const onExportJSON = () => {
-    downloadFile(serializeMemocho(items), 'machi-memocho.json', 'application/json')
-    setNotice({ kind: 'ok', text: 'まちメモ帳をJSONとして書き出しました。' })
-    closeMenu()
-  }
-
-  const onExportCSV = () => {
-    // 通常の toCSV の列構成を変えず、memo 列だけ末尾に追加する
-    downloadFile(toCSV(items, { includeMemo: true }), 'machi-memocho.csv', 'text/csv;charset=utf-8')
-    setNotice({ kind: 'ok', text: 'まちメモ帳をCSVとして書き出しました。' })
-    closeMenu()
-  }
-
-  const onImportClick = () => {
-    closeMenu()
-    if (fileInputRef.current) fileInputRef.current.click()
-  }
-
-  const onFileChange = (e) => {
-    const file = e.target.files && e.target.files[0]
-    e.target.value = ''
-    if (!file) return
-    // MobileBatchMatch と同じく FileReader でファイルを読み込む
-    const reader = new FileReader()
-    reader.onerror = () => setNotice({ kind: 'err', text: '読み込みに失敗しました: ファイルを読めませんでした。' })
-    reader.onload = () => {
-      try {
-        const imported = parseMemochoJSON(String(reader.result))
-        const { added, skipped } = importItems(imported)
-        const text =
-          added > 0 && skipped > 0
-            ? `${added}件を取り込みました（${skipped}件は登録済みのためスキップ）`
-            : added > 0
-              ? `${added}件を取り込みました`
-              : `新しい項目はありません（${skipped}件は登録済みのためスキップ）`
-        setNotice({ kind: 'ok', text })
-      } catch (err) {
-        setNotice({ kind: 'err', text: `読み込みに失敗しました: ${err.message}` })
-      }
-    }
-    reader.readAsText(file, 'utf-8')
-  }
-
-  const onDeleteAll = () => {
-    // 2段階: 1回目で表示が確認メッセージに切り替わり、2回目で実行する
-    if (!confirmWipe) {
-      setConfirmWipe(true)
-      return
-    }
-    items.forEach((item) => remove(memochoKeyOf(item)))
-    setNotice({ kind: 'ok', text: 'まちメモ帳の登録をすべて削除しました。' })
-    closeMenu()
-  }
-
   // ===== メモ欄 =====
 
   const onDraftChange = (key, value) => {
@@ -150,85 +101,12 @@ export default function MemochoSection({ onOpenDetail }) {
   }
 
   return (
-    <section ref={sectionRef} aria-label="まちメモ帳" className="@container bg-white border-b border-slate-200">
-      {/* 見出し＋件数＋☰ボタン */}
+    <section aria-label="まちメモ帳" className="@container bg-white border-b border-slate-200">
+      {/* 見出し＋件数（#79: ☰メニューはヘッダーの HeaderMenu に統一） */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
         <h2 className="text-sm font-bold text-slate-800">まちメモ帳</h2>
         <span className="text-xs text-slate-500">{items.length}件</span>
-        <button
-          type="button"
-          aria-label="まちメモ帳メニュー"
-          aria-expanded={menuOpen}
-          onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
-          className="ml-auto shrink-0 w-9 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-        >
-          ☰
-        </button>
       </div>
-
-      {/* サンドイッチメニュー */}
-      {menuOpen && (
-        <div className="px-3 pb-2">
-          <div
-            role="menu"
-            aria-label="まちメモ帳メニュー"
-            className="bg-white border border-slate-200 rounded-xl shadow-sm divide-y divide-slate-100 overflow-hidden"
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onExportJSON}
-              className="w-full min-h-[44px] px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
-            >
-              JSONで書き出し
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onExportCSV}
-              className="w-full min-h-[44px] px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
-            >
-              CSVで書き出し
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onImportClick}
-              className="w-full min-h-[44px] px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
-            >
-              読み込み
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onDeleteAll}
-              className={`w-full min-h-[44px] px-3 text-left text-sm ${
-                confirmWipe
-                  ? 'text-red-700 bg-red-50 font-semibold'
-                  : 'text-red-600 hover:bg-slate-50'
-              }`}
-            >
-              {confirmWipe ? '本当にすべて削除しますか？' : 'すべて削除'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 読み込み結果・エラーのメッセージ */}
-      {notice && (
-        <div className="px-3 pb-2">
-          <p
-            role="status"
-            className={`text-xs rounded-lg px-2.5 py-1.5 ${
-              notice.kind === 'err'
-                ? 'text-red-700 bg-red-50 border border-red-200'
-                : 'text-emerald-700 bg-emerald-50 border border-emerald-200'
-            }`}
-          >
-            {notice.text}
-          </p>
-        </div>
-      )}
 
       {/* 一覧（0件のときは案内文） */}
       <div className="px-3 pb-3">
@@ -246,39 +124,45 @@ export default function MemochoSection({ onOpenDetail }) {
                 draft={memoDrafts[memochoKeyOf(item)]}
                 onDraftChange={onDraftChange}
                 onDraftCommit={onDraftCommit}
+                onSetRating={setRating}
                 onRemove={remove}
               />
             ))}
           </div>
         )}
       </div>
-
-      {/* 読み込み用の非表示ファイル入力（accept: .json） */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json"
-        onChange={onFileChange}
-        className="hidden"
-        tabIndex={-1}
-        aria-hidden="true"
-      />
     </section>
   )
 }
 
 /**
- * 登録済み1件分のカード: MobileFacilityCard（同じ見た目）＋メモ欄。
+ * 登録済み1件分のカード: MobileFacilityCard（同じ見た目）＋評価行＋メモ欄。
  *
- * - カード本体タップで施設詳細シートが開く（onOpenDetail）
- * - メモ欄は入力値をローカルdraftに持ち、フォーカスを外したとき
- *   （onBlur）に onDraftCommit 経由で setMemo されて保存される。
- *   メモ欄はカード枠の中に置くが、施設カード本体（クリック領域）の
+ * - カード本体タップで施設詳細シートが開く（onOpenDetail）。地図サムネイルのタップでも開く
+ * - 評価行（星5つ）はメモ欄の上に置く。タップでその値を設定し、現在の値と
+ *   同じ星をタップすると 0（未評価）に解除される。状態は aria-pressed で表現する
+ * - メモ欄は表示モード/編集モードの2状態: 未編集中（draft なし）はメモ文字を
+ *   表示モードで描画（改行保持・http(s):// URL を target=_blank のリンク化、
+ *   リンクタップは stopPropagation で詳細シート・編集開始を防止）。表示をタップ
+ *   すると編集モード（複数行 textarea・現在の値からドラフト開始・textarea は
+ *   自動フォーカスされ従来の input と同等に編集が開始される）に切替し、
+ *   フォーカスを外したとき（onBlur）に onDraftCommit 経由で setMemo されて確定し表示モードに戻る。
+ *   評価行・メモ欄はカード枠の中に置くが、施設カード本体（クリック領域）の
  *   外に置くことで、編集操作が詳細シートの開閉に伝播しない。
  */
-function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, onRemove }) {
+function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, onSetRating, onRemove }) {
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
+  const rating = item.rating ?? 0 // 旧データ（rating 無し）は未評価として扱う
+  const isEditing = draft != null
+  const editRef = useRef(null)
+
+  // 編集モードへ切替たら textarea を自動フォーカス（従来の input がタップで
+  // フォーカスされてキーボードが出るのと同じ体験にする）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (isEditing && editRef.current) editRef.current.focus()
+  }, [isEditing])
 
   return (
     <div className="relative bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -292,7 +176,12 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
           />
         </div>
         {item.mapImage && (
-          <div className="relative shrink-0 w-[120px]">
+          <div
+            className="relative shrink-0 w-[120px] cursor-pointer"
+            role="button"
+            aria-label={`${item.name}の詳細を表示`}
+            onClick={() => onOpenDetail && onOpenDetail(item, 'memocho')}
+          >
             <img src={item.mapImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
             <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
               © OpenStreetMap contributors
@@ -311,15 +200,49 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
         ✕
       </button>
       <div className="px-3 pb-3">
-        <input
-          type="text"
-          value={memoValue}
-          placeholder="メモを追加"
-          aria-label={`${item.name}のメモ`}
-          onChange={(e) => onDraftChange(key, e.target.value)}
-          onBlur={(e) => onDraftCommit(key, e.currentTarget.value)}
-          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
+        {/* 星5つの評価行（メモ欄の上）。施設カード本体のクリック領域の外 */}
+        <div
+          role="group"
+          aria-label={`${item.name}の評価`}
+          className="flex items-center gap-0.5 mb-1.5"
+        >
+          {[1, 2, 3, 4, 5].map((i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`${item.name}を${i}つ星で評価する`}
+              aria-pressed={rating === i}
+              onClick={() => onSetRating && onSetRating(key, rating === i ? 0 : i)}
+              className={`shrink-0 text-sm leading-none p-0.5 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                i <= rating ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'
+              }`}
+            >
+              {i <= rating ? '★' : '☆'}
+            </button>
+          ))}
+        </div>
+        {/* 複数行メモ欄: 未編集中は表示モード（タップで編集開始）、編集中は textarea。
+            改行はそのまま文字列に保持される */}
+        {isEditing ? (
+          <textarea
+            ref={editRef}
+            value={draft}
+            placeholder="メモを追加"
+            aria-label={`${item.name}のメモ`}
+            rows={3}
+            onChange={(e) => onDraftChange(key, e.target.value)}
+            onBlur={(e) => onDraftCommit(key, e.currentTarget.value)}
+            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+        ) : (
+          <div
+            onClick={() => onDraftChange(key, memoValue)}
+            aria-label={`${item.name}のメモ`}
+            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 whitespace-pre-wrap break-words leading-relaxed cursor-pointer active:bg-slate-50"
+          >
+            {memoValue ? renderMemoWithLinks(memoValue) : <span className="text-slate-400">メモを追加</span>}
+          </div>
+        )}
       </div>
     </div>
   )

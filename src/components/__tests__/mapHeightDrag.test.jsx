@@ -12,6 +12,8 @@
  *     地図コンテナは既定の高さクラス（h-[240px]）のまま
  *   - ハンドルをドラッグすると、地図コンテナの高さがインラインstyleで
  *     上書きされる（既定クラスは維持）
+ *   - 初期状態からコンテナのインラインstyleに明示的なpx（既定高さ240px）が入る
+ *     （既定クラス h-[240px] とdefaultHeightが一致しているため初期表示は不変）
  * - 地図の表示/非表示は view・searchSource で制御される（モバイルと同一タイミング）:
  *   トップ表示では非表示、フォーム＋地図モードのみ表示、自治体モードでは非表示
  *   （いずれもマウントは維持され、hidden 属性で切替）
@@ -117,7 +119,8 @@ describe('PC幅（>=1024px・matches=false）: 共通コンポーネントの地
     )
     const mapContainer = mapContainerOf(view)
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
-    expect(mapContainer.style.height).toBe('')
+    // 初期状態から明示的なpx（既定240px）が入る
+    expect(mapContainer.style.height).toBe('240px')
 
     act(() => {
       fireEvent.pointerDown(handle, { clientY: 300 })
@@ -227,7 +230,8 @@ describe('モバイル幅（<1024px・matches=true）: MobileSearchTab・地図�
     )
     const mapContainer = mapContainerOf(view)
     const handle = view.container.querySelector('[role="separator"][aria-orientation="horizontal"]')
-    expect(mapContainer.style.height).toBe('')
+    // 初期状態から明示的なpx（既定240px）が入る
+    expect(mapContainer.style.height).toBe('240px')
 
     act(() => {
       fireEvent.pointerDown(handle, { clientY: 200 })

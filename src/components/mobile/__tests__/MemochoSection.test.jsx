@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 /**
  * (まちメモ帳 第3ピース) MemochoSection のテスト
- * - 0件のときの案内文
+ * - 0件のときは案内文が出る（#79 で☰メニューはヘッダーの HeaderMenu に
+ *   統一されたため、セクション内にメニューボタン・ファイル入力は無い）
  * - localStorage の保存データが一覧に表示される（メモ欄の初期値含む）
- * - メモ欄を編集してフォーカスを外すと setMemo で保存される
- * - 読み込み: JSONファイルを渡すと合流し、追加/スキップ件数のメッセージが出る。
- *   不正なファイルではエラーメッセージが出て内容が変わらない
- * - すべて削除が2段階で動き、実行後は0件表示になる
- * - JSON書き出し: URL.createObjectURL をモックして呼び出しを確認
+ * - メモ欄: 未編集中は表示モード（改行保持・http(s):// URL リンク化、空メモは
+ *   「メモを追加」の案内表示）、タップで編集モード（複数行 textarea・現在の値から
+ *   開始・自動フォーカス）に切替し、フォーカスを外すと確定（setMemo）して表示モードに戻る
+ * - 表示モード: リンクタップで詳細シートが開かない・編集モードに切替しない（stopPropagation）
+ * - 星5つの評価行: タップで設定・現在の星で解除、状態は aria-pressed
+ * - カードの✕で登録削除できる
  * - カードタップで onOpenDetail が呼ばれる
+ * - 地図サムネイルの生成・表示
+ *
+ * 書き出し（JSON/CSV）・読み込み・全消去（2段階確認）のテストは、#79 で
+ * ヘッダーメニューに集約されたため HeaderMenu.test.jsx へ移した。
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -56,11 +62,7 @@ function storedItems() {
 function renderSection(overrides = {}) {
   const onOpenDetail = vi.fn()
   const view = render(<MemochoSection onOpenDetail={onOpenDetail} {...overrides} />)
-  return { view, onOpenDetail, fileInput: () => view.container.querySelector('input[type="file"]') }
-}
-
-function jsonFile(text, name = 'machi-memocho.json') {
-  return new File([text], name, { type: 'application/json' })
+  return { view, onOpenDetail }
 }
 
 beforeEach(() => {
@@ -81,8 +83,10 @@ describe('MemochoSection: 基本表示', () => {
     expect(screen.getByText('0件')).toBeTruthy()
     expect(screen.getByText(/まだ登録がありません/)).toBeTruthy()
     expect(screen.getByText(/メモ帳に追加/)).toBeTruthy()
-    // ☰ メニューボタン（aria-label「まちメモ帳メニュー」）が存在する
-    expect(screen.getByRole('button', { name: 'まちメモ帳メニュー' })).toBeTruthy()
+    // (#79) 書き出し・読み込み・全消去はヘッダーのハンバーガーメニューに統一済み。
+    // セクション内にメニューボタン・ファイル入力は存在しない
+    expect(screen.queryByRole('button', { name: 'まちメモ帳メニュー' })).toBeNull()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
   it('localStorage に保存済みのデータがあると一覧に表示される', () => {
@@ -98,9 +102,9 @@ describe('MemochoSection: 基本表示', () => {
     expect(screen.getByRole('heading', { name: 'みらい公園' })).toBeTruthy()
     expect(screen.getByText('カフェ')).toBeTruthy()
     expect(screen.getByText('公園')).toBeTruthy()
-    // メモ欄の初期値は保存済みのメモ
-    expect(screen.getByLabelText('テスト珈琲店のメモ').value).toBe('前回訪問済み')
-    expect(screen.getByLabelText('みらい公園のメモ').value).toBe('')
+    // メモ欄は未編集中なので表示モード: 保存済みメモはテキスト表示・空メモは案内表示
+    expect(screen.getByLabelText('テスト珈琲店のメモ').textContent).toBe('前回訪問済み')
+    expect(screen.getByLabelText('みらい公園のメモ').textContent).toBe('メモを追加')
   })
 
   it('カードタップで onOpenDetail（スナップショット＋origin "memocho"）が呼ばれる', () => {
@@ -117,11 +121,20 @@ describe('MemochoSection: 基本表示', () => {
 })
 
 describe('MemochoSection: メモ欄', () => {
-  it('メモ欄を編集してフォーカスを外すと localStorage に保存される', () => {
+  it('メモ表示をタップすると textarea が出て、編集後にフォーカスを外すと localStorage に保存される', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
     renderSection()
 
+    // 最初は表示モード（メモが空なので「メモを追加」の案内）
+    const display = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(display.tagName).toBe('DIV')
+
+    // タップで編集モード（複数行 textarea）に切替・textarea は自動フォーカス
+    fireEvent.click(display)
     const input = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(input.tagName).toBe('TEXTAREA')
+    expect(document.activeElement).toBe(input)
+
     fireEvent.change(input, { target: { value: 'Wi-Fiがあります' } })
 
     // 編集中は未保存（draft のみ）
@@ -130,91 +143,199 @@ describe('MemochoSection: メモ欄', () => {
     fireEvent.blur(input)
 
     expect(storedItems()[0].memo).toBe('Wi-Fiがあります')
-    // 入力欄の表示も保存値に追従する
-    expect(screen.getByLabelText('テスト珈琲店のメモ').value).toBe('Wi-Fiがあります')
+    // 表示モードに戻り、保存値がテキスト表示される
+    const after = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(after.tagName).toBe('DIV')
+    expect(after.textContent).toBe('Wi-Fiがあります')
   })
 
-  it('変更なしでフォーカスを外しても内容は変わらない', () => {
+  it('編集モードに切替しても変更なしでフォーカスを外すと内容は変わらない', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ memo: '元のメモ' })]))
     renderSection()
 
-    fireEvent.blur(screen.getByLabelText('テスト珈琲店のメモ'))
+    fireEvent.click(screen.getByLabelText('テスト珈琲店のメモ'))
+    const input = screen.getByLabelText('テスト珈琲店のメモ')
+    // 切替時は現在の値からドラフトが開始され、textarea は自動フォーカスされる
+    expect(input.tagName).toBe('TEXTAREA')
+    expect(input.value).toBe('元のメモ')
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.blur(input)
     expect(storedItems()[0].memo).toBe('元のメモ')
+    // 確定で表示モードへ戻る（表示⇄編集の往復）
+    expect(screen.getByLabelText('テスト珈琲店のメモ').tagName).toBe('DIV')
+  })
+
+  it('編集モードでは複数行を入力でき、改行を保持したまま保存される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+    renderSection()
+
+    fireEvent.click(screen.getByLabelText('テスト珈琲店のメモ')) // 表示モード → 編集モード
+    const input = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(input.tagName).toBe('TEXTAREA')
+
+    fireEvent.change(input, { target: { value: '1行目\n2行目' } })
+    fireEvent.blur(input)
+
+    // 改行（\n）を含む文字列としてそのまま保存される
+    expect(storedItems()[0].memo).toBe('1行目\n2行目')
+    expect(screen.getByLabelText('テスト珈琲店のメモ').textContent).toBe('1行目\n2行目')
+  })
+
+  it('保存済みの複数行メモは改行を保持したまま表示モードで描画される（whitespace-pre-wrap）', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ memo: 'a\nb\nc' })]))
+    renderSection()
+
+    const field = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(field.tagName).toBe('DIV')
+    expect(field.textContent).toBe('a\nb\nc')
+    expect(field.className.includes('whitespace-pre-wrap')).toBe(true)
   })
 })
 
-describe('MemochoSection: 読み込み', () => {
-  it('JSONファイルを渡すと合流し、追加/スキップ件数のメッセージが出る', async () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ memo: '既存メモ' })]))
-    const { view, fileInput } = renderSection()
+describe('MemochoSection: メモ内の URL リンク（表示モード）', () => {
+  it('http:// か https:// で始まる URL が target=_blank・rel=noopener のリンクになる', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ memo: 'ホーム https://example.com ページ' }),
+    ]))
+    renderSection()
 
-    const imported = JSON.stringify({
-      app: 'machi-memocho',
-      version: 1,
-      items: [
-        makeItem({ memo: '取り込みメモ' }), // キー重複 → スキップ（既存優先）
-        PARK, // 新規 → 追加
-      ],
-    })
-    fireEvent.change(fileInput(), { target: { files: [jsonFile(imported)] } })
-
-    await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('1件を取り込みました（1件は登録済みのためスキップ）')
-    }, { timeout: 5000 })
-
-    // 一覧に新着施設が表示され、件数も更新される
-    expect(screen.getByText('2件')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'みらい公園' })).toBeTruthy()
-
-    // 既存が優先される（既存メモが上書きされない）
-    const stored = storedItems()
-    expect(stored).toHaveLength(2)
-    expect(stored[0].memo).toBe('既存メモ')
-    expect(stored[1].name).toBe('みらい公園')
+    const link = screen.getByRole('link', { name: 'https://example.com' })
+    expect(link.getAttribute('href')).toBe('https://example.com')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    // 周囲のテキストはそのまま描画され、リンクは表示モードの中にある
+    const field = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(field.textContent).toBe('ホーム https://example.com ページ')
+    expect(field.contains(link)).toBe(true)
   })
 
-  it('すべてが重複の場合は「新しい項目はありません」メッセージが出る', async () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const { fileInput } = renderSection()
+  it('リンクをタップしても施設詳細は開かず、編集モードにも切替しない（stopPropagation）', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ memo: '参照 https://example.com' }),
+    ]))
+    const { onOpenDetail } = renderSection()
 
-    fireEvent.change(fileInput(), {
-      target: { files: [jsonFile(JSON.stringify({ app: 'machi-memocho', version: 1, items: [makeItem()] }))] },
-    })
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com' }))
 
-    await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('新しい項目はありません（1件は登録済みのためスキップ）')
-    }, { timeout: 5000 })
-    // 内容が変わらない
-    expect(storedItems()).toEqual([makeItem()])
+    expect(onOpenDetail).not.toHaveBeenCalled()
+    // まだ表示モード（textarea は出ていない）
+    expect(screen.getByLabelText('テスト珈琲店のメモ').tagName).toBe('DIV')
   })
 
-  it('JSONでないファイルではエラーメッセージが出て内容が変わらない', async () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const { fileInput } = renderSection()
+  it('リンク以外のテキストをタップすると編集モード（textarea）に切替する', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ memo: 'ノート https://example.com' }),
+    ]))
+    renderSection()
 
-    fireEvent.change(fileInput(), { target: { files: [jsonFile('これはJSONではありません')] } })
+    fireEvent.click(screen.getByLabelText('テスト珈琲店のメモ'))
 
-    await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
-    }, { timeout: 5000 })
-    expect(screen.getByRole('status').textContent).toContain('無効な JSON')
-    // 内容が変わらない
-    expect(storedItems()).toEqual([makeItem()])
-    expect(screen.getByText('1件')).toBeTruthy()
+    expect(screen.getByLabelText('テスト珈琲店のメモ').tagName).toBe('TEXTAREA')
   })
 
-  it('形式が一致しないファイル（app が違う）でもエラーで内容が変わらない', async () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const { fileInput } = renderSection()
+  it('URL を含む複数行メモは、表示モードで改行を保持したまま URL のみリンク化される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ memo: '1行目\n参照 https://example.com\n3行目' }),
+    ]))
+    renderSection()
 
-    fireEvent.change(fileInput(), {
-      target: { files: [jsonFile(JSON.stringify({ app: 'other-app', version: 1, items: [makeItem()] }))] },
-    })
+    const field = screen.getByLabelText('テスト珈琲店のメモ')
+    // 改行を含む全文がそのまま表示され、pre-wrap クラスが付いている
+    expect(field.textContent).toBe('1行目\n参照 https://example.com\n3行目')
+    expect(field.className.includes('whitespace-pre-wrap')).toBe(true)
+    // URL 部分のみがリンクになり、表示モードの中にある
+    const link = screen.getByRole('link', { name: 'https://example.com' })
+    expect(field.contains(link)).toBe(true)
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
 
-    await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
-    }, { timeout: 5000 })
-    expect(storedItems()).toEqual([makeItem()])
+  it('スキーム無し（www. 等）のURLはリンク化されない', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ memo: 'www.example.com' }),
+    ]))
+    renderSection()
+
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByLabelText('テスト珈琲店のメモ').textContent).toBe('www.example.com')
+  })
+})
+
+describe('MemochoSection: 評価（星5つ）', () => {
+  const star = (i) => screen.getByRole('button', { name: `テスト珈琲店を${i}つ星で評価する` })
+
+  it('メモ欄の上に星5つのボタン行があり、未評価なら全部 ☆・pressed なし', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()])) // rating 無し（旧データ含む）
+    renderSection()
+
+    const group = screen.getByRole('group', { name: 'テスト珈琲店の評価' })
+    const buttons = [1, 2, 3, 4, 5].map(star)
+    for (const b of buttons) {
+      expect(group.contains(b)).toBe(true) // 評価行の中のボタン
+      expect(b.textContent).toBe('☆')
+      expect(b.getAttribute('aria-pressed')).toBe('false')
+    }
+    // メモ欄（input）より上（前に）にある
+    const input = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(group.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('rating 3 のアイテムは ★3つ＋☆2つ、pressed は3番星だけ', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ rating: 3 })]))
+    renderSection()
+
+    expect(star(1).textContent).toBe('★')
+    expect(star(2).textContent).toBe('★')
+    expect(star(3).textContent).toBe('★')
+    expect(star(4).textContent).toBe('☆')
+    expect(star(5).textContent).toBe('☆')
+    expect(star(1).getAttribute('aria-pressed')).toBe('false')
+    expect(star(2).getAttribute('aria-pressed')).toBe('false')
+    expect(star(3).getAttribute('aria-pressed')).toBe('true')
+    expect(star(4).getAttribute('aria-pressed')).toBe('false')
+    expect(star(5).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('星をタップするとその値に設定され、表示と localStorage が更新される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()])) // rating 無し
+    const { onOpenDetail } = renderSection()
+
+    fireEvent.click(star(2))
+
+    expect(storedItems()[0].rating).toBe(2)
+    expect(star(1).textContent).toBe('★')
+    expect(star(2).textContent).toBe('★')
+    expect(star(3).textContent).toBe('☆')
+    expect(star(2).getAttribute('aria-pressed')).toBe('true')
+    expect(star(1).getAttribute('aria-pressed')).toBe('false')
+    // 評価行のタップで詳細シートは開かない（クリック領域の外）
+    expect(onOpenDetail).not.toHaveBeenCalled()
+  })
+
+  it('現在の値と同じ星をタップすると 0（未評価）に解除される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ rating: 3 })]))
+    renderSection()
+
+    fireEvent.click(star(3))
+
+    expect(storedItems()[0].rating).toBe(0)
+    for (const i of [1, 2, 3, 4, 5]) {
+      expect(star(i).textContent).toBe('☆')
+      expect(star(i).getAttribute('aria-pressed')).toBe('false')
+    }
+  })
+
+  it('複数アイテムではそれぞれのカードに独立した評価行がある', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ rating: 4 }),
+      PARK, // rating 無し
+    ]))
+    renderSection()
+
+    expect(screen.getByRole('button', { name: 'テスト珈琲店を4つ星で評価する' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'みらい公園を3つ星で評価する' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getAllByRole('group')).toHaveLength(2)
   })
 })
 
@@ -225,6 +346,14 @@ describe('MemochoSection: 地図サムネイル', () => {
     renderSection()
     const img = document.querySelector('img[src="data:image/jpeg;base64,QUJD"]')
     expect(img).toBeTruthy()
+  })
+
+  it('地図をタップすると onOpenDetail が呼ばれる', () => {
+    const item = makeItem({ mapImage: 'data:image/jpeg;base64,QUJD' })
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([item]))
+    const { onOpenDetail } = renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /の詳細を表示/ }))
+    expect(onOpenDetail).toHaveBeenCalledWith(item, 'memocho')
   })
 
   it('mapImage が無いアイテムでは生成して保存する', async () => {
@@ -249,88 +378,5 @@ describe('MemochoSection: カードの✕で登録削除', () => {
     fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店をメモ帳から削除' }))
     expect(screen.getByText(/まだ登録がありません/)).toBeTruthy()
     expect(storedItems()).toEqual([])
-  })
-})
-
-describe('MemochoSection: すべて削除（2段階）', () => {
-  it('1回目で確認表示に切り替わり、2回目の押下で実行される', () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem(), PARK]))
-    renderSection()
-    expect(screen.getByText('2件')).toBeTruthy()
-
-    // ☰ でメニューを開く
-    fireEvent.click(screen.getByRole('button', { name: 'まちメモ帳メニュー' }))
-    expect(screen.getByRole('menuitem', { name: 'すべて削除' })).toBeTruthy()
-
-    // 1回目の押下: 表示が確認メッセージに切り替わるだけ（内容不変）
-    fireEvent.click(screen.getByRole('menuitem', { name: 'すべて削除' }))
-    expect(screen.getByRole('menuitem', { name: '本当にすべて削除しますか？' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: 'すべて削除' })).toBeNull()
-    expect(storedItems()).toHaveLength(2)
-    expect(screen.getByText('2件')).toBeTruthy()
-
-    // 2回目の押下: 実行されて0件になる
-    fireEvent.click(screen.getByRole('menuitem', { name: '本当にすべて削除しますか？' }))
-    expect(screen.getByText('0件')).toBeTruthy()
-    expect(storedItems()).toEqual([])
-    expect(screen.getByRole('status').textContent).toContain('すべて削除しました')
-    // 実行後はメニューが閉じる（確認状態もリセット）
-    expect(screen.queryByRole('menuitem')).toBeNull()
-  })
-
-  it('window.confirm を使っていない（confirm のスピアは呼ばれない）', () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const confirmSpy = vi.spyOn(window, 'confirm')
-    renderSection()
-
-    fireEvent.click(screen.getByRole('button', { name: 'まちメモ帳メニュー' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'すべて削除' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '本当にすべて削除しますか？' }))
-
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(storedItems()).toEqual([])
-  })
-})
-
-describe('MemochoSection: 書き出し', () => {
-  it('JSONで書き出し: URL.createObjectURL が呼ばれ、Blob は serializeMemocho の内容', async () => {
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    renderSection()
-
-    fireEvent.click(screen.getByRole('button', { name: 'まちメモ帳メニュー' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'JSONで書き出し' }))
-
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
-    const blob = URL.createObjectURL.mock.calls[0][0]
-    expect(blob).toBeInstanceOf(Blob)
-    expect(JSON.parse(await blob.text())).toEqual({
-      app: 'machi-memocho',
-      version: 1,
-      items: [makeItem()],
-    })
-    expect(screen.getByRole('status').textContent).toContain('JSONとして書き出しました')
-  })
-
-  it('CSVで書き出し: 末尾に memo 列が付いたCSVになる（通常 toCSV と列構成の違い）', async () => {
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem({ memo: 'メモ内容' })]))
-    renderSection()
-
-    fireEvent.click(screen.getByRole('button', { name: 'まちメモ帳メニュー' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'CSVで書き出し' }))
-
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
-    const csv = (await URL.createObjectURL.mock.calls[0][0].text())
-    const lines = csv.replace(/^\uFEFF/, '').split('\n')
-    const headers = lines[0].split(',')
-    expect(headers[headers.length - 1]).toBe('memo') // memo 列は末尾
-    const row = lines[1].split(',')
-    expect(row[headers.length - 1]).toBe('メモ内容')
-    expect(screen.getByRole('status').textContent).toContain('CSVとして書き出しました')
   })
 })

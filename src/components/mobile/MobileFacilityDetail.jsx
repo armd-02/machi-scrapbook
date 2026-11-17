@@ -28,13 +28,31 @@ import MiniLocationMap from './MiniLocationMap'
  *   - SNSリンク（Instagram/Facebook/X/YouTube: タグがある場合のみ）
  * (#61) バリアフリー情報: 車椅子・トイレ・駐車・エレベーター等を日本語解釈して表示
  * 補助情報: OSM ID・座標・OSMで見る
- * (#62) 位置マップ: 座標がある場合、ボトムシート上部に施設位置を示す
- *        小型マップ（MiniLocationMap）＋マーカーを表示する
+ * (#62) 位置マップ: 座標がある場合、ヘッダーと情報エリアの間（スクロール領域の外）に
+ *        位置マップ（MiniLocationMap）＋マーカーを表示する。地図エリアは flex-1
+ *        （最小高さ 220px）でシートの高さに応じて伸縮する。座標が無い施設は
+ *        地図エリア自体を出さず、その分情報エリアが広がる。
  * 主ナビゲーションのタブではなく、施設カード／地図マーカーから開くオーバーレイ。
  *
  * 変更点: 「タグ一覧（折りたたみ）」セクションは廃止。基本行はカードと同一の
  * ラベル付き形式に統一し、電話・Webサイトは未登録でも「-」を常時表示する。
  * 「OSMに登録されていません」注記は削除（電話・Webサイトは「-」で常時表示）。
+ *
+ * 固定高さシート（h-[85dvh]）:
+ *   - 2段階（half/full）シートと取っ手のドラッグ/タップ切替は廃止（実機フィードバック:
+ *     取っ手ドラッグが遅く体感が重い）。開いた時点で 85dvh の固定高さとし、
+ *     全項目を最初から表示する。
+ *   - シートは flex column: ヘッダー（auto）→ 地図エリア（座標がある場合のみ・flex-1
+ *     最小高さ220px・インタラクティブ）→ 情報エリア（flex-1・overflow-y-auto）→
+ *     フッター（auto・常に最下部に固定）。
+ *   - 地図はスクロール領域の外に置くため、情報エリアのスクロールと地図操作が
+ *     競合しない。地図エリアは flex-1 でシート高さに応じて伸縮する（最小220px）。
+ *   - 座標が無い施設では地図エリア自体をレンダリングしない（情報エリアがその分広がる）。
+ *   - 取っ手のバーは撤去（ドラッグ自体が無いため不要）。
+ *
+ * 「本体地図で見る」導線（onShowOnMap）は廃止: 詳細内地図がインタラクティブになり
+ * パン/ピンチズームで操作できるようになったため不要になった。onShowOnMap prop・
+ * タップ用ラッパー（role=button）・「本体地図で見る」ラベルは削除済み。
  */
 
 // 基本4項目（住所・電話・営業時間・Webサイト）。
@@ -113,10 +131,9 @@ export default function MobileFacilityDetail({ detail, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-label={`施設詳細: ${name}`}
-        className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl max-h-[85dvh] flex flex-col"
+        className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl h-[85dvh] flex flex-col"
       >
         <div className="px-4 pt-2 pb-3 border-b border-slate-100">
-          <div className="mx-auto w-10 h-1 bg-slate-200 rounded-full mb-2" aria-hidden="true" />
           <button
             type="button"
             onClick={onClose}
@@ -135,12 +152,18 @@ export default function MobileFacilityDetail({ detail, onClose }) {
           <p className="text-[11px] text-slate-400 font-mono mt-0.5">{result.type}/{result.id}</p>
         </div>
 
-        <div className="overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-          {/* (#62) 位置マップ: 施設座標を中心にマーカー表示（非インタラクティブ） */}
-          {hasCoords && (
-            <MiniLocationMap lng={result.lon} lat={result.lat} />
-          )}
+        {/* (#62) 位置マップ: 座標がある場合、ヘッダーと情報エリアの間（スクロール領域の外）
+            に地図エリアを置く。flex-1（最小220px）でシート高さに応じて伸縮し、
+            MiniLocationMap 側は height: 100% でエリア全体を満たす（MapLibre の
+            ResizeObserver がコンテナの伸縮を自動追従）。地図自体はインタラクティブ
+            （パン/ピンチズーム可・回転・pitchは無効）。 */}
+        {hasCoords && (
+          <div className="relative flex-1 min-h-[220px] px-4 pt-3">
+            <MiniLocationMap lng={result.lon} lat={result.lat} height="100%" />
+          </div>
+        )}
 
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
           {/* 基本項目行（カードと同じラベル付き行の形式） */}
           {address && (
             <p className="text-xs text-slate-600 break-words">
@@ -223,6 +246,7 @@ export default function MobileFacilityDetail({ detail, onClose }) {
             </ul>
           )}
 
+          {/* バリアフリー情報 */}
           {accessItems.length > 0 && (
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               <p className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-600">
@@ -245,6 +269,7 @@ export default function MobileFacilityDetail({ detail, onClose }) {
             </div>
           )}
 
+          {/* 座標・OSMリンク */}
           {hasCoords && (
             <p className="text-xs text-slate-500 font-mono">🗺 {result.lat}, {result.lon}</p>
           )}

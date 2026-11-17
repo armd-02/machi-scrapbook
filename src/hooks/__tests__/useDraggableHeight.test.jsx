@@ -2,7 +2,7 @@
 /**
  * useDraggableHeight — コンテナの高さをドラッグで変更するフック
  *
- * - 未操作は height=null（既定クラスのままで、デフォルト表示は不変）
+ * - 未操作は height=defaultHeight（初期状態から containerStyle に明示的な px 高さ）
  * - ハンドル（地図の下端）はポインタと同方向に動く: 下方向ドラッグで増大、
  *   上方向で減少（クランプ: minHeight〜maxHeight）
  * - pointerup/pointercancel でドラッグ終了（以降のmoveは反映されない）
@@ -23,7 +23,7 @@ function TestMap({ over = {} }) {
     <div>
       <div data-testid="container" style={containerStyle}>map</div>
       <div data-testid="handle" {...handleProps} />
-      <span data-testid="height">{height ?? 'default'}</span>
+      <span data-testid="height">{height}</span>
     </div>
   )
 }
@@ -36,10 +36,10 @@ afterEach(() => {
 })
 
 describe('useDraggableHeight', () => {
-  it('未操作は既定高さ（height=null、インラインstyleなし）', () => {
+  it('未操作はdefaultHeightが初期高さになり、初期状態から明示的なpxのインラインstyleが入る（520px）', () => {
     const view = render(<TestMap />)
-    expect(view.getByTestId('height').textContent).toBe('default')
-    expect(view.getByTestId('container').style.height).toBe('')
+    expect(view.getByTestId('height').textContent).toBe('520')
+    expect(view.getByTestId('container').style.height).toBe('520px')
   })
 
   it('上方向ドラッグで高さが小さくなる（520 → 420）', () => {
@@ -120,18 +120,18 @@ describe('localStorage永続化', () => {
     expect(view.getByTestId('container').style.height).toBe('640px')
   })
 
-  it('保存値が不正（数値でない）なら初期値（既定クラス）を使う', () => {
+  it('保存値が不正（数値でない）ならdefaultHeight（520px）にフォールバックする', () => {
     localStorage.setItem(KEY, 'abc')
     const view = render(<TestMap over={{ storageKey: KEY }} />)
-    expect(view.getByTestId('height').textContent).toBe('default')
-    expect(view.getByTestId('container').style.height).toBe('')
+    expect(view.getByTestId('height').textContent).toBe('520')
+    expect(view.getByTestId('container').style.height).toBe('520px')
   })
 
-  it('保存値が範囲外なら初期値（既定クラス）を使う', () => {
+  it('保存値が範囲外ならdefaultHeight（520px）にフォールバックする', () => {
     localStorage.setItem(KEY, '1500') // > maxHeight 900
     const view = render(<TestMap over={{ storageKey: KEY }} />)
-    expect(view.getByTestId('height').textContent).toBe('default')
-    expect(view.getByTestId('container').style.height).toBe('')
+    expect(view.getByTestId('height').textContent).toBe('520')
+    expect(view.getByTestId('container').style.height).toBe('520px')
   })
 
   it('ドラッグ終了時に高さをlocalStorageに保存する', () => {
@@ -151,7 +151,8 @@ describe('localStorage永続化', () => {
     fireEvent.pointerUp(handle)
     expect(onResize).not.toHaveBeenCalled()
     expect(localStorage.getItem(KEY)).toBeNull()
-    expect(view.getByTestId('container').style.height).toBe('')
+    // タップだけでは高さは変わらず、初期値（defaultHeight）のまま
+    expect(view.getByTestId('container').style.height).toBe('520px')
   })
 
   it('storageKey未指定ならlocalStorageに保存しない', () => {

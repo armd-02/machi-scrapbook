@@ -111,6 +111,39 @@ describe('useMemocho', () => {
     expect(storedItems()[0].memo).toBe('Wi-Fiがあります')
   })
 
+  it('setRating: 評価が更新され、localStorage にも反映される', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.setRating(memochoKeyOf(COFFEE), 5) })
+    expect(result.current.items[0].rating).toBe(5)
+    expect(storedItems()[0].rating).toBe(5)
+  })
+
+  it('setRating に 0 を渡すと未評価に戻る（評価解除）', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.setRating(memochoKeyOf(COFFEE), 4) })
+    act(() => { result.current.setRating(memochoKeyOf(COFFEE), 0) })
+    expect(result.current.items[0].rating).toBe(0)
+    expect(storedItems()[0].rating).toBe(0)
+  })
+
+  it('setRating は 0〜5 の整数以外の値では変更しない', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.setRating(memochoKeyOf(COFFEE), 9) })
+    expect(result.current.items[0].rating).toBe(0) // 初期値（未評価）のまま
+    expect(storedItems()[0].rating).toBe(0)
+  })
+
+  it('setRating: 複数フック間で評価が同期する', () => {
+    const a = renderHook(() => useMemocho())
+    const b = renderHook(() => useMemocho())
+    act(() => { a.result.current.add(COFFEE) })
+    act(() => { b.result.current.setRating(memochoKeyOf(COFFEE), 3) })
+    expect(a.result.current.items[0].rating).toBe(3)
+  })
+
   it('toggle: 未登録なら追加（added）、登録済みなら削除（removed）', () => {
     const { result } = renderHook(() => useMemocho())
     let action

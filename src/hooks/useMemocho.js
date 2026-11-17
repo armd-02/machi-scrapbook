@@ -8,6 +8,7 @@ import {
   removeMemocho,
   saveMemocho,
   updateMapImage,
+  updateRating,
   updateMemo
 } from '../utils/memocho'
 
@@ -119,6 +120,12 @@ export function useMemocho() {
     setMapImage: (key, dataUrl) => {
       const current = getStore()
       setStore(updateMapImage(current, key, dataUrl))
+    },
+
+    /** そのキーのアイテムの評価（0〜5 の整数、0 ＝ 未評価）を保存する。範囲外の値は無視される */
+    setRating: (key, rating) => {
+      const current = getStore()
+      setStore(updateRating(current, key, rating))
     },
 
     /**

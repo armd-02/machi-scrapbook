@@ -772,9 +772,11 @@ describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
       return d
     }, { timeout: 3000 })
     expect(within(dialog).getByText(/大阪市 梅田 1-1/)).toBeTruthy()
-    expect(within(dialog).getByText(/OSMで見る（node\/1001）/)).toBeTruthy()
     // カテゴリチップ（amenity=cafe → カフェ。タグ一覧は廃止されたため生値は出ない）
     expect(within(dialog).getByText('カフェ')).toBeTruthy()
+    // 固定高さシート（h-[85dvh]）は全項目を最初から表示するため、OSMリンク・
+    // バリアフリー情報等は開いた時点で確認できる
+    expect(within(dialog).getByText(/OSMで見る（node\/1001）/)).toBeTruthy()
     // (#61) バリアフリー情報: 車椅子対応バッジ + :ja説明
     expect(within(dialog).getByText(/バリアフリー情報/)).toBeTruthy()
     expect(within(dialog).getByText('車椅子対応')).toBeTruthy()

@@ -13,7 +13,9 @@
  *   独立するため、POI側で小さくした高さがバリアフリー地図に引き継がれない）
  * - ドラッグ終了時の高さは kind 別のキーに保存される（検索タブの
  *   mapHeight.mobile・PC の mapHeight.pc とは独立）。
- * - 保存値があればそれを初期高さとして使う（範囲外・不正な値は無視）。
+ * - 保存値があればそれを初期高さとして、なければ既定高さ（defaultHeight）を使う
+ *   （範囲外・不正な値は無視）。初期状態から地図コンテナのインラインstyleに
+ *   明示的なpx高さが入る（既定クラスは宣言上のフォールバックとして維持）。
  * - POI（kind="poi"）・バリアフリー（kind="barrier_free"）の両方の結果マップに
  *   適用される（MobileResultsMap 自体に組み込まれているため）。
  */
@@ -86,7 +88,8 @@ describe('MobileResultsMap: 高さドラッグハンドル', () => {
     await act(async () => {}) // map生成effectをフラッシュ
     const mapContainer = mapContainerOf(view, 'poi')
     const handle = handleOf(view)
-    expect(mapContainer.style.height).toBe('')
+    // 初期状態から明示的なpx（既定200px）が入る
+    expect(mapContainer.style.height).toBe('200px')
 
     act(() => {
       fireEvent.pointerDown(handle, { clientY: 200 })
@@ -158,11 +161,11 @@ describe('MobileResultsMap: 高さドラッグハンドル', () => {
     expect(mapContainer.style.height).toBe('320px')
   })
 
-  it('範囲外の保存値は無視され、既定高さ（既定クラス h-[200px]）が使われる', async () => {
+  it('範囲外の保存値は無視され、既定高さ200pxにフォールバックする（既定クラスは維持）', async () => {
     localStorage.setItem('mapHeight.results', '999') // maxHeight 480 を超える
     const view = renderMap('poi')
     const mapContainer = mapContainerOf(view, 'poi')
-    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.style.height).toBe('200px')
     expect(mapContainer.className).toMatch(/h-\[200px\]/)
   })
 
@@ -171,9 +174,9 @@ describe('MobileResultsMap: 高さドラッグハンドル', () => {
     await act(async () => {})
     const mapContainer = mapContainerOf(view, 'barrier_free')
     expect(mapContainer).toBeTruthy()
-    // 既定高さクラスは h-[320px]（インラインstyle 上書きなし）
+    // 既定高さクラスは h-[320px]（維持。初期状態から明示的なpx 320px がインラインstyleに入る）
     expect(mapContainer.className).toMatch(/h-\[320px\]/)
-    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.style.height).toBe('320px')
 
     const handle = handleOf(view)
     expect(handle).toBeTruthy()
@@ -193,10 +196,10 @@ describe('MobileResultsMap: 高さドラッグハンドル', () => {
 })
 
 describe('MobileResultsMap: 高さ設定の kind 別分離（修正）', () => {
-  it('バリアフリー地図: 保存値がなければ既定高さ320px（既定クラス h-[320px]・style上書きなし）で開く', () => {
+  it('バリアフリー地図: 保存値がなければ既定高さ320pxで開く（明示的なpx・既定クラス h-[320px] は維持）', () => {
     const view = renderMap('barrier_free')
     const mapContainer = mapContainerOf(view, 'barrier_free')
-    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.style.height).toBe('320px')
     expect(mapContainer.className).toMatch(/h-\[320px\]/)
   })
 
@@ -205,8 +208,8 @@ describe('MobileResultsMap: 高さ設定の kind 別分離（修正）', () => {
     localStorage.setItem('mapHeight.results', '160')
     const view = renderMap('barrier_free')
     const mapContainer = mapContainerOf(view, 'barrier_free')
-    // 引き継がれず、既定の320px（既定クラス）で開く
-    expect(mapContainer.style.height).toBe('')
+    // 引き継がれず、既定高さ320px（明示的なpx。既定クラスは維持）で開く
+    expect(mapContainer.style.height).toBe('320px')
     expect(mapContainer.className).toMatch(/h-\[320px\]/)
   })
 
@@ -217,19 +220,19 @@ describe('MobileResultsMap: 高さ設定の kind 別分離（修正）', () => {
     expect(mapContainer.style.height).toBe('360px')
   })
 
-  it('バリアフリー地図: 範囲外（maxHeight超）の mapHeight.resultsBf 保存値は無視され既定320pxが使える', () => {
+  it('バリアフリー地図: 範囲外（maxHeight超）の mapHeight.resultsBf 保存値は無視され既定320pxにフォールバックする', () => {
     localStorage.setItem('mapHeight.resultsBf', '999') // maxHeight 480 を超える
     const view = renderMap('barrier_free')
     const mapContainer = mapContainerOf(view, 'barrier_free')
-    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.style.height).toBe('320px')
     expect(mapContainer.className).toMatch(/h-\[320px\]/)
   })
 
-  it('POI地図: mapHeight.resultsBf（バリアフリーのキー）に保存値があっても影響しない（従来どおり既定200px）', () => {
+  it('POI地図: mapHeight.resultsBf（バリアフリーのキー）に保存値があっても影響しない（既定200px）', () => {
     localStorage.setItem('mapHeight.resultsBf', '360')
     const view = renderMap('poi')
     const mapContainer = mapContainerOf(view, 'poi')
-    expect(mapContainer.style.height).toBe('')
+    expect(mapContainer.style.height).toBe('200px')
     expect(mapContainer.className).toMatch(/h-\[200px\]/)
   })
 

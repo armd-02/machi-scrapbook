@@ -3,7 +3,7 @@
  * まちメモ帳 データ層（memocho.js）のテスト
  * - loadMemocho: 未保存・壊れたJSON・不正要素
  * - addMemocho: スナップショット生成・name優先順位・tagsコピーの独立性・重複防止
- * - removeMemocho / updateMemo / hasMemocho
+ * - removeMemocho / updateMemo / updateRating / hasMemocho
  * - mergeMemocho: added/skipped 件数、既存優先
  * - serializeMemocho → parseMemochoJSON の往復
  * - parseMemochoJSON: 素の配列・全体が不正な場合
@@ -19,6 +19,7 @@ import {
   removeMemocho,
   updateMemo,
   updateMapImage,
+  updateRating,
   mergeMemocho,
   serializeMemocho,
   parseMemochoJSON,
@@ -59,6 +60,7 @@ function makeItem(overrides = {}) {
     lon: 139.78,
     tags: { name: '既存施設' },
     memo: '元のメモ',
+    rating: 0,
     addedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
@@ -141,6 +143,7 @@ describe('memocho', () => {
       expect(item.lat).toBe(35.68)
       expect(item.lon).toBe(139.77)
       expect(item.memo).toBe('')
+      expect(item.rating).toBe(0) // 未評価で初期化
       expect(item.addedAt).toBeTypeOf('string')
       expect(new Date(item.addedAt).toISOString()).toBe(item.addedAt) // ISO形式
     })
@@ -192,7 +195,7 @@ describe('memocho', () => {
     })
   })
 
-  describe('removeMemocho / updateMemo', () => {
+  describe('removeMemocho / updateMemo / updateRating', () => {
     const items = () => [
       makeItem({ type: 'node', id: 1, name: 'A', memo: 'aメモ' }),
       makeItem({ type: 'node', id: 2, name: 'B', memo: 'bメモ' }),
@@ -221,6 +224,19 @@ describe('memocho', () => {
     it('updateMemo で無いキーを指定したら内容が変わらない', () => {
       const src = items()
       expect(updateMemo(src, 'way/999', 'x')).toEqual(src)
+    })
+
+    it('updateRating は該当キーの rating を差し替える', () => {
+      const next = updateRating(items(), 'node/1', 5)
+      expect(next[0].rating).toBe(5)
+      expect(next[1].rating).toBe(0) // 他は不変（未評価のまま）
+      expect(items()[0].rating).toBe(0) // 元の配列は不変
+      expect(next[0]).not.toBe(items()[0]) // 新しいオブジェクト
+    })
+
+    it('updateRating で無いキーを指定したら内容が変わらない', () => {
+      const src = items()
+      expect(updateRating(src, 'way/999', 3)).toEqual(src)
     })
   })
 
@@ -308,9 +324,9 @@ describe('memocho', () => {
       ]
       const normalized = parseMemochoJSON(JSON.stringify(items))
       expect(normalized).toEqual([
-        { type: 'node', id: 1, name: 'A', lat: null, lon: null, tags: null, memo: '', addedAt: null },
-        { type: 'way', id: 2, name: '名称なし', lat: 35.7, lon: 139.8, tags: { name: 'B' }, memo: 'm', addedAt: null },
-        { type: 'relation', id: 3, name: '名称なし', lat: null, lon: null, tags: null, memo: '', addedAt: null },
+        { type: 'node', id: 1, name: 'A', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null },
+        { type: 'way', id: 2, name: '名称なし', lat: 35.7, lon: 139.8, tags: { name: 'B' }, memo: 'm', rating: 0, addedAt: null },
+        { type: 'relation', id: 3, name: '名称なし', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null },
       ])
     })
 
@@ -359,5 +375,58 @@ describe('mapImage（地図サムネイル）', () => {
   it('mapImage が無いアイテムにはフィールド自体が付かない', () => {
     const items = parseMemochoJSON(wrap([base]))
     expect('mapImage' in items[0]).toBe(false)
+  })
+})
+
+describe('rating（0〜5の評価、0＝未評価）', () => {
+  const base = {
+    type: 'node', id: 66, name: '評価店', lat: 34.7, lon: 135.5,
+    tags: { name: '評価店', amenity: 'cafe' }, memo: '', addedAt: '2026-01-01T00:00:00.000Z',
+  }
+  const wrap = (items) => JSON.stringify({ app: 'machi-memocho', version: 1, items })
+
+  it('updateRating で対象アイテムにだけ rating が付く', () => {
+    const next = updateRating([base], 'node/66', 4)
+    expect(next[0].rating).toBe(4)
+    expect(base.rating).toBeUndefined()
+  })
+
+  it('updateRating に 0 を渡すと未評価に戻る（評価解除）', () => {
+    const next = updateRating([{ ...base, rating: 4 }], 'node/66', 0)
+    expect(next[0].rating).toBe(0)
+  })
+
+  it('updateRating は 0〜5 の整数以外の値では変更しない', () => {
+    const src = [{ ...base, rating: 4 }]
+    for (const bad of [6, -1, 3.5, '3', true, null, undefined]) {
+      expect(updateRating(src, 'node/66', bad)).toEqual(src)
+    }
+    expect(src[0].rating).toBe(4) // 元は不変
+  })
+
+  it('parseMemochoJSON は正しい rating（0〜5 の整数）を保持する', () => {
+    for (const good of [0, 1, 2, 3, 4, 5]) {
+      const items = parseMemochoJSON(wrap([{ ...base, rating: good }]))
+      expect(items[0].rating).toBe(good)
+    }
+  })
+
+  it('parseMemochoJSON は不正な rating を 0（未評価）に落とす（寛容な方式）', () => {
+    for (const bad of [6, -1, 3.5, '3', true, null, undefined]) {
+      const items = parseMemochoJSON(wrap([{ ...base, rating: bad }]))
+      expect(items[0].rating).toBe(0)
+    }
+  })
+
+  it('rating が無いアイテムは 0（未評価）として正規化される', () => {
+    const items = parseMemochoJSON(wrap([base]))
+    expect(items[0].rating).toBe(0)
+  })
+
+  it('serializeMemocho → parseMemochoJSON で rating が往復する', () => {
+    const items = [{ ...base, rating: 2, mapImage: 'data:image/jpeg;base64,QUJD' }]
+    const round = parseMemochoJSON(serializeMemocho(items))
+    expect(round[0].rating).toBe(2)
+    expect(round[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
   })
 })

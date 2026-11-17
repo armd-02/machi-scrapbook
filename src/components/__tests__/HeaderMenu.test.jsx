@@ -11,12 +11,21 @@
  * - 自治体モードではファイル名 prefix が osm-<自治体名> になる
  * - まちメモ帳をすべて削除: 2段階確認。実行で store/localStorage が空に、
  *   成功メッセージ（role="status"）が出てメニューが閉じる。window.confirm を使わない
- * - メモ帳0件のとき全消去は disabled
+ * - メモ帳0件のとき全消去・書き出し系は disabled（読み込みは常に有効）
  * - メニュー外タップで閉じ、2段階確認の状態もリセットされる
+ * - (#79) まちメモ帳の書き出し（JSON/CSV）・読み込みは MemochoSection の☰メニューから
+ *   このメニューに集約された。書き出しは downloadFile（実物）＋serializeMemocho/toCSV
+ *   （実物）で Blob の内容を検証。読み込みは parseMemochoJSON→importItems で合流し、
+ *   結果・エラーメッセージ（role="status"）が出る
+ * - グルーピング: [検索結果] と [まちメモ帳] の2グループ見出し＋区切り線で整理。
+ *   全消去は危険操作として従来どおり赤字で区別表示
+ * - 操作後のフィードバックはメニューの位置に role="status" のメッセージで表示。
+ *   成功=✓・エラー=⚠️ アイコン付きで区別され、「メッセージを閉じる」（✕）で消せる。
+ *   読み込みの結果・エラーもこのメッセージで通知される
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import HeaderMenu from '../HeaderMenu'
 import { AppContext } from '../../context/AppContext'
 import { appReducer, createInitialState } from '../../state/appReducer'
@@ -24,11 +33,13 @@ import * as exportUtils from '../../utils/export'
 import { resetMemochoStore } from '../../hooks/useMemocho'
 import { MEMOCHO_STORAGE_KEY } from '../../utils/memocho'
 
-// downloadCSV / downloadGeoJSON をモック（ファイル生成・アンカー操作を回避）
-vi.mock('../../utils/export', () => ({
-  downloadCSV: vi.fn(),
-  downloadGeoJSON: vi.fn(),
-}))
+// downloadCSV / downloadGeoJSON はモック（呼び出し検証用）。
+// toCSV / downloadFile は実物を使う（#79: まちメモ帳の書き出しで Blob 内容を
+// 検証するため）。
+vi.mock('../../utils/export', async () => {
+  const actual = await vi.importActual('../../utils/export')
+  return { ...actual, downloadCSV: vi.fn(), downloadGeoJSON: vi.fn() }
+})
 
 const RESULTS = [
   { type: 'node', id: 1, name: 'カフェA', lat: 34.85, lon: 135.5, tags: { amenity: 'cafe', name: 'カフェA' } },
@@ -81,6 +92,7 @@ afterEach(() => {
   cleanup()
   localStorage.clear()
   resetMemochoStore()
+  vi.restoreAllMocks()
 })
 
 describe('HeaderMenu: メニューの開閉', () => {
@@ -92,12 +104,18 @@ describe('HeaderMenu: メニューの開閉', () => {
     expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
-  it('☰ クリックでメニューが開き、保存系・全消去の3項目が表示される', () => {
+  it('☰ クリックでメニューが開き、検索結果系・まちメモ帳系・全消去の6項目が表示される (#79)', () => {
     render(<Harness><HeaderMenu /></Harness>)
     fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
     expect(screen.getByRole('button', { name: 'メニュー' }).getAttribute('aria-expanded')).toBe('true')
+    // 検索結果系（旧ExportBar 由来）
     expect(screen.getByRole('menuitem', { name: /一覧を保存（CSV）/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /GeoJSON（高度な形式）/ })).toBeTruthy()
+    // まちメモ帳系（#79: MemochoSection の☰メニューから集約）
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳をJSONで書き出し/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ })).toBeTruthy()
+    // 全消去
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })).toBeTruthy()
   })
 
@@ -105,9 +123,28 @@ describe('HeaderMenu: メニューの開閉', () => {
     render(<Harness><HeaderMenu /></Harness>)
     const btn = screen.getByRole('button', { name: 'メニュー' })
     fireEvent.click(btn)
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(3)
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(6)
     fireEvent.click(btn)
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+  })
+})
+
+describe('HeaderMenu: グルーピング（#80）', () => {
+  it('検索結果・まちメモ帳の2つのグループ見出しがメニュー内に表示される', () => {
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    expect(screen.getByText('検索結果')).toBeTruthy()
+    expect(screen.getByText('まちメモ帳')).toBeTruthy()
+    // 見出しは menuitem にならない（6項目のまま）
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(6)
+  })
+
+  it('全消去は危険操作として従来どおり赤字で表示される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem()]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    const wipeBtn = screen.getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })
+    expect(wipeBtn.className).toContain('text-red-600')
   })
 })
 
@@ -242,10 +279,174 @@ describe('HeaderMenu: まちメモ帳をすべて削除（2段階）', () => {
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
-  it('メモ帳が空のときは全消去が disabled になる', () => {
+  it('メモ帳が空のときは全消去・書き出し系が disabled になる（読み込みは常に有効） (#79)', () => {
     render(<Harness><HeaderMenu /></Harness>)
     fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をすべて削除/ }).disabled).toBe(true)
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳をJSONで書き出し/ }).disabled).toBe(true)
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ }).disabled).toBe(true)
+    // 読み込みはメモ帳が空でも実行できる（空に読み込む操作）
+    expect(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }).disabled).toBe(false)
+    // 書き出し系の件数表記は「0件」（無効化の理由を表示）
+    expect(screen.getAllByText('0件')).toHaveLength(2)
+  })
+})
+
+describe('HeaderMenu: まちメモ帳の書き出し (#79)', () => {
+  function mockUrl() {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  }
+
+  it('JSON書き出し: Blob は serializeMemocho の内容（machi-memocho.json）', async () => {
+    mockUrl()
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem({ memo: '訪問済み', rating: 2 })]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳をJSONで書き出し/ }))
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    const blob = URL.createObjectURL.mock.calls[0][0]
+    expect(blob).toBeInstanceOf(Blob)
+    // items を丸ごと出力するため、rating も自動的に含まれる
+    expect(JSON.parse(await blob.text())).toEqual({
+      app: 'machi-memocho',
+      version: 1,
+      items: [makeMemoItem({ memo: '訪問済み', rating: 2 })],
+    })
+    expect(screen.getByRole('status').textContent).toContain('JSONとして書き出しました')
+    // 実行後はメニューが閉じる
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('CSV書き出し: 末尾に memo/rating 列が付いたCSVになる（通常 toCSV と列構成の違い）', async () => {
+    mockUrl()
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem({ memo: 'メモ内容', rating: 3 })]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ }))
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    const csv = (await URL.createObjectURL.mock.calls[0][0].text())
+    const lines = csv.replace(/^\uFEFF/, '').split('\n')
+    const headers = lines[0].split(',')
+    expect(headers[headers.length - 2]).toBe('memo')
+    expect(headers[headers.length - 1]).toBe('rating') // rating 列は末尾
+    const row = lines[1].split(',')
+    expect(row[headers.length - 2]).toBe('メモ内容')
+    expect(row[headers.length - 1]).toBe('3')
+    expect(screen.getByRole('status').textContent).toContain('CSVとして書き出しました')
+  })
+})
+
+describe('HeaderMenu: まちメモ帳の読み込み (#79)', () => {
+  function jsonFile(text, name = 'machi-memocho.json') {
+    return new File([text], name, { type: 'application/json' })
+  }
+  function fileInput() {
+    return document.querySelector('input[type="file"]')
+  }
+
+  it('JSONファイルを渡すと合流し、追加/スキップ件数のメッセージが出る', async () => {
+    const existing = makeMemoItem({ memo: '既存メモ' })
+    const park = { ...makeMemoItem(), type: 'way', id: 77, name: 'みらい公園', tags: { name: 'みらい公園', leisure: 'park' } }
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([existing]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    const imported = JSON.stringify({
+      app: 'machi-memocho',
+      version: 1,
+      items: [
+        makeMemoItem({ memo: '取り込みメモ' }), // キー重複 → スキップ（既存優先）
+        park, // 新規 → 追加
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), { target: { files: [jsonFile(imported)] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('1件を取り込みました（1件は登録済みのためスキップ）')
+    }, { timeout: 5000 })
+
+    const stored = storedItems()
+    expect(stored).toHaveLength(2)
+    // 既存が優先される（既存メモが上書きされない）
+    expect(stored[0].memo).toBe('既存メモ')
+    expect(stored[1].name).toBe('みらい公園')
+  })
+
+  it('すべてが重複の場合は「新しい項目はありません」メッセージが出る', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem()]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), {
+      target: { files: [jsonFile(JSON.stringify({ app: 'machi-memocho', version: 1, items: [makeMemoItem()] }))] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('新しい項目はありません（1件は登録済みのためスキップ）')
+    }, { timeout: 5000 })
+    // 内容が変わらない
+    expect(storedItems()).toEqual([makeMemoItem()])
+  })
+
+  it('JSONでないファイルではエラーメッセージが出て内容が変わらない', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem()]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), { target: { files: [jsonFile('これはJSONではありません')] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
+    }, { timeout: 5000 })
+    expect(screen.getByRole('status').textContent).toContain('無効な JSON')
+    // エラーは ⚠️ アイコン付きで表示される
+    expect(screen.getByRole('status').textContent).toContain('⚠️')
+    // 内容が変わらない
+    expect(storedItems()).toEqual([makeMemoItem()])
+  })
+
+  it('読み込みの結果はメニューの位置に表示され、✕（メッセージを閉じる）で消せる (#80)', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem()]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), {
+      target: { files: [jsonFile(JSON.stringify({ app: 'machi-memocho', version: 1, items: [makeMemoItem({ id: 2002, name: '新規項目' })] }))] },
+    })
+
+    // 結果メッセージがメニューの位置に表示される（メニューは閉じた状態）
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('1件を取り込みました')
+    }, { timeout: 5000 })
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    // 成功は ✓ アイコン付き
+    expect(screen.getByRole('status').textContent).toContain('✓')
+    // ✕ ボタンでメッセージを閉じられる
+    fireEvent.click(screen.getByRole('button', { name: 'メッセージを閉じる' }))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('形式が一致しないファイル（app が違う）でもエラーで内容が変わらない', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem()]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), {
+      target: { files: [jsonFile(JSON.stringify({ app: 'other-app', version: 1, items: [makeMemoItem()] }))] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
+    }, { timeout: 5000 })
+    expect(storedItems()).toEqual([makeMemoItem()])
   })
 })
 

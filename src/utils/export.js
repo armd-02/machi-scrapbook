@@ -9,6 +9,7 @@
  * - 全フィールドにエスケープを適用
  * - ヘッダーが最初の行にあり、メタデータは末尾に配置
  * - meta.includeMemo: true のときのみ末尾に memo 列を追加する
+ * - meta.includeRating: true のときのみ末尾に rating 列を追加する
  *   （まちメモ帳のCSV書き出し用。通常呼び出しの出力は変わらない）
  */
 export function toCSV(results, meta = {}) {
@@ -24,9 +25,10 @@ export function toCSV(results, meta = {}) {
   // (まちメモ帳 第3ピース) includeMemo のときだけ末尾に memo 列を付け足す。
   // 通常呼び出し（includeMemo 無し）の列構成は従来と完全に一致する。
   const includeMemo = !!meta.includeMemo
+  const includeRating = !!meta.includeRating
   const allHeaders = ['name', 'type', 'osm_id', 'osm_url', 'lat', 'lon',
     ...(hasBf ? BF_COLUMNS : []), ...activeTags, 'fetched_at', 'source',
-    ...(includeMemo ? ['memo'] : [])]
+    ...(includeMemo ? ['memo'] : []), ...(includeRating ? ['rating'] : [])]
 
   const fetchedAt = meta.fetchedAt || new Date().toISOString()
   const source = 'OpenStreetMap (ODbL) / Overpass API'
@@ -57,7 +59,8 @@ export function toCSV(results, meta = {}) {
       ...activeTags.map(tag => r.tags?.[tag] || ''),
       fetchedAt,
       source,
-      ...(includeMemo ? [r.memo != null ? r.memo : ''] : [])
+      ...(includeMemo ? [r.memo != null ? r.memo : ''] : []),
+      ...(includeRating ? [r.rating != null ? r.rating : ''] : [])
     ]
     // 全フィールドにエスケープを適用
     lines.push(row.map(csvEscape).join(','))

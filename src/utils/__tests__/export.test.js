@@ -357,3 +357,40 @@ describe('toGeoJSON バリアフリー項目（#62 ピース5）', () => {
     })
   })
 })
+
+describe('toCSV まちメモ帳列（includeMemo / includeRating）', () => {
+  const memoItems = [
+    { type: 'node', id: 11, name: 'カフェA', lat: 35.1, lon: 139.1, tags: { name: 'カフェA' }, memo: 'Wi-Fiあり', rating: 4, addedAt: '2026-01-01T00:00:00.000Z' },
+    { type: 'way', id: 12, name: '商店B', lat: 35.2, lon: 139.2, tags: { name: '商店B' }, memo: '', rating: 0, addedAt: '2026-01-01T00:00:00.000Z' },
+    { type: 'node', id: 13, name: '旧データC', lat: 35.3, lon: 139.3, tags: { name: '旧データC' }, memo: '', addedAt: '2026-01-01T00:00:00.000Z' }, // rating 無し（旧データ）
+  ]
+
+  it('includeMemo/includeRating: 末尾に memo/rating 列が追加される', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01', includeMemo: true, includeRating: true })
+    const lines = csv.replace('\uFEFF', '').split('\n')
+    const headers = lines[0].split(',')
+    expect(headers[headers.length - 2]).toBe('memo')
+    expect(headers[headers.length - 1]).toBe('rating') // rating 列は末尾
+    const iMemo = headers.indexOf('memo')
+    const iRating = headers.indexOf('rating')
+    expect(lines[1].split(',')[iMemo]).toBe('Wi-Fiあり')
+    expect(lines[1].split(',')[iRating]).toBe('4')
+    expect(lines[2].split(',')[iRating]).toBe('0') // 未評価
+    expect(lines[3].split(',')[iRating]).toBe('') // rating 欠落（旧データ）は空欄
+  })
+
+  it('includeRating だけでも動く（memo 列なし）', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01', includeRating: true })
+    const lines = csv.replace('\uFEFF', '').split('\n')
+    const headers = lines[0].split(',')
+    expect(headers[headers.length - 1]).toBe('rating')
+    expect(lines[1].split(',')[headers.length - 1]).toBe('4')
+  })
+
+  it('オプションなしでは memo/rating 列は出ない（検索結果CSVは従来通り）', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01' })
+    const headers = csv.replace('\uFEFF', '').split('\n')[0].split(',')
+    expect(headers).not.toContain('memo')
+    expect(headers).not.toContain('rating')
+  })
+})

@@ -1,37 +1,50 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { useMemocho } from '../hooks/useMemocho'
-import { downloadCSV, downloadGeoJSON } from '../utils/export'
+import { downloadCSV, downloadGeoJSON, downloadFile, toCSV } from '../utils/export'
 import { applyResultFilters, hasActiveFilters } from '../utils/resultFilters'
-import { memochoKeyOf } from '../utils/memocho'
+import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../utils/memocho'
 
 /**
- * (#75) ヘッダーのハンバーガーメニュー
+ * (#75) ヘッダーのハンバーガーメニュー（#79 でアプリ唯一のハンバーガーメニューに）
  *
  * ヘッダー右端（モバイル・PC の両シェルで共用）に ☰ ボタンを置き、
  * ドロップダウンに次の操作をまとめる:
- *   - 一覧を保存（CSV）        downloadCSV（フィルタ済み結果。旧ExportBarと同一ロジック）
- *   - GeoJSON（高度な形式）    downloadGeoJSON（同上）
- *   - まちメモ帳をすべて削除   useMemocho の remove で全件削除（MemochoSection の
- *                             onDeleteAll と同じ方式）。2段階確認（window.confirm 不使用）
  *
- * 旧ExportBar（一覧タブ・その他タブのCSV/GeoJSONボタン）はこのメニューに
- * 集約され、削除した。ODbL表記・自治体モードのファイル名prefix も
- * 引き継ぐ。保存件数表記（「3件を保存します」／フィルタ時は
- * 「全20件中、3件を保存します」）は CSV/GeoJSON 各項目に付す。
- * 項目が無効なときは「0件を保存します」と表示して理由を伝える。
+ * [検索結果]（旧ExportBar と同一ロジック）
+ *   - 一覧を保存（CSV）        downloadCSV（フィルタ済み結果）
+ *   - GeoJSON（高度な形式）    downloadGeoJSON（同上）
+ *
+ * [まちメモ帳]（#79: MemochoSection 見出しの☰メニューから集約）
+ *   - まちメモ帳をJSONで書き出し  serializeMemocho → machi-memocho.json
+ *   - まちメモ帳をCSVで書き出し   toCSV（includeMemo/includeRating で末尾に memo/rating 列）→ machi-memocho.csv
+ *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON → importItems で合流
+ *   - まちメモ帳をすべて削除     useMemocho の remove で全件削除。2段階確認（window.confirm 不使用）
+ *
+ * メニューは [検索結果] と [まちメモ帳] の2グループで見分けられるよう整理:
+ * グループ見出し行（aria-hidden）＋区切り線（border-t）で区切る。
+ * 全消去は危険操作として、まちメモ帳の他の項目からも区切り線で分離し赤字で表示。
+ *
+ * ODbL表記・自治体モードのファイル名prefix は旧ExportBarから引き継ぐ。
+ * 保存件数表記（「3件を保存します」／フィルタ時は「全20件中、3件を保存します」）は
+ * 検索結果系の CSV/GeoJSON 項目に付す。まちメモ帳の書き出し項目には「N件」を付す。
+ * 項目が無効なときは「0件」系と表示して理由を伝える。
  *
  * 操作後のフィードバックはメニューの代わりに位置取る短いメッセージ
  * （role="status"）で表示する。閉じる（✕）またはメニューを再度開くと消える。
+ * メッセージは ✓ / ⚠️ アイコン付き（StatusBanner の ⚠️ 表記に従い成功/エラーを区別し、
+ * 狭い画面で長いメッセージが画面外にはみ出さないよう max-width＋折り返しを付す）。
+ * 読み込みの結果・エラー（合流件数・無効なJSON等）もこのメッセージで通知する。
  */
 export default function HeaderMenu() {
   const { state } = useApp()
-  const { items, remove } = useMemocho()
+  const { items, remove, importItems } = useMemocho()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmWipe, setConfirmWipe] = useState(false)
   const [notice, setNotice] = useState(null) // { kind: 'ok' | 'err', text }
   const rootRef = useRef(null)
+  const fileInputRef = useRef(null) // まちメモ帳の読み込み用（非表示ファイル入力）
 
   const { results, fetchMeta, searchSource, selectedMunicipality, resultFilters } = state
 
@@ -50,7 +63,6 @@ export default function HeaderMenu() {
   }
 
   // メニュー外をタップしたら閉じる（2段階削除の確認状態もリセット）。
-  // MemochoSection のサンドイッチメニューと同じ機構。
   useEffect(() => {
     if (!menuOpen) return
     const onPointerDown = (e) => {
@@ -88,6 +100,49 @@ export default function HeaderMenu() {
     closeMenu()
   }
 
+  // ===== まちメモ帳の書き出し・読み込み（#79: MemochoSection の☰メニューから集約） =====
+  const onMemochoExportJSON = () => {
+    downloadFile(serializeMemocho(items), 'machi-memocho.json', 'application/json')
+    setNotice({ kind: 'ok', text: 'まちメモ帳をJSONとして書き出しました。' })
+    closeMenu()
+  }
+
+  const onMemochoExportCSV = () => {
+    // 通常の toCSV の列構成を変えず、memo/rating 列を末尾に追加する
+    downloadFile(toCSV(items, { includeMemo: true, includeRating: true }), 'machi-memocho.csv', 'text/csv;charset=utf-8')
+    setNotice({ kind: 'ok', text: 'まちメモ帳をCSVとして書き出しました。' })
+    closeMenu()
+  }
+
+  const onImportClick = () => {
+    closeMenu()
+    if (fileInputRef.current) fileInputRef.current.click()
+  }
+
+  const onFileChange = (e) => {
+    const file = e.target.files && e.target.files[0]
+    e.target.value = ''
+    if (!file) return
+    const reader = new FileReader()
+    reader.onerror = () => setNotice({ kind: 'err', text: '読み込みに失敗しました: ファイルを読めませんでした。' })
+    reader.onload = () => {
+      try {
+        const imported = parseMemochoJSON(String(reader.result))
+        const { added, skipped } = importItems(imported)
+        const text =
+          added > 0 && skipped > 0
+            ? `${added}件を取り込みました（${skipped}件は登録済みのためスキップ）`
+            : added > 0
+              ? `${added}件を取り込みました`
+              : `新しい項目はありません（${skipped}件は登録済みのためスキップ）`
+        setNotice({ kind: 'ok', text })
+      } catch (err) {
+        setNotice({ kind: 'err', text: `読み込みに失敗しました: ${err.message}` })
+      }
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+
   // ===== まちメモ帳の全消去（2段階確認） =====
   const onDeleteAll = () => {
     // 2段階: 1回目で表示が確認メッセージに切り替わり、2回目で実行する
@@ -119,6 +174,8 @@ export default function HeaderMenu() {
           aria-label="メニュー"
           className="absolute right-0 top-full mt-1.5 w-56 z-40 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden"
         >
+          {/* グループ見出し: 検索結果（視覚的なグルーピング用・スクリーンリーダーからは非表示） */}
+          <p aria-hidden="true" className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400">検索結果</p>
           <button
             type="button"
             role="menuitem"
@@ -147,6 +204,42 @@ export default function HeaderMenu() {
             </p>
           )}
           <div className="border-t border-slate-200" />
+          {/* グループ見出し: まちメモ帳（視覚的なグルーピング用・スクリーンリーダーからは非表示） */}
+          <p aria-hidden="true" className="px-3 pt-1.5 pb-1 text-[11px] font-semibold tracking-wider text-slate-400">まちメモ帳</p>
+          {/* まちメモ帳系（#79: MemochoSection の☰メニューから集約） */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onMemochoExportJSON}
+            disabled={items.length === 0}
+            className="w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="まちメモ帳をJSONファイルとして書き出します（再読み込み用）"
+          >
+            <span>まちメモ帳をJSONで書き出し</span>
+            <span className="text-[11px] text-slate-400">{items.length}件</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onMemochoExportCSV}
+            disabled={items.length === 0}
+            className="w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="まちメモ帳をCSVとして書き出します（末尾に memo/rating 列を追加）"
+          >
+            <span>まちメモ帳をCSVで書き出し</span>
+            <span className="text-[11px] text-slate-400">{items.length}件</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onImportClick}
+            className="w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+            title="まちメモ帳のJSONファイルを読み込んで合流します"
+          >
+            <span>まちメモ帳を読み込む</span>
+            <span className="text-[11px] text-slate-400">JSONファイルを選択</span>
+          </button>
+          <div className="border-t border-slate-200" />
           <button
             type="button"
             role="menuitem"
@@ -165,22 +258,37 @@ export default function HeaderMenu() {
         </div>
       )}
 
-      {/* 操作後のフィードバック（メニュー閉じたときだけ表示） */}
+      {/* まちメモ帳の読み込み用ファイル入力（非表示・accept: .json） */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={onFileChange}
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
+      {/* 操作後のフィードバック（メニュー閉じたときだけ表示）。
+          ✓ / ⚠️ アイコン＋色分けで成功/エラーを一目で区別し、ユーザーが気付けるようにする */}
       {notice && !menuOpen && (
         <div
           role="status"
-          className={`absolute right-0 top-full mt-1.5 z-40 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs shadow-lg border ${
+          className={`absolute right-0 top-full mt-1.5 z-40 flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-xs shadow-lg border max-w-[calc(100vw_-_1.25rem)] ${
             notice.kind === 'err'
               ? 'text-red-700 bg-red-50 border-red-200'
               : 'text-emerald-700 bg-emerald-50 border-emerald-200'
           }`}
         >
-          {notice.text}
+          <span aria-hidden="true" className="shrink-0 mt-px">
+            {notice.kind === 'err' ? '⚠️' : '✓'}
+          </span>
+          <span className="break-words">{notice.text}</span>
           <button
             type="button"
             aria-label="メッセージを閉じる"
             onClick={() => setNotice(null)}
-            className="opacity-60 hover:opacity-100"
+            className="shrink-0 opacity-60 hover:opacity-100"
           >
             ✕
           </button>

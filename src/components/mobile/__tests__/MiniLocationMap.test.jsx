@@ -13,7 +13,9 @@ import { BASEMAP_STYLE } from '../../../utils/mapStyle'
  * - 座標にマーカーを配置（setLngLat([lng,lat])）
  * - 既定attributionを無効化し、compact AttributionControl を明示追加
  *   （OSMタイル利用規約上のcredit表示）
- * - 非インタラクティブ（pointer-events-none）: シートのスクロールと競合しない
+ * - インタラクティブ: ドラッグで移動、ピンチ/ホイールでズーム（pointer-events: none なし）
+ * - 回転（bearing）とpitchは無効: dragRotate: false、touchZoomRotate.disableRotation()
+ *   （ピンチズームは有効なまま）、maxPitch: 0 / pitchWithRotate: false
  * - アンマウント時に map.remove()、座標変更時は旧マップ破棄・再作成
  */
 
@@ -67,21 +69,35 @@ describe('MiniLocationMap', () => {
     expect(control._options.compact).toBe(true)
   })
 
-  it('pitchを0に固定する（maxPitch: 0、pitchWithRotate: false）、回転は従来どおり有効', () => {
+  it('pitchを0に固定し、回転も無効化する（全地図の方針どおり）', () => {
     render(<MiniLocationMap lng={LNG} lat={LAT} />)
     const map = mockState.api._state.maps[0]
+    // pitchは常に0（連動ピッチも無効化）
     expect(map._options.maxPitch).toBe(0)
     expect(map._options.pitchWithRotate).toBe(false)
-    expect(map._options.dragRotate).not.toBe(false)
-    expect(map._options.touchZoomRotate).not.toBe(false)
+    // 回転（bearing）も無効: マウス/トラックパッドの2指ドラッグ回転を禁止
+    expect(map._options.dragRotate).toBe(false)
+    // 2指タッチの捻り回転も disableRotation() で無効化（ピンチズームは残す）
+    expect(map.touchZoomRotate._rotationDisabled).toBe(true)
   })
 
-  it('非インタラクティブなimgとして描画される（シートスクロールとの競合回避）', () => {
+  it('ドラッグパンチとピンチ/ホイールズームは有効（dragPan・scrollZoom・touchZoomRotate）', () => {
+    render(<MiniLocationMap lng={LNG} lat={LAT} />)
+    const map = mockState.api._state.maps[0]
+    expect(map._options.dragPan).toBe(true)
+    expect(map._options.scrollZoom).toBe(true)
+    // ピンチズームは有効なまま（回転部分のみ disableRotation で無効化）
+    expect(map._options.touchZoomRotate).toBe(true)
+    // インセット地図はキーボード操作を奪わない
+    expect(map._options.keyboard).toBe(false)
+  })
+
+  it('インタラクティブなマップとして描画される（pointer-events: none なし）', () => {
     render(<MiniLocationMap lng={LNG} lat={LAT} />)
     const mapEl = screen.getByRole('img')
     expect(mapEl).toBeTruthy()
     expect(mapEl.getAttribute('aria-label')).toContain(String(LAT))
-    expect(mapEl.className).toContain('pointer-events-none')
+    expect(mapEl.className).not.toContain('pointer-events-none')
   })
 
   it('アンマウント時にMapを破棄する', () => {

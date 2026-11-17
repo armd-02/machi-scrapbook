@@ -26,6 +26,10 @@ import { resetMemochoStore } from '../../hooks/useMemocho'
 vi.mock('../../utils/export', () => ({
   downloadCSV: vi.fn(),
   downloadGeoJSON: vi.fn(),
+  // (#79) HeaderMenu が memocho の書き出しで使う関数も同じモジュール由来。
+  // 本テストでは呼び出されないが、undefined にならないようスタブを入れる
+  downloadFile: vi.fn(),
+  toCSV: vi.fn(),
 }))
 
 function seedMemocho() {

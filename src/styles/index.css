@@ -58,11 +58,25 @@ body {
   stroke: #1e40af;
 }
 
-/* MapLibre map container */
-.maplibregl-map {
-  width: 100%;
-  height: 100%;
-  z-index: 0;
+/*
+ * MapLibre map container.
+ *
+ * このルールは @layer components に入れる必要がある（バグ修正: 検索結果マップの
+ * 初期高さが0pxになる問題）。Tailwind v4 はユーティリティ（h-[320px] など）を
+ * @layer utilities に入れるが、CSS のカスケードでは「レイヤ外の作者スタイル」が
+ * どのレイヤ内ルールよりも優先されるため、レイヤ外に置くとこの height: 100% が
+ * h-[320px] などのユーティリティを上書きしてしまう。親要素の高さが auto の
+ * 場合、height: 100% は auto に無効化され、MapLibre のキャンバスは
+ * position: absolute なので、コンテナの高さが 0px になる。
+ * components レイヤ（utilities より優先度が低い）に置けば、コンテナ自身が
+ * 持つ Tailwind の高さユーティリティ（またはインライン style）が正しく効く。
+ */
+@layer components {
+  .maplibregl-map {
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
 }
 
 /* 地図ポップアップ（#38: 全テキストはtextContentで生成するDOMノード） */
