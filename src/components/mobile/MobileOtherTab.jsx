@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import MobileBatchMatch from './MobileBatchMatch'
 import StatisticsPanel from '../StatisticsPanel'
 import AboutPanel from '../AboutPanel'
-import ExportBar from '../ExportBar'
 
 /**
  * (#59) モバイル「その他」タブ
@@ -49,7 +48,7 @@ export default function MobileOtherTab() {
         {sub === 'stats' && (
           <div className="p-3 space-y-3">
             <StatisticsPanel />
-            <ExportBar />
+            {/* (#75) CSV/GeoJSON 保存はヘッダーのハンバーガーメニューへ集約 */}
           </div>
         )}
         {sub === 'about' && (

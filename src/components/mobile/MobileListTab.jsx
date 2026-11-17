@@ -5,7 +5,6 @@ import { applyResultFilters, hasActiveFilters, cuisineFacetValues } from '../../
 import { countCategoriesInResults, filterGroupsByCounts } from '../../utils/resultCategories'
 import { activeSearchOf } from '../../state/appReducer'
 import EditPanel from '../EditPanel'
-import ExportBar from '../ExportBar'
 import MobileFacilityCard from './MobileFacilityCard'
 import MobileResultsMap from './MobileResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
@@ -25,7 +24,7 @@ import { buildIdElementUrl } from '../../utils/editLinks'
  * - フィルタは AppContext（resultFilters）に保存するため、
  *   タブを離れても選択が保持される
  * - 検索0件時は専用のガイダンス（EditPanel）を表示
- * - CSV/GeoJSON 出力はモバイルでも利用可能（ExportBar）
+ * - (#75) CSV/GeoJSON 保存はヘッダーのハンバーガーメニュー（HeaderMenu）へ集約
  */
 
 const MAX_CARDS = 500
@@ -311,13 +310,6 @@ export default function MobileListTab({ onOpenDetail }) {
           </p>
         )}
       </div>
-
-      {/* 保存ボタン（スロールームの外に固定 — 検索タブの検索ボタンと同じ配置） */}
-      {hasResults && (
-        <div className="shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <ExportBar variant="stacked" />
-        </div>
-      )}
     </div>
   )
 }
@@ -512,13 +504,6 @@ function BarrierFreeMobileList() {
           </p>
         )}
       </div>
-
-      {/* 保存ボタン（スロールームの外に固定 — 検索タブの検索ボタンと同じ配置） */}
-      {hasResults && (
-        <div className="shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <ExportBar variant="stacked" />
-        </div>
-      )}
     </div>
   )
 }

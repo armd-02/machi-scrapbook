@@ -12,6 +12,7 @@ import AdvancedSearch from '../AdvancedSearch'
 import SearchActionButton from '../SearchActionButton'
 import ShareButton from '../ShareButton'
 import MapView from '../MapView'
+import GeocodeCandidateList from '../GeocodeCandidateList'
 import { QuickTopIntro, QuickTopTiles } from './MobileQuickTop'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import PoiDescription from '../PoiDescription'
@@ -53,6 +54,15 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   が展開され、「検索する」で自治体モードの検索を実行する（#47 パターンを自治体モードに
  *   応用: 更新後の状態スナップショット → buildSearchCriteria → search()）。検索成功時の
  *   一覧タブ自動切替は既存の挙動のまま。
+ * - (#xx) フォーム表示の地図モードでは「どの街・エリアで探す？」セクションに場所入力欄を
+ *   置く（トップの QuickTopIntro「どのあたりの場所？」と同様の挙動を共有する）。
+ *   地名・駅名の入力でサジェスト（自治体ローカル計算＋Nominatim）が出る。候補タップ・
+ *   Enter（確定）で geocode → 確定場所を検索エリア（state.bbox）に設定し、入力欄が
+ *   緑になり「検索エリアに「○○」を設定しました」が出る。確定時（bboxSource:
+ *   geocode/municipality）は MapView が fitBounds で確定場所にfitし、地図上に検索範囲の
+ *   青（#2563eb）矩形を描画する（BBOXオーバーレイ）。検索は確定した範囲で実行される
+ *   （地図を移動しても確定場所の範囲が優先）。入力をクリアすると矩形が消え、
+ *   検索範囲は地図の現在表示範囲に戻る。
  * - 詳細条件は「条件を追加」で展開する段階的開示（AdvancedSearch）
  * - 「検索する」ボタンはスロールームの外（ヘッダー横並び方式のP0再発防止）
  * - 地図の移動でOverpass検索は実行されない（明示的な押下のみ）
@@ -68,7 +78,7 @@ const tooLargeSearchError = (name) =>
 export default function MobileSearchTab({ view = 'top', onViewChange = () => {}, onViewResults, onMarkerClick = null }) {
   const { state, dispatch } = useApp()
   const { search, cancel } = useSearch()
-  const { searchSource, searchMode, bbox, selectedMunicipality } = state
+  const { searchSource, searchMode, bbox, bboxSource, selectedMunicipality } = state
   const [boundsVersion, setBoundsVersion] = useState(0)
 
   // (#63) 場所指定（クイックトップの地名入力）。親コンポーネントがview切替に
@@ -160,6 +170,9 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     // ① 場所の確定
     const q = placeQuery.trim()
     let areaBbox = state.bbox
+    // 検索エリアの由来（スナップショットの bboxSource 用）。既存エリアの再利用時は
+    // 現在の source を維持し、geocode・自治体で新規設定した場合は geocode/municipality
+    let areaSource = state.bboxSource
     if (q) {
       // 実行中のサジェスト（デバウンス待ち・リクエスト中）を無効化する
       // （検索実行中は候補リストを表示しない）
@@ -192,7 +205,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             // 見つかった」流れで進める（Nominatim は呼ばない）
             const result = municipalityToCandidate(exact[0])
             areaBbox = searchAreaFromGeocode(result)
-            dispatch({ type: 'SET_BBOX', payload: areaBbox })
+            areaSource = 'municipality'
+            dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: areaSource } })
             setAreaName(result.displayName)
             setPlaceAreaSet(true)
             setAreaSetQuery(q)
@@ -235,7 +249,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             // (#63) ジオコード結果の範囲を検索エリア（state.bbox）として設定する。
             // トップ画面には地図を描画しないため、地図の表示範囲は使わない。
             areaBbox = searchAreaFromGeocode(result)
-            dispatch({ type: 'SET_BBOX', payload: areaBbox })
+            areaSource = 'geocode'
+            dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: areaSource } })
             setAreaName(result.displayName)
             // 入力値は残して緑で表示（場所が決まったことが入力欄の見た目で分かる）。
             // 編集されたら handlePlaceQueryChange が緑と検索エリアを解除する。
@@ -293,6 +308,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     const next = {
       ...state,
       bbox: areaBbox,
+      bboxSource: areaSource,
       searchSource: 'map',
       simpleSearch: { ...state.simpleSearch, ...conditions }
     }
@@ -420,13 +436,104 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       return
     }
     const areaBbox = searchAreaFromGeocode(candidate)
-    dispatch({ type: 'SET_BBOX', payload: areaBbox })
+    // 候補の由来: 自治体（静的データ由来 kind='自治体'・市区町村レベルのaddresstype）→
+    // 'municipality'、それ以外（Nominatim由来）→ 'geocode'
+    dispatch({
+      type: 'SET_BBOX',
+      payload: {
+        ...areaBbox,
+        source: isMunicipalityCandidate(candidate) ? 'municipality' : 'geocode'
+      }
+    })
     setAreaName(candidate.displayName)
     setPlaceAreaSet(true)
     setAreaSetQuery(placeQuery.trim())
     setSuggestCandidates([])
     setMuniSuggest([])
     setPendingCandidates(null)
+  }
+
+  // (#xx) フォームの地図モードの場所入力欄で Enter（確定）したときの処理。
+  // トップの QuickTopIntro と同じ geocode フローだが、施設検索は実行しない
+  // （タイル・種別の確認もなし）。確定した場所を検索エリアに設定し、緑＋
+  // 「検索エリアに「○○」を設定しました」を表示する（MapView 側で fitBounds＋
+  // 矩形描画が行われる）。
+  // - 候補1件: エリア設定（成功）
+  // - 候補複数: 候補リストを提示（選択でエリア設定）
+  // - 見つからない・広すぎる: 入力欄の下にエラー表示
+  const handlePlaceConfirm = async () => {
+    const q = placeQuery.trim()
+    if (!q || state.status === 'loading' || searching) return
+
+    // 同じ地名のエリアが既に設定済みなら何もしない（再geocodeしない。
+    // Nominatim のレート制限・候補提示ループの防止）
+    if (placeAreaSet && q === areaSetQuery && bbox && isValidBbox(bbox)) return
+
+    // 実行中のサジェスト（デバウンス待ち・リクエスト中）を無効化する
+    if (suggestTimerRef.current) {
+      clearTimeout(suggestTimerRef.current)
+      suggestTimerRef.current = null
+    }
+    suggestSeqRef.current += 1
+    setSuggestCandidates([])
+    setMuniSuggest([])
+    setPendingCandidates(null)
+    setSearching(true)
+    setSearchError(null)
+    setAreaName(null)
+    setPlaceAreaSet(false)
+    setAreaSetQuery(null)
+    try {
+      // 自治体の完全一致をNominatimより先に調べる（静的データでローカル解決）
+      const exact = exactMatchMunicipalities(municipalities, q)
+      if (exact.length === 1) {
+        const result = municipalityToCandidate(exact[0])
+        const areaBbox = searchAreaFromGeocode(result)
+        dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'municipality' } })
+        setAreaName(result.displayName)
+        setPlaceAreaSet(true)
+        setAreaSetQuery(q)
+        return
+      }
+      if (exact.length >= 2) {
+        setPendingCandidates(exact.map(municipalityToCandidate))
+        return
+      }
+      const cands = await geocodeCandidates(q)
+      if (cands.length === 0) {
+        setSearchError('場所が見つかりませんでした。別の表記で試してください。')
+        return
+      }
+      if (cands.length >= 2) {
+        setPendingCandidates(cands)
+        return
+      }
+      const result = cands[0]
+      if (!isMunicipalityCandidate(result) && isBboxTooLarge(result.boundingbox)) {
+        setSearchError(tooLargeSearchError(result.name))
+        return
+      }
+      const areaBbox = searchAreaFromGeocode(result)
+      dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'geocode' } })
+      setAreaName(result.displayName)
+      setPlaceAreaSet(true)
+      setAreaSetQuery(q)
+    } catch (error) {
+      setSearchError(error.message || '地名検索に失敗しました')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  // (#xx) 場所入力欄のキー操作: Enter で確定（geocode→エリア設定）、
+  // Escape で入力と検索エリアをクリア（矩形も消える）
+  const handleMapPlaceKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handlePlaceConfirm()
+    } else if (e.key === 'Escape') {
+      handlePlaceQueryChange('')
+    }
   }
 
   // アンマウント時に保留中のサジェストタイマーをキャンセル
@@ -542,6 +649,16 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     return map && typeof map.getBounds === 'function' ? boundsToBbox(map.getBounds()) : null
   })()
 
+  // (#xx) 地図モードの場所入力用候補（トップの QuickTopIntro と同じ組み立て: 自治体
+  // サジェスト→Nominatimサジェスト。選択待ちなら pendingCandidates を表示）
+  const mapCandidates = pendingCandidates
+    ? pendingCandidates
+    : [...muniSuggest, ...suggestCandidates]
+
+  // (#xx) 確定場所（geocode/municipality）が設定済みかどうか — 検索ボタンラベル用
+  const confirmedArea = !!(bbox && isValidBbox(bbox) &&
+    (bboxSource === 'geocode' || bboxSource === 'municipality'))
+
   const handleSearch = () => {
     // クリック時点で地図表示範囲を新鮮に読み取る
     const mapBounds = searchSource === 'map' ? readMapBounds() : null
@@ -581,8 +698,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             setTappedPoi(result)
             dispatch({ type: 'SET_ACTIVE_RESULT', payload: `${result.type}/${result.id}` })
           }}
-          // (#63) トップは独自の場所入力を持つため地図上の地名ツールバーを省略
-          showToolbar={view === 'form'}
         />
       </div>
       {/* 高さドラッグハンドル（PC版と同一のフック） */}
@@ -627,10 +742,47 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         </div>
       </div>
 
-      {/* エリア */}
-      <section className="bg-slate-50 border border-slate-200 rounded-xl p-3" aria-label="検索範囲">
-        <h2 className="text-[11px] font-medium text-slate-500 mb-1.5">どの街・エリアで探す？</h2>
-        <AreaCard state={state} liveBounds={mapBbox} />
+      {/* エリア: 場所入力（確定場所で検索）＋ 検索範囲カード */}
+      <section className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2" aria-label="検索範囲">
+        <h2 className="text-[11px] font-medium text-slate-500">どの街・エリアで探す？</h2>
+
+        {/* (#xx) 場所入力: トップの QuickTopIntro と同じ挙動（サジェスト→確定→緑＋
+            フィードバック）。確定場所は検索エリア（state.bbox）になり、地図がその
+            範囲にfitし青い矩形が描画される。入力をクリアすると矩形が消え、地図の
+            表示範囲で検索する（AreaCard が「地図の現在表示範囲」を表示） */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={placeQuery}
+            onChange={(e) => handlePlaceQueryChange(e.target.value)}
+            onKeyDown={handleMapPlaceKeyDown}
+            placeholder="地名・駅名（例: 大阪駅）"
+            disabled={state.status === 'loading'}
+            className={
+              placeAreaSet
+                ? // 検索エリア設定成功: 場所が決まったことを入力欄の色で示す
+                  'w-full px-3 py-2 text-sm border border-green-500 bg-green-50 rounded-lg'
+                : 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white disabled:bg-slate-50'
+            }
+          />
+          {/* 候補リスト（サジェスト＋複数候補提示は共通の GeocodeCandidateList） */}
+          {mapCandidates.length > 0 && (
+            <GeocodeCandidateList
+              candidates={mapCandidates}
+              heading={pendingCandidates ? '候補が複数あります。選んでください。' : null}
+              onSelect={handleCandidateSelect}
+              disabled={state.status === 'loading'}
+            />
+          )}
+          {searchError && (
+            <p role="alert" className="text-sm text-red-600">{searchError}</p>
+          )}
+          {areaName && (
+            <p className="text-sm text-green-700">検索エリアに「{areaName}」を設定しました</p>
+          )}
+        </div>
+
+        <AreaCard state={state} liveBounds={mapBbox} areaName={areaName} />
       </section>
 
       {/* カテゴリ / キーワード */}
@@ -735,7 +887,9 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             status={state.status}
             onSearch={handleSearch}
             onCancel={cancel}
-            label={searchSource === 'map' ? 'この表示範囲で検索' : '検索する'}
+            label={searchSource === 'map'
+              ? (confirmedArea ? 'この範囲で検索' : 'この表示範囲で検索')
+              : '検索する'}
           />
         </div>
       )}
@@ -744,25 +898,42 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
 }
 
 /**
- * 検索範囲カード
- * - 地図モード: 地図の現在表示範囲（liveBounds）を優先表示
+ * 検索範囲カード（「どの街・エリアで探す？」セクション内・地図モード）
+ * - (#xx) 確定場所（bboxSource: geocode/municipality）が設定済みなら、
+ *   確定場所の名前＋範囲を「検索範囲」として表示（検索はこの範囲で実行される）
+ * - 未確定なら地図の現在表示範囲（liveBounds）を表示（従来どおり）
  * - 地図が未準備（非表示など）の場合は前回検索範囲にフォールバック
- * - 未設定時は設定方法のヒント、範囲が大きすぎる場合は警告
+ * - 範囲が大きすぎる場合は警告
  */
-function AreaCard({ state, liveBounds = null }) {
-  const { bbox, searchSource } = state
-  const isLive = searchSource === 'map' && !!liveBounds
-  const shown = isLive ? liveBounds : bbox
+function AreaCard({ state, liveBounds = null, areaName = null }) {
+  const { bbox, bboxSource } = state
+  const confirmed = !!(bbox && isValidBbox(bbox) &&
+    (bboxSource === 'geocode' || bboxSource === 'municipality'))
+  const isLive = !!liveBounds
+  const shown = confirmed ? bbox : (isLive ? liveBounds : bbox)
   const info = shown ? checkBboxSize(shown) : null
   return (
     <div className="space-y-0.5">
-      <span className="text-sm text-slate-700">地図の現在表示範囲</span>
-      <span className="block text-[11px] text-slate-500">
-        地図を移動・拡大して、検索したい範囲を設定できます。
-      </span>
+      {confirmed ? (
+        <>
+          <span className="text-sm text-slate-700">
+            検索範囲{areaName ? `: ${areaName}` : ''}
+          </span>
+          <span className="block text-[11px] text-slate-500">
+            確定した場所の範囲で検索されます。
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="text-sm text-slate-700">地図の現在表示範囲</span>
+          <span className="block text-[11px] text-slate-500">
+            場所を指定しない場合は、地図を移動・拡大して検索したい範囲を設定できます。
+          </span>
+        </>
+      )}
       {shown && (
         <span className="block font-mono text-[10px] text-slate-400 break-all">
-          {isLive ? '検索範囲: ' : '直前: '}{shown.south}, {shown.west} 〜 {shown.north}, {shown.east}
+          {confirmed ? '範囲: ' : isLive ? '検索範囲: ' : '直前: '}{shown.south}, {shown.west} 〜 {shown.north}, {shown.east}
           {info && `（約${Math.round(info.areaKm2).toLocaleString()} km²）`}
         </span>
       )}

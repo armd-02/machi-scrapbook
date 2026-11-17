@@ -16,7 +16,8 @@ import {
   CLUSTERS_LAYER_DEF,
   CLUSTER_COUNT_LAYER_DEF,
   BF_LINE_LAYER_DEF,
-  BF_NODE_LAYER_DEF
+  BF_NODE_LAYER_DEF,
+  BBOX_OVERLAY_LAYER_DEF
 } from '../MapView'
 
 /** レイヤ定義を最小スタイルに載せて検証するためのヘルパー */
@@ -26,15 +27,17 @@ const makeStyle = (layers) => ({
   sources: {
     results: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     // (#62) バリアフリー結果用ソース（第4ピース）
-    'barrier-free': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
+    'barrier-free': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    // (#xx) 検索範囲矩形オーバーレイ用ソース（確定場所のみ描画）
+    'bbox-overlay': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
   },
   layers
 })
 
-const ALL = [POINT_LAYER_DEF, CLUSTERS_LAYER_DEF, CLUSTER_COUNT_LAYER_DEF, BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF]
+const ALL = [POINT_LAYER_DEF, CLUSTERS_LAYER_DEF, CLUSTER_COUNT_LAYER_DEF, BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF, BBOX_OVERLAY_LAYER_DEF]
 
 describe('MapViewレイヤ定義（MapLibreスタイル仕様準拠）', () => {
-  it('5レイヤ（POI 3件 + バリアフリー 2件）すべてが実際のMapLibreバリデータでエラー0（addLayerが受理される）', () => {
+  it('6レイヤ（POI 3件 + バリアフリー 2件 + BBOXオーバーレイ 1件）すべてが実際のMapLibreバリデータでエラー0（addLayerが受理される）', () => {
     const errors = validateStyleMin(makeStyle(ALL))
     expect(errors).toEqual([])
   })

@@ -489,6 +489,22 @@ describe('MobileResultsMap: 操作可能性（修正）', () => {
     const container = screen.getByRole('application', { name: '検索結果マップ' })
     expect(container.className).not.toContain('pointer-events-none')
   })
+
+  it('pitchを0に固定する（maxPitch: 0、pitchWithRotate: false）、回転は従来どおり有効', () => {
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [poiA] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="poi" />
+      </Harness>
+    )
+    const map = getMap()
+    expect(map._options.maxPitch).toBe(0)
+    expect(map._options.pitchWithRotate).toBe(false)
+    expect(map._options.dragRotate).not.toBe(false)
+    expect(map._options.touchZoomRotate).not.toBe(false)
+  })
 })
 
 describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）', () => {

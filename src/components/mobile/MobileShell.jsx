@@ -8,7 +8,7 @@ import MobileListTab from './MobileListTab'
 import MobileOtherTab from './MobileOtherTab'
 import MemochoSection from './MemochoSection'
 import MobileFacilityDetail from './MobileFacilityDetail'
-import AppIcon from './AppIcon'
+import AppHeader from '../AppHeader'
 
 /**
  * (#59) モバイルシェル
@@ -74,21 +74,8 @@ export default function MobileShell() {
 
   return (
     <div className="flex flex-col h-dvh bg-slate-50 text-slate-800 relative">
-      <header className="shrink-0 bg-white border-b border-slate-200 px-4 py-2.5">
-        {/* アプリアイコン＋タイトル。h1 を見出し要素として残しつつボタン全体を包み、
-            押下でトップ画面（一般向けトップ）に戻る */}
-        <h1>
-          <button
-            type="button"
-            onClick={goTop}
-            aria-label="トップ画面に戻る"
-            className="flex items-center gap-2.5"
-          >
-            <AppIcon className="w-9 h-9" />
-            <span className="text-xl font-bold text-slate-800">まちデータ帳</span>
-          </button>
-        </h1>
-      </header>
+      {/* (#76) 共通ヘッダー: アイコン＋タイトル（押下でトップへ）＋ハンバーガーメニュー */}
+      <AppHeader onGoTop={goTop} />
 
       <StatusBanner />
 

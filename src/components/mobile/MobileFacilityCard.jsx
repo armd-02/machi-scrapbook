@@ -40,7 +40,7 @@ const BASE_KEYS = new Set(['address', 'phone', 'opening_hours', 'website'])
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
  */
-export default function MobileFacilityCard({ result, onOpen, showMissing = false }) {
+export default function MobileFacilityCard({ result, onOpen, showMissing = false, bare = false, hideMemoToggle = false }) {
   const tags = result.tags || {}
   const name = facilityName(result)
   const typeLabel = facilityTypeLabel(result)
@@ -71,7 +71,9 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
   return (
     <div
       onClick={() => onOpen(result)}
-      className="w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5 active:bg-slate-50 cursor-pointer"
+      className={bare
+        ? "w-full text-left p-3 space-y-1.5 active:bg-slate-50 cursor-pointer"
+        : "w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5 active:bg-slate-50 cursor-pointer"}
     >
       {/* 施設名（大きめ・太字）＋カテゴリラベル */}
       <div className="flex items-start justify-between gap-2">
@@ -155,15 +157,18 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
         )
       })()}
 
-      {/* まちメモ帳（第2ピース）: 追加/削除トグルボタン（小さい・左寄せ） */}
-      <button
-        type="button"
-        onClick={onToggleMemo}
-        aria-pressed={registered}
-        className="self-start text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200"
-      >
-        {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
-      </button>
+      {/* まちメモ帳（第2ピース）: 追加/削除トグルボタン（小さい・左寄せ）。
+          メモ帳内では右上の✕で削除するため hideMemoToggle で出さない */}
+      {!hideMemoToggle && (
+        <button
+          type="button"
+          onClick={onToggleMemo}
+          aria-pressed={registered}
+          className="self-start text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200"
+        >
+          {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
+        </button>
+      )}
     </div>
   )
 }

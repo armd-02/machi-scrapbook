@@ -7,6 +7,7 @@ import {
   mergeMemocho,
   removeMemocho,
   saveMemocho,
+  updateMapImage,
   updateMemo
 } from '../utils/memocho'
 
@@ -36,7 +37,12 @@ function getStore() {
 
 function setStore(items) {
   storeItems = items
-  saveMemocho(items)
+  try {
+    saveMemocho(items)
+  } catch {
+    // localStorage の容量超過など。メモリ上の状態は保ち、通知も続ける
+    // （保存できなかった分は再読み込みで消えるが、操作で落とさない）
+  }
   listeners.forEach((listener) => listener(items))
 }
 
@@ -107,6 +113,12 @@ export function useMemocho() {
     setMemo: (key, text) => {
       const current = getStore()
       setStore(updateMemo(current, key, text))
+    },
+
+    /** そのキーのアイテムに地図サムネイル（dataURL）を保存する */
+    setMapImage: (key, dataUrl) => {
+      const current = getStore()
+      setStore(updateMapImage(current, key, dataUrl))
     },
 
     /**

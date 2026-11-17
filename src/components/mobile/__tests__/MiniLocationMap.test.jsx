@@ -3,13 +3,13 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import MiniLocationMap from '../MiniLocationMap'
-import { OSM_RASTER_STYLE } from '../../../utils/mapStyle'
+import { BASEMAP_STYLE } from '../../../utils/mapStyle'
 
 /**
  * (#62) 施設詳細用 小型ロケーションマップの検証
  *
  * - 施設座標を中心にMapを作成（center=[lng,lat]）
- * - メインマップと同一の OSM_RASTER_STYLE（OSMFJタイル）を使用
+ * - メインマップと同一のベースマップスタイル（BASEMAP_STYLE、OSMFJベクタタイル）を使用
  * - 座標にマーカーを配置（setLngLat([lng,lat])）
  * - 既定attributionを無効化し、compact AttributionControl を明示追加
  *   （OSMタイル利用規約上のcredit表示）
@@ -45,10 +45,10 @@ describe('MiniLocationMap', () => {
     expect(map._options.zoom).toBe(15)
   })
 
-  it('メインマップと同一のOSMラスタスタイルを使用する', () => {
+  it('メインマップと同一のOSMベクタタイルベースマップスタイルを使用する', () => {
     render(<MiniLocationMap lng={LNG} lat={LAT} />)
     const map = mockState.api._state.maps[0]
-    expect(map._options.style).toBe(OSM_RASTER_STYLE)
+    expect(map._options.style).toBe(BASEMAP_STYLE)
   })
 
   it('施設座標にマーカーを配置する', () => {
@@ -65,6 +65,15 @@ describe('MiniLocationMap', () => {
     const control = mockState.api._state.controls[0]
     expect(control).toBeTruthy()
     expect(control._options.compact).toBe(true)
+  })
+
+  it('pitchを0に固定する（maxPitch: 0、pitchWithRotate: false）、回転は従来どおり有効', () => {
+    render(<MiniLocationMap lng={LNG} lat={LAT} />)
+    const map = mockState.api._state.maps[0]
+    expect(map._options.maxPitch).toBe(0)
+    expect(map._options.pitchWithRotate).toBe(false)
+    expect(map._options.dragRotate).not.toBe(false)
+    expect(map._options.touchZoomRotate).not.toBe(false)
   })
 
   it('非インタラクティブなimgとして描画される（シートスクロールとの競合回避）', () => {

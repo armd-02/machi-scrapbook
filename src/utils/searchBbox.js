@@ -5,9 +5,12 @@
  * 検索に使用するBBOXを決定する。
  *
  * 優先順:
- * 1. mapBounds（地図表示範囲）— 「検索する」押下時点の getBounds()
- * 2. stateBbox（前回確定BBOX）— 地図非表示時のfallback
- * 3. null — どちらも無い場合はエラー案内
+ * 1. stateBbox（確定場所由来）— source が 'geocode'（地名入力）または
+ *    'municipality'（自治体選択）のとき、地図が移動されていても確定した
+ *    場所で検索する（地図もその範囲にfitBoundsされる）
+ * 2. mapBounds（地図表示範囲）— 「検索する」押下時点の getBounds()（#41）
+ * 3. stateBbox（それ以外のsource: search/url 等）— 地図非表示・縮退時のfallback
+ * 4. null — どちらも無い場合はエラー案内
  */
 
 /**
@@ -81,11 +84,19 @@ export function boundsToBbox(bounds) {
 
 /**
  * 検索に使用するBBOXを決定
- * @param {object|null} stateBbox - 前回確定BBOX {south, west, north, east}
+ * @param {object|null} stateBbox - 確定BBOX {south, west, north, east}
+ * @param {string|null} bboxSource - stateBbox の由来（'geocode'|'municipality'|'search'|'url'|null）
  * @param {object|null} mapBounds - 地図表示範囲（MapLibre LngLatBounds）
  * @returns {object|null} 検索用BBOX、またはnull
  */
-export function resolveSearchBbox(stateBbox, mapBounds) {
+export function resolveSearchBbox(stateBbox, bboxSource, mapBounds) {
+  // 地名入力・自治体選択で「確定した」場所（source: geocode / municipality）は
+  // 地図の表示範囲より優先する。地図を移動・拡大しても、確定した範囲で
+  // 検索するのが利用者の期待（矩形オーバーレイもその範囲を描画する）
+  if (stateBbox && isValidBbox(stateBbox) &&
+      (bboxSource === 'geocode' || bboxSource === 'municipality')) {
+    return stateBbox
+  }
   // 地図が利用可能なら、その表示範囲を使用（縮退bboxなら無効として扱う）
   if (mapBounds) {
     const bbox = boundsToBbox(mapBounds)

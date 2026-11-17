@@ -16,6 +16,12 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import MemochoSection from '../MemochoSection'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
+import { captureMapImage } from '../../../utils/mapCapture'
+
+vi.mock('../../../utils/mapCapture', () => ({
+  captureMapImage: vi.fn(async () => 'data:image/jpeg;base64,QUJD'),
+}))
+const captureMapImageMock = captureMapImage
 
 function makeItem(overrides = {}) {
   return {
@@ -209,6 +215,40 @@ describe('MemochoSection: 読み込み', () => {
       expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
     }, { timeout: 5000 })
     expect(storedItems()).toEqual([makeItem()])
+  })
+})
+
+describe('MemochoSection: 地図サムネイル', () => {
+  it('mapImage のあるアイテムではカード上部に画像が出る', () => {
+    const item = makeItem({ mapImage: 'data:image/jpeg;base64,QUJD' })
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([item]))
+    renderSection()
+    const img = document.querySelector('img[src="data:image/jpeg;base64,QUJD"]')
+    expect(img).toBeTruthy()
+  })
+
+  it('mapImage が無いアイテムでは生成して保存する', async () => {
+    const item = makeItem({ id: 4242 })
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([item]))
+    renderSection()
+    await waitFor(() => {
+      const stored = storedItems()
+      expect(stored[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
+    })
+    expect(captureMapImageMock).toHaveBeenCalledWith(34.85, 135.5)
+  })
+})
+
+describe('MemochoSection: カードの✕で登録削除', () => {
+  it('右上の✕を押すとその施設が削除され、0件表示になる', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+    renderSection()
+    expect(screen.getByText('テスト珈琲店')).toBeTruthy()
+    // メモ帳内では「登録済み」トグルは出ない
+    expect(screen.queryByRole('button', { name: /登録済み/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店をメモ帳から削除' }))
+    expect(screen.getByText(/まだ登録がありません/)).toBeTruthy()
+    expect(storedItems()).toEqual([])
   })
 })
 

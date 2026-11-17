@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { OSM_RASTER_STYLE } from '../utils/mapStyle'
+import { BASEMAP_STYLE } from '../utils/mapStyle'
 
 /**
  * 一括照合用ミニ地図 (#35)（MapLibre版）
@@ -22,10 +22,13 @@ export default function BatchMatchMap({ matchResults, previewCandidate, activeRo
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: OSM_RASTER_STYLE,
+      style: BASEMAP_STYLE,
       // MapLibreのcenterは[経度, 緯度]順（旧Leaflet版は[34.705, 135.485]）
       center: [135.485, 34.705],
-      zoom: 14
+      zoom: 14,
+      // 平面地図のため pitch を常に0に固定（回転での連動ピッチも無効化）
+      maxPitch: 0,
+      pitchWithRotate: false
     })
     mapRef.current = map
 

@@ -153,4 +153,19 @@ describe('useMemocho', () => {
     expect(result.current.items).toHaveLength(0)
     expect(storedItems()).toBe(null) // 何も保存されていない
   })
+
+  it('全件削除は remove を各アイテムに適用することで実現する（clearAll なし）', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.add(PARK) })
+    expect(result.current.items).toHaveLength(2)
+
+    // HeaderMenu / MemochoSection の全消去は items.forEach(item => remove(key))
+    act(() => {
+      const items = result.current.items
+      items.forEach((item) => result.current.remove(memochoKeyOf(item)))
+    })
+    expect(result.current.items).toEqual([])
+    expect(storedItems()).toEqual([])
+  })
 })

@@ -93,9 +93,11 @@ export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = nu
 
   // ===== 地図モード (#41/#47) =====
   // bboxOverride も検証する（無効なら mapBounds / state.bbox へフォールバック）
+  // (#xx) 確定場所由来（source: geocode/municipality）の state.bbox は、
+  // 地図表示範囲より優先される（resolveSearchBbox 内の source 判定）
   const bbox =
     (bboxOverride && isValidBbox(bboxOverride) ? bboxOverride : null) ||
-    resolveSearchBbox(state.bbox, mapBounds)
+    resolveSearchBbox(state.bbox, state.bboxSource, mapBounds)
   if (!bbox) {
     return fail(
       'no_bbox',

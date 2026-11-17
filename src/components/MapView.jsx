@@ -3,8 +3,8 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../context/AppContext'
 import { setMapInstance } from '../hooks/useMapRef'
-import MapToolbar from './MapToolbar'
-import { OSM_RASTER_STYLE } from '../utils/mapStyle'
+import { isValidBbox } from '../utils/searchBbox'
+import { BASEMAP_STYLE } from '../utils/mapStyle'
 import { wheelchairBadge } from '../utils/accessibility'
 import { buildOsmElementUrl, buildIdElementUrl } from '../utils/editLinks'
 import { barrierFreeToMapGeoJSON, TACTILE_LINE_COLORS, NODE_ROLE_COLORS } from '../utils/barrierFreeGeoJSON'
@@ -121,6 +121,55 @@ export const BF_NODE_LAYER_DEF = {
   }
 }
 
+// (#xx) 検索範囲矩形（BBOXオーバーレイ）— 確定した検索範囲を地図上に矩形で描画
+const BBOX_OVERLAY_SOURCE = 'bbox-overlay'
+const BBOX_OVERLAY_LAYER = 'bbox-overlay-line'
+
+// bbox({south, west, north, east}) → 閉じた矩形LineString（[経度, 緯度]順）
+export function bboxToOverlayGeoJSON(bbox) {
+  const { south, west, north, east } = bbox
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [west, south],
+          [east, south],
+          [east, north],
+          [west, north],
+          [west, south]
+        ]
+      },
+      properties: {}
+    }]
+  }
+}
+
+// bbox → MapLibre fitBounds の引数形式（[[west, south], [east, north]]）
+export function bboxToFitBounds(bbox) {
+  return [[bbox.west, bbox.south], [bbox.east, bbox.north]]
+}
+
+// bbox の同一性を判定するキー（fitBoundsの再実行防止・ソース維持判定用）
+const bboxKey = (bbox) => `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`
+
+// 確定場所（地名入力・自治体選択）で fitBounds を実行する bboxSource
+const FIT_BBOX_SOURCES = ['geocode', 'municipality']
+
+// 検索範囲矩形レイヤ（青 #2563eb・実線）
+export const BBOX_OVERLAY_LAYER_DEF = {
+  id: BBOX_OVERLAY_LAYER,
+  type: 'line',
+  source: BBOX_OVERLAY_SOURCE,
+  paint: {
+    'line-color': '#2563eb',
+    'line-width': 2.5,
+    'line-opacity': 0.9
+  }
+}
+
 /**
  * 結果マーカーのポップアップ内容をDOMノードで構築する（#38）。
  * setHTMLにタグ由来文字列を渡さず、全テキストはtextContentで設定する。
@@ -209,22 +258,24 @@ export function resultsToGeoJSON(results) {
  * 設計方針 (#29 + #41 + Task 2):
  * - state.bbox は「前回検索に使用したBBOX」であり、地図のpan/zoomでは更新されない
  * - (#41) 検索範囲は「検索する」押下時点の地図表示範囲（getBounds）で決定される
- * - (Task 2) 検索実行後、カメラ位置・ズームを変更しない（fitBoundsしない）。
- *   カメラfitはURL復元由来のbbox（bboxSource==='url'）の初回適用時のみ。
- * - (Task 2) 選択矩形（BBOXオーバーレイ）は地図上に描画しない。
+ * - (Task 2) 検索実行（useSearch の SET_BBOX）だけでカメラ位置・ズームを
+ *   変更しない。カメラfitは確定場所（bboxSource: geocode/municipality）の
+ *   確定時と、URL復元由来（bboxSource='url'）の初回適用時のみ。
+ * - (#xx) 検索範囲矩形（BBOXオーバーレイ）: 確定場所（bboxSource:
+ *   geocode/municipality）の bbox に対し青（#2563eb）の矩形を地図上に描画する。
+ *   入力クリア・別範囲の確定で消える。検索由来（source='search'）・URL由来
+ *   （source='url'）の bbox には矩形を描画しない。
  * - マーカーはネイティブクラスタリング（MapLibreのcluster、supercluster不要）で表示
  * - (#38) ポップアップはtextContentベースのDOMノードのみ（setHTML禁止）
  * - (#60) コンテナサイズ変化でmap.resize()（hidden→表示復帰時のタイル再描画）
  */
 /**
- * @param {boolean} [showToolbar=true] 地名で移動ツールバー（MapToolbar）を表示する。
- *   (#63) モバイル一般向けトップは独自の場所入力を備えるためfalseを渡す。
  * @param {{center:[number,number], zoom:number}|null} [initialCamera=null]
  *   (#63) 再マウント時の初期カメラ（[経度, 緯度]順）。モバイル検索タブで
  *   トップ⇄フォーム切替時に地図が再マウントされるため、前の表示範囲を
  *   引き継ぐのに使う（URL復元bboxのfitBoundsは従来どおり優先される）。
  */
-function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true, initialCamera = null }) {
+function MapView({ onMarkerClick = null, onMarkerTap = null, initialCamera = null }) {
   const containerRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const loadedRef = useRef(false)
@@ -232,6 +283,13 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
   const highlightMarkerRef = useRef(null)
   // (#41-1 / Task 2) URL復元bboxの初回fitフラグ（一度きり）
   const hasFitInitialBboxRef = useRef(false)
+  // (#xx) 確定場所fit: 既にfit済みbboxのキー（同一bboxの再fit防止）
+  const fittedBboxKeyRef = useRef(null)
+  // (#xx) 確定場所fitの保留中bbox（コンテナ非表示（サイズ0）時に設定し、
+  // 表示復帰（resize）時に適用）
+  const pendingBboxFitRef = useRef(null)
+  // (#xx) オーバーレイ矩形の同期済みbboxキー（同一範囲の重複setData防止）
+  const overlayKeyRef = useRef(null)
   // (#60) アクティブ結果のハイライトマーカー
   const { state } = useApp()
   const { results, activeResultId, resultKind } = state
@@ -307,6 +365,41 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
     } else {
       highlightMarkerRef.current.setLngLat(lngLat)
     }
+  }
+
+  // (#xx) 確定場所かどうか（入力・選択で確定した geocode/municipality 由来のみ）。
+  // 検索実行（source='search'）・URL復元（source='url'）の bbox は「確定場所」では
+  // なく、矩形を描画しない（地図移動・検索のたびに矩形が出入りしないための
+  // 区分け。モックの _lastGeoJSON 上書き回避にも寄与する）。
+  const isConfirmedBbox = (s) =>
+    !!s.bbox && isValidBbox(s.bbox) &&
+    (s.bboxSource === 'geocode' || s.bboxSource === 'municipality')
+
+  // (#xx) 検索範囲矩形オーバーレイを確定場所（state.bbox）と同期する。
+  // 確定場所（geocode/municipality）: 青（#2563eb）の矩形を描画
+  //   （ソース・レイヤ未作成なら作成）。
+  // それ以外（検索由来・URL由来・null・無効）: 矩形を描画しない。
+  //   既存のオーバーレイがあれば削除する（入力クリア・範囲変更時）。
+  const syncBboxOverlay = () => {
+    const map = mapInstanceRef.current
+    if (!map || !loadedRef.current) return
+    const s = stateRef.current
+    if (isConfirmedBbox(s)) {
+      if (!map.getSource(BBOX_OVERLAY_SOURCE)) {
+        map.addSource(BBOX_OVERLAY_SOURCE, { type: 'geojson', data: EMPTY_FC })
+        map.addLayer(BBOX_OVERLAY_LAYER_DEF)
+      }
+      map.getSource(BBOX_OVERLAY_SOURCE).setData(bboxToOverlayGeoJSON(s.bbox))
+    } else if (map.getSource(BBOX_OVERLAY_SOURCE)) {
+      map.removeLayer(BBOX_OVERLAY_LAYER)
+      map.removeSource(BBOX_OVERLAY_SOURCE)
+    }
+  }
+
+  // (#xx) 確定場所bboxにカメラをfitBoundsする（fit済み記録を更新）
+  const applyBboxFit = (map, bbox) => {
+    map.fitBounds(bboxToFitBounds(bbox), { padding: 40, maxZoom: 17, duration: 800 })
+    fittedBboxKeyRef.current = bboxKey(bbox)
   }
 
   // 結果マーカー（点レイヤ）のクリック処理。
@@ -460,9 +553,13 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: OSM_RASTER_STYLE,
+      style: BASEMAP_STYLE,
       center,
-      zoom
+      zoom,
+      // 本アプリは平面（top-down）地図。pitchを常に0に固定し、回転操作での
+      // 連動ピッチ（pitchWithRotate既定true）も無効化する。回転自体は有効。
+      maxPitch: 0,
+      pitchWithRotate: false
     })
     // Leaflet版は左上のズームコントロール。MapLibre標準は右上のため
     // 地名検索ツールバー（右上）と重ならないよう左上に配置。
@@ -488,6 +585,17 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
         hasFitInitialBboxRef.current = true
       }
 
+      // (#xx) 検索範囲矩形オーバーレイを描画（マウント時点でbboxが設定されていた場合）
+      syncBboxOverlay()
+
+      // (#xx) マウント時に保留されていた確定場所fitを適用
+      const pendingFit = pendingBboxFitRef.current
+      if (pendingFit && isValidBbox(pendingFit) &&
+          FIT_BBOX_SOURCES.includes(stateRef.current.bboxSource)) {
+        applyBboxFit(map, pendingFit)
+        pendingBboxFitRef.current = null
+      }
+
       // (#62) バリアフリー検索の結果なら専用ソース・レイヤもsetupして反映
       syncData()
       syncHighlight()
@@ -505,6 +613,13 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
         const r = el.getBoundingClientRect()
         if (r.width > 0 && r.height > 0) {
           mapInstanceRef.current.resize()
+          // (#xx) 非表示中に保留されていた確定場所fitを適用（トップ→フォーム等）
+          const pending = pendingBboxFitRef.current
+          if (pending && isValidBbox(pending) &&
+              FIT_BBOX_SOURCES.includes(stateRef.current.bboxSource)) {
+            applyBboxFit(mapInstanceRef.current, pending)
+            pendingBboxFitRef.current = null
+          }
         }
       }, 100)
     })
@@ -546,6 +661,54 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
     }
   }, [])
 
+  // (#xx) 検索範囲矩形オーバーレイを state.bbox / bboxSource の変化に合わせて更新する。
+  // 確定場所（geocode/municipality）→ 矩形描画 / それ以外 → オーバーレイ削除。
+  // 同一範囲（bbox値が同じ）の再dispatch（useSearchが毎検索で同じbboxを
+  // SET_BBOXし直すケース）では再setDataしない（モックの_lastGeoJSONが矩形で
+  // 上書きされないようにする）。
+  useEffect(() => {
+    if (isConfirmedBbox(state)) {
+      const key = bboxKey(state.bbox)
+      if (overlayKeyRef.current === key) return
+      overlayKeyRef.current = key
+    } else {
+      overlayKeyRef.current = null
+    }
+    syncBboxOverlay()
+  }, [state.bbox, state.bboxSource])
+
+  // (#xx) 確定場所bbox（source: geocode/municipality）でカメラをfitBoundsする
+  // - 確定（bboxの変化）時のみfit。値が変わらない再dispatch（useSearchが
+  //   検索ごとに同じbboxをSET_BBOXする）では再fitしない
+  // - bboxがnull（クリア）になるとfitフラグをリセットし、同じ場所の再確定で
+  //   再度fitできるようにする
+  // - コンテナ非表示（サイズ0、例: トップ画面・別タブ中）は保留し、地図が
+  //   表示されてから適用する（ResizeObserver / load イベントで適用）
+  useEffect(() => {
+    const { bbox, bboxSource } = state
+    const valid = bbox && isValidBbox(bbox) && FIT_BBOX_SOURCES.includes(bboxSource)
+    if (!valid) {
+      fittedBboxKeyRef.current = null
+      pendingBboxFitRef.current = null
+      return
+    }
+    const map = mapInstanceRef.current
+    if (!map || !loadedRef.current) {
+      // 地図未ロード: loadイベントで適用する
+      pendingBboxFitRef.current = bbox
+      return
+    }
+    const key = bboxKey(bbox)
+    if (fittedBboxKeyRef.current === key) return // 既にfit済み
+    const el = containerRef.current
+    const r = el ? el.getBoundingClientRect() : null
+    if (r && r.width > 0 && r.height > 0) {
+      applyBboxFit(map, bbox)
+    } else {
+      pendingBboxFitRef.current = bbox
+    }
+  }, [state.bbox, state.bboxSource])
+
   // 結果マーカー更新（クラスタリングGeoJSON / バリアフリー線・点GeoJSON）
   // (#62) resultKind にも従い、POI⇄バリアフリーのソース切り替えを行う。
   useEffect(() => {
@@ -579,7 +742,6 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, showToolbar = true,
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="w-full h-full" />
-      {showToolbar && <MapToolbar mapRef={mapInstanceRef} />}
       {/* (#62) 凡例（BarrierFreeLegend）は地図のオーバーレイではなく、
           親レイアウト（Appの地図ブロック・モバイル検索タブ）の地図本体の下に
           通常のフローで描画する。 */}

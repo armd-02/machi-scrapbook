@@ -8,7 +8,7 @@ import MobileListTab from './MobileListTab'
 import MobileOtherTab from './MobileOtherTab'
 import MemochoSection from './MemochoSection'
 import MobileFacilityDetail from './MobileFacilityDetail'
-import AppIcon from './AppIcon'
+import AppHeader from '../AppHeader'
 
 /**
  * (#72) PC用シェル（ビューポート幅 >= 1024px）
@@ -91,20 +91,8 @@ export default function PcShell() {
 
   return (
     <div className="flex flex-col h-dvh bg-slate-50 text-slate-800 relative">
-      {/* ヘッダー: 全幅。タイトルボタンで一般トップへ戻る */}
-      <header className="shrink-0 bg-white border-b border-slate-200 px-4 py-2.5">
-        <h1>
-          <button
-            type="button"
-            onClick={goTop}
-            aria-label="トップ画面に戻る"
-            className="flex items-center gap-2.5"
-          >
-            <AppIcon className="w-9 h-9" />
-            <span className="text-xl font-bold text-slate-800">まちデータ帳</span>
-          </button>
-        </h1>
-      </header>
+      {/* (#76) 共通ヘッダー: アイコン＋タイトル（押下でトップへ）＋ハンバーガーメニュー。全幅 */}
+      <AppHeader onGoTop={goTop} />
 
       <StatusBanner />
 

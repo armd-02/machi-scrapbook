@@ -52,6 +52,15 @@ function getMap() {
 const markersOf = () => mockState.api._state.markers
 
 describe('BatchMatchMap (MapLibre)', () => {
+  it('pitchを0に固定する（maxPitch: 0、pitchWithRotate: false）、回転は従来どおり有効', () => {
+    render(<BatchMatchMap matchResults={null} previewCandidate={null} activeRow={null} />)
+    const map = getMap()
+    expect(map._options.maxPitch).toBe(0)
+    expect(map._options.pitchWithRotate).toBe(false)
+    expect(map._options.dragRotate).not.toBe(false)
+    expect(map._options.touchZoomRotate).not.toBe(false)
+  })
+
   it('プレビュー候補を赤マーカーで表示し、panToする', () => {
     render(<BatchMatchMap matchResults={ROWS} previewCandidate={{ index: 0, candidateIdx: 0 }} activeRow={ROWS[0]} />)
     const map = getMap()

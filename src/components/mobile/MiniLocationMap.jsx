@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { OSM_RASTER_STYLE } from '../../utils/mapStyle'
+import { BASEMAP_STYLE } from '../../utils/mapStyle'
 
 /**
  * 施設詳細用の小型ロケーションマップ（#62）。
@@ -11,7 +11,7 @@ import { OSM_RASTER_STYLE } from '../../utils/mapStyle'
  *   外部アセット/CDNへの依存がない。
  * - 非インタラクティブ（pointer-events: none）。ボトムシート内の表示用マップ
  *   であるため、シートのスクロール操作とタッチ操作が競合しないようにする。
- * - メインマップと同一のOSMラスタスタイル（OSM_RASTER_STYLE、OSMFJタイル）を
+ * - メインマップと同一のOSMベクタタイルベースマップ（BASEMAP_STYLE、OSMFJ）を
  *   使う。コンパクト版 AttributionControl で © OpenStreetMap 表示
  *   （タイル利用規約上必須）。
  * - アンマウントまたは座標変更時に map を破棄する。
@@ -26,10 +26,13 @@ export default function MiniLocationMap({ lng, lat, height = 200, zoom = 15, cla
 
     const map = new maplibregl.Map({
       container: el,
-      style: OSM_RASTER_STYLE,
+      style: BASEMAP_STYLE,
       center: [lng, lat],
       zoom,
       attributionControl: false, // 既定の（広い）attrib bar の代わりに compact 版を明示追加
+      // 平面地図のため pitch を常に0に固定（回転での連動ピッチも無効化）
+      maxPitch: 0,
+      pitchWithRotate: false
     })
     map.addControl(new maplibregl.AttributionControl({ compact: true }))
     new maplibregl.Marker().setLngLat([lng, lat]).addTo(map)

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../../context/AppContext'
-import { OSM_RASTER_STYLE } from '../../utils/mapStyle'
+import { BASEMAP_STYLE } from '../../utils/mapStyle'
 import {
   POINT_LAYER_DEF,
   BF_LINE_LAYER_DEF,
@@ -208,10 +208,13 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
 
     const map = new maplibregl.Map({
       container: el,
-      style: OSM_RASTER_STYLE,
+      style: BASEMAP_STYLE,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
-      attributionControl: false
+      attributionControl: false,
+      // 平面地図のため pitch を常に0に固定（回転での連動ピッチも無効化）
+      maxPitch: 0,
+      pitchWithRotate: false
     })
     // タイル規約の表示義務を満足するため compact 表記制御を付ける
     map.addControl(new maplibregl.AttributionControl({ compact: true }))

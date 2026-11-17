@@ -390,9 +390,12 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     expect(mapBlock).toBeTruthy()
     expect(mapBlock.hasAttribute('hidden')).toBe(true)
 
-    // 旧PCレイアウト固有の要素（ハンバーガーメニュー・地図切替）は存在しない
-    expect(screen.queryByRole('button', { name: 'メニュー' })).toBeNull()
+    // 旧PCレイアウト固有の地図切替ボタン（「地図を隠す」）は存在しない
     expect(screen.queryByText('地図を隠す')).toBeNull()
+
+    // (#75) ヘッダーにはハンバーガーメニューがある（PcShell のヘッダーにも入る）
+    const header = container.querySelector('header')
+    expect(within(header).getByRole('button', { name: 'メニュー' })).toBeTruthy()
   }, IT_TIMEOUT)
 
   it('matchMedia change でレイアウトが追従する（回転・キーボード表示に対応）: 2ペイン構造の出現・消滅', async () => {
@@ -1711,4 +1714,47 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     expect(overpassCalls[0]).toContain('31.580000,130.680000,31.600000,130.710000')
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
   }, IT_TIMEOUT)
+})
+
+describe('ヘッダーのハンバーガーメニュー (#75)', () => {
+  it('ヘッダーに ☰ ボタンがあり、開くと保存系・全消去の3項目が並ぶ', () => {
+    renderApp()
+
+    // ヘッダー内に「メニュー」ボタンがある
+    const header = document.querySelector('header')
+    const menuBtn = within(header).getByRole('button', { name: 'メニュー' })
+    expect(menuBtn).toBeTruthy()
+
+    // 検索結果が無い段階では保存系・全消去は disabled（項目自体は表示される）
+    fireEvent.click(menuBtn)
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: /一覧を保存（CSV）/ }).disabled).toBe(true)
+    expect(within(menu).getByRole('menuitem', { name: /GeoJSON（高度な形式）/ }).disabled).toBe(true)
+    expect(within(menu).getByRole('menuitem', { name: /まちメモ帳をすべて削除/ }).disabled).toBe(true)
+
+    // 再度クリックで閉じる
+    fireEvent.click(menuBtn)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('どのタブ（検索/一覧/その他）を表示していてもメニューが開け、3項目が表示される (#77-3)', () => {
+    renderApp()
+
+    for (const label of ['検索', '一覧', 'その他']) {
+      clickTab(label)
+      expect(tabIsCurrent(label)).toBe(true)
+
+      // ヘッダー（タブ内容の外側・常時表示）に ☰ ボタンがあり、開くと3項目
+      const menuBtn = within(document.querySelector('header')).getByRole('button', { name: 'メニュー' })
+      fireEvent.click(menuBtn)
+      const menu = screen.getByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: /一覧を保存（CSV）/ })).toBeTruthy()
+      expect(within(menu).getByRole('menuitem', { name: /GeoJSON（高度な形式）/ })).toBeTruthy()
+      expect(within(menu).getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })).toBeTruthy()
+
+      // 閉じて次のタブへ
+      fireEvent.click(menuBtn)
+      expect(screen.queryByRole('menu')).toBeNull()
+    }
+  })
 })

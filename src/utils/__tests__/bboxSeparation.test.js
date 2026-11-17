@@ -5,10 +5,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  *
  * (#41-4) 旧「矩形描画」「この範囲を設定」ボタンのテストを削除。
  * 新仕様: 検索ボタンが map.getBounds() からBBOXを取得し、
- *         state.bbox は「前回検索範囲」としてのみ使用される。
+ *         state.bbox は「前回検索範囲」としてのフォールバックに使用される。
+ * (#xx) ただし確定場所（bboxSource: geocode/municipality）が設定済みの場合は
+ *         確定場所の範囲が地図表示範囲より優先される（resolveSearchBbox の
+ *         source判定。後述の「#xx: bboxSourceによる検索範囲の優先度」参照）。
  *
  * (Task 2 / MapLibre移行) 検索実行後はカメラを変更しない（fitBoundsしない）。
- * カメラfitはURL復元由来のbbox（bboxSource==='url'）のみ。
+ * カメラfitはURL復元由来（bboxSource==='url'）と確定場所
+ * （bboxSource: geocode/municipality）のみ。
  * コンポーネントレベルの検証は MapView.test.jsx 参照。
  */
 
@@ -91,9 +95,10 @@ describe('#41-1: 共有URLのBBOX復元と検索範囲', () => {
     getEast: () => 139.78,
   }
 
-  it('地図BBOXが提供されたら、state.bbox（大阪）ではなく地図範囲で検索', () => {
+  it('地図BBOXが提供されたら、state.bbox（大阪・URL復元由来）ではなく地図範囲で検索', () => {
     const stateBbox = { south: 34.70, west: 135.48, north: 34.71, east: 135.49 }
-    const resolved = resolveSearchBbox(stateBbox, fakeBounds)
+    // URL復元由来（source='url'）は地図表示範囲が優先
+    const resolved = resolveSearchBbox(stateBbox, 'url', fakeBounds)
     // 地図範囲（東京）が使用される
     expect(resolved).toEqual({
       south: 35.68, west: 139.75, north: 35.70, east: 139.78
@@ -102,13 +107,55 @@ describe('#41-1: 共有URLのBBOX復元と検索範囲', () => {
 
   it('地図が非表示（bounds=null）ならstate.bbox（前回範囲）を使用', () => {
     const stateBbox = { south: 34.70, west: 135.48, north: 34.71, east: 135.49 }
-    const resolved = resolveSearchBbox(stateBbox, null)
+    const resolved = resolveSearchBbox(stateBbox, 'url', null)
     expect(resolved).toEqual(stateBbox)
   })
 
   it('地図もstate.bboxもない場合はnull（エラー案内を表示）', () => {
-    const resolved = resolveSearchBbox(null, null)
+    const resolved = resolveSearchBbox(null, 'url', null)
     expect(resolved).toBeNull()
+  })
+})
+
+describe('#xx: bboxSourceによる検索範囲の優先度（確定場所は地図表示範囲より優先）', () => {
+  const fakeBounds = {
+    getSouth: () => 35.68,
+    getNorth: () => 35.70,
+    getWest: () => 139.75,
+    getEast: () => 139.78,
+  }
+  const osakaBbox = { south: 34.70, west: 135.48, north: 34.71, east: 135.49 }
+
+  it('geocode由来のstate.bboxは地図表示範囲より優先される（地図を移動しても確定場所で検索）', () => {
+    const resolved = resolveSearchBbox(osakaBbox, 'geocode', fakeBounds)
+    expect(resolved).toEqual(osakaBbox)
+  })
+
+  it('municipality由来のstate.bboxは地図表示範囲より優先される', () => {
+    const resolved = resolveSearchBbox(osakaBbox, 'municipality', fakeBounds)
+    expect(resolved).toEqual(osakaBbox)
+  })
+
+  it('search由来のstate.bboxは地図表示範囲が優先（従来の挙動）', () => {
+    const resolved = resolveSearchBbox(osakaBbox, 'search', fakeBounds)
+    expect(resolved).toEqual({
+      south: 35.68, west: 139.75, north: 35.70, east: 139.78
+    })
+  })
+
+  it('sourceなし（null）のstate.bboxは地図表示範囲が優先、地図非表示ならfallback', () => {
+    expect(resolveSearchBbox(osakaBbox, null, fakeBounds)).toEqual({
+      south: 35.68, west: 139.75, north: 35.70, east: 139.78
+    })
+    expect(resolveSearchBbox(osakaBbox, null, null)).toEqual(osakaBbox)
+  })
+
+  it('geocode由来でも縮退bboxなら地図表示範囲・nullへフォールバック', () => {
+    const degenerate = { south: 34.71, west: 135.48, north: 34.70, east: 135.49 }
+    expect(resolveSearchBbox(degenerate, 'geocode', fakeBounds)).toEqual({
+      south: 35.68, west: 139.75, north: 35.70, east: 139.78
+    })
+    expect(resolveSearchBbox(degenerate, 'geocode', null)).toBeNull()
   })
 })
 

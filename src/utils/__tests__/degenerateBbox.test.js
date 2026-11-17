@@ -114,25 +114,35 @@ describe('boundsToBbox', () => {
 })
 
 describe('resolveSearchBbox', () => {
+  // 3引数版: resolveSearchBbox(stateBbox, bboxSource, mapBounds)
+  // （#xx) source が geocode/municipality の確定場所のみ mapBounds より優先される
   it('縮退mapBounds + 有効なstateBbox → stateBboxを使用', () => {
-    expect(resolveSearchBbox(VALID_BBOX, DEGENERATE_BOUNDS)).toEqual(VALID_BBOX)
+    expect(resolveSearchBbox(VALID_BBOX, 'search', DEGENERATE_BOUNDS)).toEqual(VALID_BBOX)
   })
 
   it('縮退mapBounds + 縮退stateBbox → null', () => {
     const degenerate = { south: 34.7, west: 135.5, north: 34.7, east: 135.5 }
-    expect(resolveSearchBbox(degenerate, DEGENERATE_BOUNDS)).toBeNull()
+    expect(resolveSearchBbox(degenerate, 'search', DEGENERATE_BOUNDS)).toBeNull()
   })
 
   it('縮退mapBounds + stateBboxなし → null（no_bbox案内へ）', () => {
-    expect(resolveSearchBbox(null, DEGENERATE_BOUNDS)).toBeNull()
+    expect(resolveSearchBbox(null, 'search', DEGENERATE_BOUNDS)).toBeNull()
   })
 
-  it('正常なmapBoundsがあれば優先使用する', () => {
+  it('正常なmapBoundsがあれば優先使用する（確定場所以外）', () => {
     const bounds = {
       getSouth: () => 35.0, getNorth: () => 35.02,
       getWest: () => 139.0, getEast: () => 139.02
     }
-    expect(resolveSearchBbox(VALID_BBOX, bounds)).toEqual({ south: 35.0, west: 139.0, north: 35.02, east: 139.02 })
+    expect(resolveSearchBbox(VALID_BBOX, 'search', bounds)).toEqual({ south: 35.0, west: 139.0, north: 35.02, east: 139.02 })
+  })
+
+  it('確定場所（geocode）のstateBboxは正常なmapBoundsでも優先される', () => {
+    const bounds = {
+      getSouth: () => 35.0, getNorth: () => 35.02,
+      getWest: () => 139.0, getEast: () => 139.02
+    }
+    expect(resolveSearchBbox(VALID_BBOX, 'geocode', bounds)).toEqual(VALID_BBOX)
   })
 })
 

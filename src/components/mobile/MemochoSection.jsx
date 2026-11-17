@@ -3,6 +3,7 @@ import MobileFacilityCard from './MobileFacilityCard'
 import { useMemocho } from '../../hooks/useMemocho'
 import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../../utils/memocho'
 import { toCSV, downloadFile } from '../../utils/export'
+import { captureMapImage } from '../../utils/mapCapture'
 
 /**
  * (まちメモ帳 第3ピース) まちメモ帳セクション
@@ -13,7 +14,7 @@ import { toCSV, downloadFile } from '../../utils/export'
  *
  * - 各カードにメモ欄（テキスト入力）: その場で編集でき、フォーカスを外すと
  *   setMemo で保存される
- * - カード内の「📝 登録済み」ボタンで削除できる（第2ピースの toggle 機構）
+ * - カード右上の✕ボタンで登録を削除できる
  * - 見出し右端の ☰ サンドイッチメニュー（aria-label「まちメモ帳メニュー」）:
  *     - JSONで書き出し: serializeMemocho → machi-memocho.json
  *     - CSVで書き出し:  toCSV（includeMemo で末尾に memo 列を追加）→ machi-memocho.csv
@@ -24,8 +25,11 @@ import { toCSV, downloadFile } from '../../utils/export'
 
 const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細の「メモ帳に追加」から登録できます。'
 
+// 地図サムネイルの生成を試行済みのキー（セッション内のみ。失敗の再試行防止）
+const attemptedMapKeys = new Set()
+
 export default function MemochoSection({ onOpenDetail }) {
-  const { items, remove, setMemo, importItems } = useMemocho()
+  const { items, remove, setMemo, importItems, setMapImage } = useMemocho()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmWipe, setConfirmWipe] = useState(false)
@@ -38,6 +42,30 @@ export default function MemochoSection({ onOpenDetail }) {
     setMenuOpen(false)
     setConfirmWipe(false)
   }
+
+  // 地図サムネイル: 座標があり未生成のアイテムを1件ずつ順番に生成して保存する。
+  // 失敗したアイテムはセッション内では再試行しない（attemptedMapKeys）。
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      for (const item of items) {
+        if (cancelled) return
+        const key = memochoKeyOf(item)
+        if (item.mapImage || item.lat == null || item.lon == null) continue
+        if (attemptedMapKeys.has(key)) continue
+        attemptedMapKeys.add(key)
+        const url = await captureMapImage(item.lat, item.lon)
+        // 生成中に items が変わり effect が再実行（クリーンアップ）されても、
+        // 取得できた画像は保存する。キーが既に削除されていれば
+        // updateMapImage 側で対象なしとなり無視される
+        if (url) setMapImage(key, url)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
 
   // セクション外をタップしたらメニューを閉じる（2段階削除の確認もリセット）
   useEffect(() => {
@@ -122,7 +150,7 @@ export default function MemochoSection({ onOpenDetail }) {
   }
 
   return (
-    <section ref={sectionRef} aria-label="まちメモ帳" className="bg-white border-b border-slate-200">
+    <section ref={sectionRef} aria-label="まちメモ帳" className="@container bg-white border-b border-slate-200">
       {/* 見出し＋件数＋☰ボタン */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
         <h2 className="text-sm font-bold text-slate-800">まちメモ帳</h2>
@@ -203,22 +231,25 @@ export default function MemochoSection({ onOpenDetail }) {
       )}
 
       {/* 一覧（0件のときは案内文） */}
-      <div className="px-3 pb-3 space-y-3">
+      <div className="px-3 pb-3">
         {items.length === 0 ? (
           <p className="text-sm text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-4 text-center">
             {EMPTY_TEXT}
           </p>
         ) : (
-          items.map((item) => (
-            <MemochoCard
-              key={memochoKeyOf(item)}
-              item={item}
-              onOpenDetail={onOpenDetail}
-              draft={memoDrafts[memochoKeyOf(item)]}
-              onDraftChange={onDraftChange}
-              onDraftCommit={onDraftCommit}
-            />
-          ))
+          <div className="grid grid-cols-1 gap-3 @min-[620px]:grid-cols-2 @min-[980px]:grid-cols-3 @min-[1340px]:grid-cols-4">
+            {items.map((item) => (
+              <MemochoCard
+                key={memochoKeyOf(item)}
+                item={item}
+                onOpenDetail={onOpenDetail}
+                draft={memoDrafts[memochoKeyOf(item)]}
+                onDraftChange={onDraftChange}
+                onDraftCommit={onDraftCommit}
+                onRemove={remove}
+              />
+            ))}
+          </div>
         )}
       </div>
 
@@ -242,28 +273,54 @@ export default function MemochoSection({ onOpenDetail }) {
  * - カード本体タップで施設詳細シートが開く（onOpenDetail）
  * - メモ欄は入力値をローカルdraftに持ち、フォーカスを外したとき
  *   （onBlur）に onDraftCommit 経由で setMemo されて保存される。
- *   メモ欄はカードの onClick の外（シスター要素）に置くことで、
- *   編集操作が詳細シートの開閉に伝播しない。
+ *   メモ欄はカード枠の中に置くが、施設カード本体（クリック領域）の
+ *   外に置くことで、編集操作が詳細シートの開閉に伝播しない。
  */
-function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit }) {
+function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, onRemove }) {
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
 
   return (
-    <div className="space-y-1.5">
-      <MobileFacilityCard
-        result={item}
-        onOpen={(res) => onOpenDetail && onOpenDetail(res, 'memocho')}
-      />
-      <input
-        type="text"
-        value={memoValue}
-        placeholder="メモを追加"
-        aria-label={`${item.name}のメモ`}
-        onChange={(e) => onDraftChange(key, e.target.value)}
-        onBlur={(e) => onDraftCommit(key, e.currentTarget.value)}
-        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-      />
+    <div className="relative bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-stretch">
+        <div className={`flex-1 min-w-0 ${item.mapImage ? '' : 'pr-8'}`}>
+          <MobileFacilityCard
+            bare
+            hideMemoToggle
+            result={item}
+            onOpen={(res) => onOpenDetail && onOpenDetail(res, 'memocho')}
+          />
+        </div>
+        {item.mapImage && (
+          <div className="relative shrink-0 w-[120px]">
+            <img src={item.mapImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
+              © OpenStreetMap contributors
+            </span>
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        aria-label={`${item.name}をメモ帳から削除`}
+        onClick={() => onRemove && onRemove(key)}
+        className={`absolute top-2 right-2 z-10 w-7 h-7 grid place-items-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 ${
+          item.mapImage ? 'bg-white/90 shadow' : ''
+        }`}
+      >
+        ✕
+      </button>
+      <div className="px-3 pb-3">
+        <input
+          type="text"
+          value={memoValue}
+          placeholder="メモを追加"
+          aria-label={`${item.name}のメモ`}
+          onChange={(e) => onDraftChange(key, e.target.value)}
+          onBlur={(e) => onDraftCommit(key, e.currentTarget.value)}
+          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        />
+      </div>
     </div>
   )
 }

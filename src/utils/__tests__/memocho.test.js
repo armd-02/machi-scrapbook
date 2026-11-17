@@ -18,6 +18,7 @@ import {
   addMemocho,
   removeMemocho,
   updateMemo,
+  updateMapImage,
   mergeMemocho,
   serializeMemocho,
   parseMemochoJSON,
@@ -329,5 +330,34 @@ describe('memocho', () => {
       expect(() => parseMemochoJSON(wrap([{ type: 'node', id: 1, lat: '35.7' }]))).toThrow(/lat/)
       expect(() => parseMemochoJSON(wrap([null]))).toThrow()
     })
+  })
+})
+
+describe('mapImage（地図サムネイル）', () => {
+  const base = {
+    type: 'node', id: 55, name: 'サムネイル店', lat: 34.7, lon: 135.5,
+    tags: { name: 'サムネイル店', amenity: 'cafe' }, memo: '', addedAt: '2026-01-01T00:00:00.000Z',
+  }
+  const wrap = (items) => JSON.stringify({ app: 'machi-memocho', version: 1, items })
+
+  it('updateMapImage で対象アイテムにだけ付く', () => {
+    const next = updateMapImage([base], 'node/55', 'data:image/jpeg;base64,QUJD')
+    expect(next[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
+    expect(base.mapImage).toBeUndefined()
+  })
+
+  it('parseMemochoJSON は正しい mapImage を保持する', () => {
+    const items = parseMemochoJSON(wrap([{ ...base, mapImage: 'data:image/jpeg;base64,QUJD' }]))
+    expect(items[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
+  })
+
+  it('parseMemochoJSON は画像でない文字列を落とす', () => {
+    const items = parseMemochoJSON(wrap([{ ...base, mapImage: 'https://example.com/x.png' }]))
+    expect(items[0].mapImage).toBeUndefined()
+  })
+
+  it('mapImage が無いアイテムにはフィールド自体が付かない', () => {
+    const items = parseMemochoJSON(wrap([base]))
+    expect('mapImage' in items[0]).toBe(false)
   })
 })

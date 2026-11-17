@@ -1,10 +1,10 @@
 /**
  * (#44 生活者目線UI) 検索結果の表示フィルタ共通ユーティリティ
  *
- * PCの一覧（ResultsPanel）とモバイルの一覧タブ（MobileListTab）が同じ
- * フィルタ定義・同じロジックを共有する。ExportBar はこの関数で
- * 「表示中」の結果集合を求め、エクスポート対象（表示中 N / 全部 M）を
- * 明示する（「検索と出力の一致」要件 #44）。
+ * PCの一覧とモバイルの一覧タブ（ともに MobileListTab）が同じ
+ * フィルタ定義・同じロジックを共有する。ヘッダーのハンバーガーメニュー
+ * （HeaderMenu）はこの関数で「表示中」の結果集合を求め、エクスポート対象
+ * （表示中 N / 全部 M）を明示する（「検索と出力の一致」要件 #44）。
  *
  * フィルタ状態は App.jsx の reducer state.resultFilters に置き、
  * { nameFilter, typeFilter, catFilter, sortDir } を持つ。

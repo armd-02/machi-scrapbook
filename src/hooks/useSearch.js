@@ -86,7 +86,17 @@ export function useSearch() {
     dispatch({ type: 'SET_ERROR', payload: null })
 
     // 使用したBBOXをstateに反映（共有URL・前回範囲表示用）
-    dispatch({ type: 'SET_BBOX', payload: bbox })
+    // (#xx) 値が変わらない場合は bboxSource を維持する。地図モードで検索すると
+    // source:'search' に落ち、次回検索で確定場所（geocode/municipality）の優先が
+    // 失われて地図表示範囲に切り替わるのを防ぐ
+    const prevBbox = stateRef.current.bbox
+    const bboxUnchanged = !!prevBbox &&
+      prevBbox.south === bbox.south && prevBbox.west === bbox.west &&
+      prevBbox.north === bbox.north && prevBbox.east === bbox.east
+    dispatch({
+      type: 'SET_BBOX',
+      payload: bboxUnchanged ? { ...bbox, source: stateRef.current.bboxSource } : bbox
+    })
 
     // キャンセルシグナル
     const controller = new AbortController()

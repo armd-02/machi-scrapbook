@@ -18,7 +18,7 @@
  *   map._lastGeoJSON            // 最終setData {id, data}
  *   mockState.api._state.markers / .popups
  *
- * API対応（MapView/MapToolbar/BatchMatchMapが使用するもの）:
+ * API対応（MapView/BatchMatchMapが使用するもの）:
  * - Map: on/off/fire, addSource/getSource/addLayer/removeLayer/removeSource,
  *   querySourceFeatures, fitBounds/panTo/easeTo/jumpTo,
  *   getBounds/getZoom/getCenter, getCanvas, addControl, resize, remove
@@ -125,7 +125,9 @@ export function createMapLibreMock(options = {}) {
       addSource(id, def) {
         const source = {
           ...def,
-          setData(data) { this._ownerMap._lastGeoJSON = { id, data }; return this },
+          // ソース毎に最新データを保持（bboxオーバーレイ等のソース固有
+          // データ検証用。_lastGeoJSONは最終setDataの共有スロットのまま）
+          setData(data) { this._data = data; this._ownerMap._lastGeoJSON = { id, data }; return this },
         }
         source._ownerMap = this
         this._sources.set(id, source)

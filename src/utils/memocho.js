@@ -106,6 +106,11 @@ export function updateMemo(items, key, memo) {
   return items.map((item) => (memochoKeyOf(item) === key ? { ...item, memo } : item))
 }
 
+/** そのキーのアイテムの mapImage（地図サムネイル dataURL）を差し替えた新しい配列を返す */
+export function updateMapImage(items, key, mapImage) {
+  return items.map((item) => (memochoKeyOf(item) === key ? { ...item, mapImage } : item))
+}
+
 /**
  * 読み込み用の合流。キー重複は既存（current）を優先する。
  * 戻り値: { items, added, skipped }
@@ -175,8 +180,15 @@ function normalizeItem(item) {
       ? { ...item.tags }
       : null
   const addedAt = typeof item.addedAt === 'string' ? item.addedAt : null
+  // 地図サムネイル（dataURL）。画像データでない文字列や大きすぎる値は保持しない
+  const mapImage =
+    typeof item.mapImage === 'string' &&
+    item.mapImage.startsWith('data:image/') &&
+    item.mapImage.length <= 200000
+      ? item.mapImage
+      : null
 
-  return {
+  const normalized = {
     type: item.type,
     id: item.id,
     name,
@@ -186,6 +198,8 @@ function normalizeItem(item) {
     memo,
     addedAt,
   }
+  if (mapImage) normalized.mapImage = mapImage
+  return normalized
 }
 
 /**

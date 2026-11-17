@@ -532,3 +532,56 @@ describe('PC「その他」タブ機能（2ペインレイアウト下）', () =
     expect(within(other).getByText('データ品質について')).toBeTruthy()
   })
 })
+
+describe('ヘッダーのハンバーガーメニュー (#75)', () => {
+  it('ヘッダーに ☰ ボタンがあり、開くと保存系・全消去の3項目が並ぶ', () => {
+    renderApp()
+
+    // ヘッダー内に「メニュー」ボタンがある
+    const header = document.querySelector('header')
+    const menuBtn = within(header).getByRole('button', { name: 'メニュー' })
+    expect(menuBtn).toBeTruthy()
+
+    // 検索結果が無い段階では保存系・全消去は disabled（項目自体は表示される）
+    fireEvent.click(menuBtn)
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: /一覧を保存（CSV）/ }).disabled).toBe(true)
+    expect(within(menu).getByRole('menuitem', { name: /GeoJSON（高度な形式）/ }).disabled).toBe(true)
+    expect(within(menu).getByRole('menuitem', { name: /まちメモ帳をすべて削除/ }).disabled).toBe(true)
+
+    // 再度クリックで閉じる
+    fireEvent.click(menuBtn)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('どのタブ（検索/一覧/メモ帳/その他）を表示していてもメニューが開け、3項目が表示される (#77-3)', () => {
+    renderApp()
+
+    // PCレイアウトではフッターnavのactiveは右ペイン内容（一覧/メモ帳）または「その他」に従う。
+    // 「検索」は左ペインが常に検索を表示する構成のため active にならない（modeがmainへ）。各タブで
+    // そのタブの表示内容を確認してから、ヘッダーのメニューが開けることを検証する。
+    const steps = [
+      { label: '検索', check: () => expect(document.querySelector('[data-testid="pc-left-pane"]').hasAttribute('hidden')).toBe(false) },
+      { label: '一覧', check: () => expect(tabIsCurrent('一覧')).toBe(true) },
+      { label: 'メモ帳', check: () => expect(tabIsCurrent('メモ帳')).toBe(true) },
+      { label: 'その他', check: () => expect(tabIsCurrent('その他')).toBe(true) },
+    ]
+
+    for (const { label, check } of steps) {
+      clickTab(label)
+      check()
+
+      // ヘッダー（タブ内容の外側・常時表示）に ☰ ボタンがあり、開くと3項目
+      const menuBtn = within(document.querySelector('header')).getByRole('button', { name: 'メニュー' })
+      fireEvent.click(menuBtn)
+      const menu = screen.getByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: /一覧を保存（CSV）/ })).toBeTruthy()
+      expect(within(menu).getByRole('menuitem', { name: /GeoJSON（高度な形式）/ })).toBeTruthy()
+      expect(within(menu).getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })).toBeTruthy()
+
+      // 閉じて次のタブへ
+      fireEvent.click(menuBtn)
+      expect(screen.queryByRole('menu')).toBeNull()
+    }
+  })
+})
