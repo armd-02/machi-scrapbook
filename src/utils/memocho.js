@@ -5,11 +5,15 @@
  * React 非依存の純粋な関数群。
  *
  * アイテムの形:
- *   { type, id, name, lat, lon, tags, memo, addedAt, mapImage?, rating }
+ *   { type, id, name, lat, lon, tags, memo, addedAt, mapImage?, rating, deletedAt? }
  *   - type: 'node' | 'way' | 'relation'
  *   - id:   数値
  *   - mapImage?: 地図サムネイル（dataURL）。未設定なら省略
  *   - rating: 0〜5 の評価（整数）。0 ＝ 未評価
+ *   - deletedAt?: ごみ箱（論理削除）マーカー。削除した瞬間の ISO 文字列。
+ *     無い（または空）＝アクティブ（通常の一覧に出る）。ある＝ごみ箱。
+ *     自動での期限消去は行わず、ユーザーが復元・完全削除・ごみ箱空にする
+ *     操作を行うまでストアに残る
  *   - 一意キー: `${type}/${id}`
  */
 
@@ -61,9 +65,29 @@ export function saveMemocho(items) {
   localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify(items))
 }
 
-/** 配列にキーが登録済みかを返す */
+/** deletedAt（ごみ箱マーカー）が有効に設定されているか */
+export function isDeletedItem(item) {
+  return item != null && typeof item.deletedAt === 'string' && item.deletedAt !== ''
+}
+
+/** アクティブ（ごみ箱に入っていない）アイテムの配列を返す */
+export function activeItems(items) {
+  return (items || []).filter((item) => !isDeletedItem(item))
+}
+
+/** ごみ箱（deletedAt が設定済み）のアイテムの配列を返す */
+export function trashItems(items) {
+  return (items || []).filter(isDeletedItem)
+}
+
+/**
+ * 配列にキーが「登録済み」かを返す（ごみ箱（論理削除）対応）。
+ * 「登録済み」＝アクティブなアイテムが存在すること。ごみ箱に入っている
+ * だけなら未登録として扱う（検索結果カードの「メモ帳に追加」トグルが
+ * 復元操作に使えるようにするため）。
+ */
 export function hasMemocho(items, key) {
-  return items.some((item) => memochoKeyOf(item) === key)
+  return items.some((item) => memochoKeyOf(item) === key && !isDeletedItem(item))
 }
 
 /**
@@ -73,13 +97,18 @@ export function hasMemocho(items, key) {
  * - name: tags.name → tags['name:ja'] → '名称なし' の優先順
  * - tags: 浅いコピー（元のオブジェクトと独立）
  * - memo: '' / rating: 0（未評価）/ addedAt: 現在時刻の ISO 文字列
- * - 既に同じキーが登録済みなら配列をそのまま返す（重複追加しない）
+ * - 同じキーのアクティブアイテムが存在するなら配列をそのまま返す（重複追加しない）
+ * - アクティブは無理でも同じキーのごみ箱アイテムが存在するなら、それを
+ *   復元（deletedAt を除去）して返す。重複キーの新規作成を避ける
  */
 export function addMemocho(items, result) {
   if (!isValidSource(result)) return items
 
   const key = memochoKeyOf(result)
   if (hasMemocho(items, key)) return items
+  if (items.some((item) => memochoKeyOf(item) === key && isDeletedItem(item))) {
+    return restoreMemocho(items, key)
+  }
 
   const tags = result.tags && typeof result.tags === 'object' ? { ...result.tags } : null
   const name =
@@ -99,9 +128,39 @@ export function addMemocho(items, result) {
   return [...items, snapshot]
 }
 
-/** そのキーのアイテムを除いた新しい配列を返す */
+/**
+ * そのキーのアイテムを除いた新しい配列を返す（完全削除・ハード削除）。
+ * ごみ箱（論理削除）は trashMemocho を使う。
+ */
 export function removeMemocho(items, key) {
   return items.filter((item) => memochoKeyOf(item) !== key)
+}
+
+/**
+ * そのキーのアクティブアイテムを deletedAt（現在時刻の ISO 文字列）を
+ * 付けてごみ箱へ移動した新しい配列を返す（論理削除）。
+ * 該当キーのアクティブアイテムが無い場合は配列をそのまま返す。
+ */
+export function trashMemocho(items, key) {
+  const found = items.some((item) => memochoKeyOf(item) === key && !isDeletedItem(item))
+  if (!found) return items
+  return items.map((item) =>
+    memochoKeyOf(item) === key && !isDeletedItem(item) ? { ...item, deletedAt: new Date().toISOString() } : item
+  )
+}
+
+/**
+ * そのキーのごみ箱アイテムを deletedAt を除去して復元した新しい配列を
+ * 返す。該当キーのごみ箱アイテムが無い場合は配列をそのまま返す。
+ */
+export function restoreMemocho(items, key) {
+  const found = items.some((item) => memochoKeyOf(item) === key && isDeletedItem(item))
+  if (!found) return items
+  return items.map((item) => {
+    if (memochoKeyOf(item) !== key || !isDeletedItem(item)) return item
+    const { deletedAt, ...rest } = item
+    return rest
+  })
 }
 
 /** そのキーのアイテムの memo を差し替えた新しい配列を返す */
@@ -132,19 +191,43 @@ export function updateRating(items, key, rating) {
  *   - added:   imported から実際に追加されたアイテム
  *   - skipped: 既存キーと重複して追加しなかった件数
  */
+/**
+ * 読み込み用の合流（ごみ箱（論理削除）対応）。キーごとの規則:
+ *   - 既存がアクティブ              → スキップ（既存を優先）
+ *   - 既存がごみ箱・読み込みがアクティブ → 復元（既存の条目を読み込み側で差し替える）
+ *   - 既存がごみ箱・読み込みもごみ箱  → スキップ
+ *   - 既存が無かった                 → 追加（読み込み側の deletedAt があればごみ箱として）
+ * 戻り値: { items, added, skipped }
+ *   - items:   合流後の配列
+ *   - added:   実際に追加・復元されたアイテム
+ *   - skipped: 追加しなかった件数
+ */
 export function mergeMemocho(current, imported) {
-  const seen = new Set(current.map(memochoKeyOf))
   const items = [...current]
+  const indexByKey = new Map()
+  items.forEach((item, i) => {
+    const key = memochoKeyOf(item)
+    if (!indexByKey.has(key)) indexByKey.set(key, i)
+  })
   const added = []
   let skipped = 0
 
   for (const item of imported) {
     const key = memochoKeyOf(item)
-    if (seen.has(key)) {
-      skipped += 1
+    const i = indexByKey.get(key)
+    if (i !== undefined) {
+      const existing = items[i]
+      if (!isDeletedItem(existing)) {
+        skipped += 1 // 既存アクティブを優先
+      } else if (!isDeletedItem(item)) {
+        items[i] = item // ごみ箱 → 復元（読み込み側で差し替え）
+        added.push(item)
+      } else {
+        skipped += 1 // 両方ごみ箱
+      }
       continue
     }
-    seen.add(key)
+    indexByKey.set(key, items.length)
     items.push(item)
     added.push(item)
   }
@@ -194,6 +277,10 @@ function normalizeItem(item) {
       ? { ...item.tags }
       : null
   const addedAt = typeof item.addedAt === 'string' ? item.addedAt : null
+  // 削除日時（ごみ箱マーカー）。非空の文字列なら保持する（JSON の
+  // 書き出し・読み込みでごみ箱の中身も復元されるようにするため）
+  const deletedAt =
+    typeof item.deletedAt === 'string' && item.deletedAt !== '' ? item.deletedAt : null
   // 地図サムネイル（dataURL）。画像データでない文字列や大きすぎる値は保持しない
   const mapImage =
     typeof item.mapImage === 'string' &&
@@ -221,6 +308,7 @@ function normalizeItem(item) {
     addedAt,
   }
   if (mapImage) normalized.mapImage = mapImage
+  if (deletedAt) normalized.deletedAt = deletedAt
   normalized.rating = rating
   return normalized
 }

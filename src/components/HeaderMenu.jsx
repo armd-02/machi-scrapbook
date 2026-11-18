@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext'
 import { useMemocho } from '../hooks/useMemocho'
 import { downloadCSV, downloadGeoJSON, downloadFile, toCSV } from '../utils/export'
 import { applyResultFilters, hasActiveFilters } from '../utils/resultFilters'
-import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../utils/memocho'
+import { serializeMemocho, parseMemochoJSON, trashItems } from '../utils/memocho'
 
 /**
  * (#75) ヘッダーのハンバーガーメニュー（#79 でアプリ唯一のハンバーガーメニューに）
@@ -16,10 +16,12 @@ import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../utils/memoc
  *   - GeoJSON（高度な形式）    downloadGeoJSON（同上）
  *
  * [まちメモ帳]（#79: MemochoSection 見出しの☰メニューから集約）
- *   - まちメモ帳をJSONで書き出し  serializeMemocho → machi-memocho.json
+ *   - まちメモ帳をJSONで書き出し  serializeMemocho → machi-memocho.json（アクティブ＋ごみ箱の全件）
  *   - まちメモ帳をCSVで書き出し   toCSV（includeMemo/includeRating で末尾に memo/rating 列）→ machi-memocho.csv
+ *     ※ CSV はアクティブ（deletedAt 無し）のみを対象にする
  *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON → importItems で合流
- *   - まちメモ帳をすべて削除     useMemocho の remove で全件削除。2段階確認（window.confirm 不使用）
+ *   - ごみ箱                     メモ帳タブのごみ箱ビューへ（memochoView を 'trash' に設定）
+ *   - まちメモ帳をすべて削除     wipeAll でアクティブ＋ごみ箱の全件を完全削除。2段階確認（window.confirm 不使用）
  *
  * メニューは [検索結果] と [まちメモ帳] の2グループで見分けられるよう整理:
  * グループ見出し行（aria-hidden）＋区切り線（border-t）で区切る。
@@ -37,8 +39,10 @@ import { memochoKeyOf, serializeMemocho, parseMemochoJSON } from '../utils/memoc
  * 読み込みの結果・エラー（合流件数・無効なJSON等）もこのメッセージで通知する。
  */
 export default function HeaderMenu() {
-  const { state } = useApp()
-  const { items, remove, importItems } = useMemocho()
+  const { state, dispatch } = useApp()
+  // items = 全件（アクティブ＋ごみ箱）/ active = アクティブ（deletedAt 無し）のみ
+  const { items, active, importItems, wipeAll } = useMemocho()
+  const trashCount = trashItems(items).length
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmWipe, setConfirmWipe] = useState(false)
@@ -108,9 +112,10 @@ export default function HeaderMenu() {
   }
 
   const onMemochoExportCSV = () => {
-    // 通常の toCSV の列構成を変えず、memo/rating 列を末尾に追加する
-    downloadFile(toCSV(items, { includeMemo: true, includeRating: true }), 'machi-memocho.csv', 'text/csv;charset=utf-8')
-    setNotice({ kind: 'ok', text: 'まちメモ帳をCSVとして書き出しました。' })
+    // 通常の toCSV の列構成を変えず、memo/rating 列を末尾に追加する。
+    // 対象はアクティブ（ごみ箱に入っていない）アイテムのみ
+    downloadFile(toCSV(active, { includeMemo: true, includeRating: true }), 'machi-memocho.csv', 'text/csv;charset=utf-8')
+    setNotice({ kind: 'ok', text: `${active.length}件をCSVとして書き出しました。` })
     closeMenu()
   }
 
@@ -144,6 +149,7 @@ export default function HeaderMenu() {
   }
 
   // ===== まちメモ帳の全消去（2段階確認） =====
+  // アクティブ＋ごみ箱の全件を完全に削除する（ごみ箱のアイテムも含む）
   const onDeleteAll = () => {
     // 2段階: 1回目で表示が確認メッセージに切り替わり、2回目で実行する
     // （window.confirm は使わない。MemochoSection の onDeleteAll と同じ方式）
@@ -151,8 +157,16 @@ export default function HeaderMenu() {
       setConfirmWipe(true)
       return
     }
-    items.forEach((item) => remove(memochoKeyOf(item)))
-    setNotice({ kind: 'ok', text: 'まちメモ帳の登録をすべて削除しました。' })
+    const count = wipeAll()
+    setConfirmWipe(false)
+    setNotice({ kind: 'ok', text: `まちメモ帳の登録を${count}件すべて削除しました。` })
+    closeMenu()
+  }
+
+  // 「ごみ箱」: メモ帳タブのサブビューをごみ箱に切替える。
+  // シェル側で memochoView が 'trash' になるとメモ帳タブへ自動切替される
+  const onOpenTrash = () => {
+    dispatch({ type: 'SET_MEMOCHO_VIEW', payload: 'trash' })
     closeMenu()
   }
 
@@ -222,12 +236,12 @@ export default function HeaderMenu() {
             type="button"
             role="menuitem"
             onClick={onMemochoExportCSV}
-            disabled={items.length === 0}
+            disabled={active.length === 0}
             className="w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="まちメモ帳をCSVとして書き出します（末尾に memo/rating 列を追加）"
+            title="まちメモ帳をCSVとして書き出します（末尾に memo/rating 列を追加・ごみ箱のアイテムは除外）"
           >
             <span>まちメモ帳をCSVで書き出し</span>
-            <span className="text-[11px] text-slate-400">{items.length}件</span>
+            <span className="text-[11px] text-slate-400">{active.length}件</span>
           </button>
           <button
             type="button"
@@ -238,6 +252,16 @@ export default function HeaderMenu() {
           >
             <span>まちメモ帳を読み込む</span>
             <span className="text-[11px] text-slate-400">JSONファイルを選択</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onOpenTrash}
+            className="w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+            title="ごみ箱（論理削除されたアイテム）を表示・復元します"
+          >
+            <span>🗑 ごみ箱</span>
+            <span className="text-[11px] text-slate-400">{trashCount}件</span>
           </button>
           <div className="border-t border-slate-200" />
           <button

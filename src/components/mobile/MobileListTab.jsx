@@ -1,16 +1,18 @@
 import React, { useMemo, useState } from 'react'
 import { useApp } from '../../context/AppContext'
-import { getGroupedCategories } from '../../data/categories'
 import { applyResultFilters, hasActiveFilters, cuisineFacetValues } from '../../utils/resultFilters'
-import { countCategoriesInResults, filterGroupsByCounts } from '../../utils/resultCategories'
 import { activeSearchOf } from '../../state/appReducer'
 import EditPanel from '../EditPanel'
 import MobileFacilityCard from './MobileFacilityCard'
 import MobileResultsMap from './MobileResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
-import PerspectiveHelpModal from './PerspectiveHelpModal'
+import {
+  FilterInput, FilterSelect, FilterChipRow, CategorySelect, PerspectiveChips, CuisineChips,
+  WheelchairChips, WIFI_OPTIONS, POWER_OPTIONS, MISSING_OPTIONS, KEYWORD_LABEL
+} from '../ResultFilterBar'
 import AttributeCompleteness from '../AttributeCompleteness'
+import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
 import { ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '../../utils/barrierFreeResults'
 import { barrierFreeLabel, KERB_VALUE_LABELS } from '../../utils/barrierFree'
@@ -28,100 +30,6 @@ import { buildIdElementUrl } from '../../utils/editLinks'
  */
 
 const MAX_CARDS = 500
-const GROUPS = getGroupedCategories()
-
-/**
- * 視点フィルタ（「誰にとって使いやすいか」で絞る）の選択肢
- * 「すべて」= perspective: 'none'（フィルタしない）
- */
-const PERSPECTIVES = [
-  { value: 'none', label: 'すべて' },
-  { value: 'wheelchair', label: '車椅子' },
-  { value: 'vision', label: '目の不自由な方' },
-  { value: 'child', label: '子ども連れ' },
-  { value: 'elderly', label: 'お年寄り' }
-]
-
-/**
- * 「視点で絞る」チップ行（単一選択・aria-pressed 付きボタン）
- * POI一覧とバリアフリー一覧のフィルタバーで共用する。
- * @param {string} value - 現在の perspective 値
- * @param {(value: string) => void} onChange - 選択 dispatch 用のコールバック
- */
-/**
- * 「料理ジャンル」チップ行（単一選択トグル・aria-pressed 付きボタン）
- * 視点チップと同じ流儀。選択済みチップを再び押すと解除される（cuisine: '' = すべて）。
- * チップは cuisineFacetValues（フィルタ適用前の結果から集計した { value, label, count }）
- * で生成され、件数をラベルに添える（例: 「ラーメン（12件）」）。
- * facets が空のときは何も描画しない（料理タグが無い結果では行ごと非表示）。
- * @param {Array<{value:string, label:string, count:number}>} facets
- * @param {string} value - 現在の cuisine 値（'' = すべて）
- * @param {(value: string) => void} onChange - 選択 dispatch 用のコールバック
- */
-function CuisineChips({ facets, value, onChange }) {
-  if (!Array.isArray(facets) || facets.length === 0) return null
-  return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="料理ジャンル">
-      {facets.map((f) => {
-        const selected = value === f.value
-        return (
-          <button
-            key={f.value}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onChange(selected ? '' : f.value)}
-            className={`min-h-[44px] px-3 text-xs font-medium rounded-full border transition-colors ${
-              selected
-                ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {f.label}（{f.count.toLocaleString('ja-JP')}件）
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function PerspectiveChips({ value, onChange }) {
-  const [helpOpen, setHelpOpen] = useState(false)
-  return (
-    <>
-      <div className="flex items-start gap-1.5">
-        <div className="flex flex-wrap gap-1.5 flex-1" role="group" aria-label="視点で絞る">
-          {PERSPECTIVES.map((p) => {
-            const selected = value === p.value
-            return (
-              <button
-                key={p.value}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onChange(p.value)}
-                className={`min-h-[44px] px-3 text-xs font-medium rounded-full border transition-colors ${
-                  selected
-                    ? 'bg-primary-600 text-white border-primary-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                {p.label}
-              </button>
-            )
-          })}
-        </div>
-        <button
-          type="button"
-          aria-label="視点フィルタの説明"
-          onClick={() => setHelpOpen(true)}
-          className="shrink-0 w-6 h-6 rounded-full border border-slate-300 text-slate-400 text-xs italic font-serif leading-none flex items-center justify-center hover:text-slate-500 hover:border-slate-400"
-        >
-          i
-        </button>
-      </div>
-      {helpOpen && <PerspectiveHelpModal onClose={() => setHelpOpen(false)} />}
-    </>
-  )
-}
 
 export default function MobileListTab({ onOpenDetail }) {
   const { state, dispatch } = useApp()
@@ -162,21 +70,12 @@ export default function MobileListTab({ onOpenDetail }) {
   // （検索時にカテゴリを選択済みの場合は結果が既に絞り込まれているため不要）
   const narrowing = filtersActive && filtered.length < (results || []).length
 
-  // (#44) カテゴリの選択肢はOverpass取得データに基づいて絞り込む:
-  // 結果に実際に出現したカテゴリのみを、件数付きで表示する。
-  const catCounts = useMemo(() => countCategoriesInResults(results), [results])
-  const hasData = (results || []).length > 0
-  const filterGroups = useMemo(
-    () => (hasData ? filterGroupsByCounts(GROUPS, catCounts, activeSearch.category || '') : GROUPS),
-    [hasData, catCounts, activeSearch.category]
-  )
-
   const hasResults = status === 'success' && (results || []).length > 0
   const visible = filtered.slice(0, MAX_CARDS)
   const resetFilters = () => {
     // 検索フォームのカテゴリ・目的選択も一緒に解除する（状態の整合性）
     dispatch({ type: searchFormType, payload: { category: '', purpose: '' } })
-    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
   }
 
   return (
@@ -205,59 +104,67 @@ export default function MobileListTab({ onOpenDetail }) {
             {/* (B1) 属性の充足率: 表示中結果を追従 */}
             <AttributeCompleteness results={filtered} className="my-1" />
 
-            {/* フィルタバー */}
+            {/* (作業スペース系 電源・Wi-Fi) 表示中の一覧（フィルタ適用後）の対象施設を母数とする
+                電源・Wi-Fi 集計。対象施設が0件のときは表示されない */}
+            <WorkspacePowerWifiSummary results={filtered} className="my-1" />
+
+            {/* (共通フィルタバー) コントロール・選択肢・CSSクラス構成は ResultFilterBar に集約
+                （まちメモ帳と共用。ロジックは utils/resultFilters.js） */}
             <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
-              <input
-                type="text"
+              <FilterInput
+                label={KEYWORD_LABEL}
                 value={nameFilter}
                 onChange={(e) => setFilters({ nameFilter: e.target.value })}
-                placeholder="施設名で絞り込む"
-                aria-label="施設名で絞り込む"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                filter="keyword"
+              />
+              <FilterChipRow
+                label="WiFi有無で絞る"
+                options={WIFI_OPTIONS}
+                value={resultFilters.wifi}
+                onChange={(v) => setFilters({ wifi: v })}
+                filter="wifi"
+              />
+              <FilterChipRow
+                label="電源で絞り込む"
+                options={POWER_OPTIONS}
+                value={resultFilters.power}
+                onChange={(v) => setFilters({ power: v })}
+                filter="power"
+              />
+              <WheelchairChips
+                value={resultFilters.wheelchair}
+                onChange={(v) => setFilters({ wheelchair: v })}
               />
               <div className="flex gap-2">
-                <select
+                <CategorySelect
+                  items={results}
                   value={activeSearch.category || ''}
                   onChange={(e) => changeCategory(e.target.value)}
-                  aria-label="カテゴリで絞り込む"
-                  className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">{hasData ? `カテゴリ: すべて（${(results || []).length.toLocaleString('ja-JP')}件）` : 'カテゴリ: すべて'}</option>
-                  {filterGroups.map((g) => (
-                    <optgroup key={g.group} label={g.group}>
-                      {g.categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {hasData ? `${c.label}（${c.count.toLocaleString('ja-JP')}件）` : c.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <select
+                  className="flex-1 min-w-0"
+                />
+                <FilterSelect
+                  label="並び順"
                   value={sortDir}
                   onChange={(e) => setFilters({ sortDir: e.target.value })}
-                  aria-label="並び順"
-                  className="w-36 shrink-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="w-36 shrink-0"
+                  filter="sort"
                 >
                   <option value="none">並び順</option>
                   <option value="asc">名前あ行順</option>
                   <option value="desc">名前逆順</option>
-                </select>
+                </FilterSelect>
               </div>
               {/* (B2) 主要属性の欠落で絞り込む */}
-              <select
+              <FilterSelect
+                label="属性の欠落で絞る"
                 value={resultFilters.missingFilter || 'none'}
                 onChange={(e) => setFilters({ missingFilter: e.target.value })}
-                aria-label="属性の欠落で絞る"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                filter="missing"
               >
-                <option value="none">未登録の絞り込み: なし</option>
-                <option value="any">いずれかの属性が未登録</option>
-                <option value="phone">電話が未登録</option>
-                <option value="opening_hours">営業時間が未登録</option>
-                <option value="website">Webサイトが未登録</option>
-                <option value="address">住所が未登録</option>
-              </select>
+                {MISSING_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </FilterSelect>
               {/* 視点フィルタ: 「誰にとって使いやすいか」で絞る（単一選択チップ） */}
               <PerspectiveChips
                 value={resultFilters.perspective || 'none'}
@@ -370,8 +277,9 @@ function BarrierFreeMobileList() {
   const { state, dispatch } = useApp()
   const { results, status, resultFilters } = state
 
-  // バリアフリー要素には意味のないフィルタ（Webサイト・属性欠落・料理ジャンル）は適用しない
-  const bfFilters = { ...resultFilters, missingFilter: 'none', cuisine: '' }
+  // バリアフリー要素には意味のないフィルタ（Webサイト・属性欠落・料理ジャンル・
+  // WiFi・電源・車椅子）は適用しない（旧POI検索の残値で全件が消えるのを防ぐ）
+  const bfFilters = { ...resultFilters, missingFilter: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all' }
   const filtered = useMemo(
     () => applyResultFilters(results || [], bfFilters),
     [results, resultFilters]
@@ -381,7 +289,7 @@ function BarrierFreeMobileList() {
   // バリアフリー検索ではフォームのカテゴリ（barrier_free）は検索条件そのものなので、
   // リセットは表示フィルタのみに限る
   const resetFilters = () => {
-    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', perspective: 'none', cuisine: '', kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
   }
 
   const hasResults = status === 'success' && (results || []).length > 0
@@ -422,27 +330,26 @@ function BarrierFreeMobileList() {
                 集計対象はフィルタ適用前の results 全体。歩道が0件なら表示しない */}
             <BarrierFreeSummary results={results} />
 
-            {/* フィルタバー */}
+            {/* (共通フィルタバー) コントロールは ResultFilterBar 共用 */}
             <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
-              <input
-                type="text"
+              <FilterInput
+                label={KEYWORD_LABEL}
                 value={resultFilters.nameFilter}
                 onChange={(e) => setFilters({ nameFilter: e.target.value })}
-                placeholder="名称で絞り込む（任意）"
-                aria-label="名称で絞り込む"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                filter="keyword"
               />
               <div className="flex gap-2">
-                <select
+                <FilterSelect
+                  label="要素種別で絞り込む"
                   value={resultFilters.typeFilter}
                   onChange={(e) => setFilters({ typeFilter: e.target.value })}
-                  aria-label="要素種別で絞り込む"
-                  className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="flex-1 min-w-0"
+                  filter="type"
                 >
                   <option value="all">タイプ: すべて</option>
                   <option value="way">線 (way)</option>
                   <option value="node">点 (node)</option>
-                </select>
+                </FilterSelect>
                 <button
                   type="button"
                   onClick={resetFilters}
@@ -462,18 +369,18 @@ function BarrierFreeMobileList() {
               />
               {/* 縁石の高さ（バリアフリー一覧専用）: bf を持つ結果のうち
                   kerbHeightClass が一致するものだけ残す */}
-              <select
+              <FilterSelect
+                label="縁石の高さ"
                 value={resultFilters.kerbHeight || 'any'}
                 onChange={(e) => setFilters({ kerbHeight: e.target.value })}
-                aria-label="縁石の高さ"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                filter="kerb"
               >
                 <option value="any">縁石の高さ: すべて</option>
                 <option value="flat">縁石の高さ: 段差なし</option>
                 <option value="low">縁石の高さ: 低め（3cm以下）</option>
                 <option value="high">縁石の高さ: 高め（3cm超）</option>
                 <option value="unknown">縁石の高さ: 未記録</option>
-              </select>
+              </FilterSelect>
             </div>
           </>
         )}

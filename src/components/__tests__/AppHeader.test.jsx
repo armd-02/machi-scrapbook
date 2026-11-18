@@ -2,7 +2,7 @@
 /**
  * (#76) AppHeader: モバイル・PC共通のヘッダー
  *
- * - アイコン＋タイトル（「まちデータ帳」）と、ハンバーガーメニュー
+ * - アイコン＋タイトル（「まちのスクラップブック」）と、ハンバーガーメニュー
  *   （HeaderMenu: aria-label「メニュー」）が並ぶ
  * - タイトルボタン（aria-label「トップ画面に戻る」）を押すと onGoTop が呼ばれる
  * - ヘッダーは <header> 要素としてレンダリングされる（シェルテストが依存）
@@ -33,7 +33,7 @@ describe('AppHeader', () => {
     // 見出し（h1）。ボタン内部のテキストで名前が確定しないため level で取得
     // （jest-dom 未導入のため toContainElement の代わりに DOM の contains）
     expect(header.contains(screen.getByRole('heading', { level: 1 }))).toBe(true)
-    expect(screen.getByText('まちデータ帳')).toBeTruthy()
+    expect(screen.getByText('まちのスクラップブック')).toBeTruthy()
     expect(header.contains(screen.getByRole('button', { name: 'メニュー' }))).toBe(true)
   })
 

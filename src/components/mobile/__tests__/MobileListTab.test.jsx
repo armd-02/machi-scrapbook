@@ -247,6 +247,22 @@ describe('MobileListTab: 視点フィルタチップ（POI一覧）', () => {
     expect(within(group).getByRole('button', { name: '車椅子' }).getAttribute('aria-pressed')).toBe('false')
   })
 
+  it('視点行に「👁️ 視点」の可視見出しが出る（id 27 統一アイコン＋見出し）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeWc, cafeNoWc] },
+      { type: 'SET_STATUS', payload: 'success' }
+    ]} />)
+
+    const group = screen.getByRole('group', { name: '視点で絞る' })
+    // チップ群の直前に可視見出し（アイコン👁️＋文言「視点」）が出る
+    const heading = group.previousElementSibling
+    expect(heading.textContent).toContain('視点')
+    expect(heading.textContent).toContain('👁️')
+    // 統一見出しスタイル（text-sm font-medium text-slate-700・min-h-[44px]）
+    expect(heading.className).toContain('text-sm font-medium text-slate-700')
+    expect(heading.className).toContain('min-h-[44px]')
+  })
+
   it('「Webサイトがあるものだけ」の絞り込みは無い（未登録の絞り込みに一本化）', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: [cafeWithWeb, cafeNoWc] },
@@ -313,12 +329,15 @@ describe('MobileListTab: 視点フィルタチップ（POI一覧）', () => {
     fireEvent.click(screen.getByRole('button', { name: '車椅子' }))
     expect(screen.queryByText('階段カフェ')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'すべて' }))
+    // 「すべて」チップは WiFi・電源・車椅子対応などの共通行にも存在するため、
+    // 視点フィルタのグループ内にスコープしてクリックする
+    const perspectiveGroup = screen.getByRole('group', { name: '視点で絞る' })
+    fireEvent.click(within(perspectiveGroup).getByRole('button', { name: 'すべて' }))
     await waitFor(() => {
       expect(screen.getByText('バリアフリーカフェ')).toBeTruthy()
       expect(screen.getByText('階段カフェ')).toBeTruthy()
     })
-    expect(screen.getByRole('button', { name: 'すべて' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(perspectiveGroup).getByRole('button', { name: 'すべて' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: '車椅子' }).getAttribute('aria-pressed')).toBe('false')
   })
 
@@ -800,13 +819,21 @@ const sushiShop = { type: 'node', id: 141, name: '寿司屋B', tags: { amenity: 
 const multiShop = { type: 'node', id: 142, name: 'ラーメン&Sushi C', tags: { amenity: 'restaurant', cuisine: 'ramen;sushi', name: 'ラーメン&Sushi C' } }
 const CUISINE_RESULTS = [ramenCafe, sushiShop, multiShop]
 
+// 折りたたみ見出し行（「料理ジャンル」＋開閉トグル）。選択中ラベル有無の両方で一致する。
+const cuisineHeader = () => screen.queryByRole('button', { name: /料理ジャンル/ })
+
 describe('MobileListTab: 料理ジャンルチップ（POI一覧）', () => {
-  it('結果にcuisineタグがあれば、日本語ラベルと件数付きチップ行が表示される', () => {
+  it('結果にcuisineタグがあれば、見出し行から展開して日本語ラベルと件数付きチップ行が表示される', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: CUISINE_RESULTS },
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
 
+    // 初期状態: 見出し行は表示されるがチップ群は折りたたみ（group が DOM に無い）
+    expect(cuisineHeader()).toBeTruthy()
+    expect(screen.queryByRole('group', { name: '料理ジャンル' })).toBeNull()
+    // 見出し行をタップして展開するとチップ行が表示される
+    fireEvent.click(cuisineHeader())
     const group = screen.getByRole('group', { name: '料理ジャンル' })
     // ramenは2件（ラーメン店A + C）、sushiも2件（寿司屋B + C）
     const ramenChip = within(group).getByRole('button', { name: /ラーメン（2件）/ })
@@ -822,6 +849,7 @@ describe('MobileListTab: 料理ジャンルチップ（POI一覧）', () => {
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
 
+    fireEvent.click(cuisineHeader())
     fireEvent.click(screen.getByRole('button', { name: /ラーメン（2件）/ }))
 
     expect(screen.getByText('ラーメン店A')).toBeTruthy()
@@ -838,6 +866,7 @@ describe('MobileListTab: 料理ジャンルチップ（POI一覧）', () => {
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
 
+    fireEvent.click(cuisineHeader())
     fireEvent.click(screen.getByRole('button', { name: /ラーメン（2件）/ }))
     expect(screen.queryByText('寿司屋B')).toBeNull()
 
@@ -849,12 +878,34 @@ describe('MobileListTab: 料理ジャンルチップ（POI一覧）', () => {
     expect(screen.getByRole('button', { name: /ラーメン（2件）/ }).getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('結果にcuisineタグが無ければチップ行は表示されない', () => {
+  it('結果にcuisineタグが無ければチップ行は表示されない（見出し行も含めて行ごと非表示）', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: [cafeWithWeb, park] },
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
+    expect(cuisineHeader()).toBeNull()
     expect(screen.queryByRole('group', { name: '料理ジャンル' })).toBeNull()
+  })
+
+  it('折りたたみ状態で料理ジャンルを選択済みの場合、見出し行に選択中ジャンルのラベルが表示される', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: CUISINE_RESULTS },
+      { type: 'SET_STATUS', payload: 'success' },
+      { type: 'SET_RESULT_FILTERS', payload: { cuisine: 'ramen' } }
+    ]} />)
+
+    // 折りたたみ＋選択中: 見出し行は「料理ジャンル：ラーメン」・チップ群は DOM に無い
+    const header = cuisineHeader()
+    expect(header).toBeTruthy()
+    expect(header.textContent).toContain('料理ジャンル：ラーメン')
+    expect(screen.queryByRole('group', { name: '料理ジャンル' })).toBeNull()
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+
+    // 展開するとチップ行が出て、選択中チップは押下表示のまま
+    fireEvent.click(header)
+    const group = screen.getByRole('group', { name: '料理ジャンル' })
+    expect(within(group).getByRole('button', { name: 'ラーメン（2件）' }).getAttribute('aria-pressed')).toBe('true')
+    expect(header.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('「フィルタをリセット」で料理ジャンルの絞り込みも解除される', async () => {
@@ -1010,5 +1061,180 @@ describe('MobileListTab: 縁石の高さセレクトは施設一覧に出ない'
     ]} />)
     // poiFilters が kerbHeight を 'any' に固定するため全3件表示される
     expect(screen.getByText(/3件中、3件を表示/)).toBeTruthy()
+  })
+})
+
+// ===== (作業スペース系) 電源・Wi-Fi 集計 =====
+describe('MobileListTab: 作業スペース系の電源・Wi-Fi 集計', () => {
+  const cafeA = { type: 'node', id: 1, name: 'カフェA', tags: { amenity: 'cafe', name: 'カフェA', internet_access: 'wlan', socket: 'yes' } }
+  const cafeB = { type: 'node', id: 2, name: 'カフェB', tags: { amenity: 'cafe', name: 'カフェB' } }
+  const ramen = { type: 'node', id: 3, name: 'ラーメンC', tags: { amenity: 'restaurant', name: 'ラーメンC', internet_access: 'wlan' } }
+
+  it('表示中の一覧の対象施設を母数として集計が表示される（対象外は含まれない）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeA, cafeB, ramen] },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    // 母数=対象2件（cafe）。restaurant の wifi は集計に含まれない
+    expect(screen.getByText('⚡ 電源あり 1件（50%）')).toBeTruthy()
+    expect(screen.getByText('📶 Wi-Fi あり 1件（50%）')).toBeTruthy()
+  })
+
+  it('フィルタ適用後の一覧を追従する（絞り込みで母数が変わる）', () => {
+    const library = { type: 'node', id: 4, name: '図書館D', tags: { amenity: 'library', name: '図書館D', internet_access: 'wlan' } }
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeA, library] },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    // フィルタ前: 母数2・wifiあり2件（100%）
+    expect(screen.getByText('📶 Wi-Fi あり 2件（100%）')).toBeTruthy()
+    // 名前フィルタ「カフェ」→ カフェAのみ → 母数1
+    fireEvent.change(screen.getByRole('textbox', { name: '名前・メモで絞り込む' }), { target: { value: 'カフェ' } })
+    expect(screen.getByText('📶 Wi-Fi あり 1件（100%）')).toBeTruthy()
+    expect(screen.queryByText('図書館D')).toBeNull()
+  })
+
+  it('絞り込みで対象施設が0件になると集計自体が表示されない', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeA, ramen] },
+      { type: 'SET_STATUS', payload: 'success' },
+      { type: 'SET_RESULT_FILTERS', payload: { catFilter: 'restaurant' } },
+    ]} />)
+    // ramen のみ表示（対象外）→ 集計は出ない
+    expect(screen.queryByText(/⚡ 電源あり \d+件/)).toBeNull()
+    expect(screen.queryByText(/📶 Wi-Fi あり \d+件/)).toBeNull()
+    expect(screen.getByText('ラーメンC')).toBeTruthy()
+  })
+})
+
+// ===== (共通フィルタバー) POI一覧の新規チップ行 =====
+//
+// WiFi・電源・車椅子対応の3行は検索一覧とまちメモ帳で共用の
+// ResultFilterBar コンポーネント（ResultFilterBar.jsx）で描画される。
+// ここでは POI 一覧側で正しく表示され、3状態判定（wifiStatus /
+// powerStatus / matchesWheelchair）に従って絞り込みが効くことを検証する。
+const CAFE_WIFI_ALL = { type: 'node', id: 71, name: 'カフェG', tags: { amenity: 'cafe', name: 'カフェG', internet_access: 'wireless', power_supply: 'yes', wheelchair: 'yes' } }
+const CAFE_PLAIN = { type: 'node', id: 72, name: 'カフェH', tags: { amenity: 'cafe', name: 'カフェH' } }
+const RAMEN_SOCKET = { type: 'node', id: 73, name: 'ラーメンI', tags: { amenity: 'restaurant', name: 'ラーメンI', internet_access: 'no', 'socket:indoor': 'yes', wheelchair: 'designated' } }
+const FILTERBAR_ITEMS = [CAFE_WIFI_ALL, CAFE_PLAIN, RAMEN_SOCKET]
+
+describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・車椅子行）', () => {
+  it('POI一覧バーに WiFi・電源・車椅子対応 の行が出て、初期はすべて「すべて」', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    const wifi = screen.getByRole('group', { name: 'WiFi有無で絞る' })
+    const power = screen.getByRole('group', { name: '電源で絞り込む' })
+    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+
+    expect(within(wifi).getByRole('button', { name: 'すべて' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(power).getByRole('button', { name: 'すべて' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(wc).getByRole('button', { name: 'すべて' }).getAttribute('aria-pressed')).toBe('true')
+    // 電源行は「すべて／あり」の2択のみ
+    expect(within(power).queryByRole('button', { name: 'なし' })).toBeNull()
+    expect(within(power).queryByRole('button', { name: '対応可' })).toBeNull()
+  })
+
+  it('全フィルタ行に「アイコン＋見出し」が付く（id 27 統一。車椅子=♿・WiFi=📶・電源=⚡）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    // 車椅子行: 見出しにアイコン(♿)＋文言「車椅子」
+    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+    const wcHeading = wc.previousElementSibling
+    expect(wcHeading.textContent).toContain('車椅子')
+    expect(wcHeading.textContent).toContain('♿')
+    // 統一見出しスタイル（text-sm font-medium text-slate-700・min-h-[44px]）
+    expect(wcHeading.className).toContain('text-sm font-medium text-slate-700')
+    expect(wcHeading.className).toContain('min-h-[44px]')
+
+    // WiFi 行にも見出し（📶 Wi-Fi）が出る
+    const wifi = screen.getByRole('group', { name: 'WiFi有無で絞る' })
+    expect(wifi.previousElementSibling.textContent).toContain('Wi-Fi')
+    expect(wifi.previousElementSibling.textContent).toContain('📶')
+    // 電源行にも見出し（⚡ 電源）が出る
+    const power = screen.getByRole('group', { name: '電源で絞り込む' })
+    expect(power.previousElementSibling.textContent).toContain('電源')
+    expect(power.previousElementSibling.textContent).toContain('⚡')
+  })
+
+  it('id 27: 入力・セレクト系行（キーワード🔍/カテゴリ📁/未登録⚠️/並び順↕️）にもアイコン＋見出しが付く', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    // キーワード（🔍）: 入力欄の上にアイコン＋見出し
+    const kwInput = screen.getByRole('textbox', { name: '名前・メモで絞り込む' })
+    const kwHeading = kwInput.previousElementSibling
+    expect(kwHeading.textContent).toContain('🔍')
+    expect(kwHeading.textContent).toContain('キーワード')
+    expect(kwHeading.className).toContain('min-h-[44px]')
+
+    // カテゴリ（📁）
+    const catSelect = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const catHeading = catSelect.previousElementSibling
+    expect(catHeading.textContent).toContain('📁')
+    expect(catHeading.textContent).toContain('カテゴリ')
+
+    // 未登録（⚠️）
+    const missingSelect = screen.getByRole('combobox', { name: '属性の欠落で絞る' })
+    const missingHeading = missingSelect.previousElementSibling
+    expect(missingHeading.textContent).toContain('⚠️')
+    expect(missingHeading.textContent).toContain('未登録')
+
+    // 並び順（↕️）
+    const sortSelect = screen.getByRole('combobox', { name: '並び順' })
+    const sortHeading = sortSelect.previousElementSibling
+    expect(sortHeading.textContent).toContain('↕️')
+    expect(sortHeading.textContent).toContain('並び順')
+  })
+
+  it('WiFiあり: 登録済みで "no" でないものだけ残り、WiFiなし: "no" のみ（未登録はどちらにも含めない）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    const wifi = screen.getByRole('group', { name: 'WiFi有無で絞る' })
+
+    fireEvent.click(within(wifi).getByRole('button', { name: 'WiFiあり' }))
+    expect(screen.getByText('カフェG')).toBeTruthy()
+    expect(screen.queryByText('カフェH')).toBeNull() // 未登録
+    expect(screen.queryByText('ラーメンI')).toBeNull() // 'no'
+
+    fireEvent.click(within(wifi).getByRole('button', { name: 'WiFiなし' }))
+    expect(screen.getByText('ラーメンI')).toBeTruthy()
+    expect(screen.queryByText('カフェG')).toBeNull()
+    expect(screen.queryByText('カフェH')).toBeNull() // 未登録は「なし」に含まない
+  })
+
+  it("電源あり: power_supply=yes または socket 系キーが設定済み（no 以外）のものだけ残る", () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    const power = screen.getByRole('group', { name: '電源で絞り込む' })
+
+    fireEvent.click(within(power).getByRole('button', { name: '電源あり' }))
+    expect(screen.getByText('カフェG')).toBeTruthy() // power_supply=yes
+    expect(screen.getByText('ラーメンI')).toBeTruthy() // socket:indoor=yes
+    expect(screen.queryByText('カフェH')).toBeNull() // 未登録
+  })
+
+  it('車椅子 対応可: wheelchair が yes/designated のものだけ残る（limited・未登録は除外）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+
+    fireEvent.click(within(wc).getByRole('button', { name: '対応可' }))
+    expect(screen.getByText('カフェG')).toBeTruthy() // yes
+    expect(screen.getByText('ラーメンI')).toBeTruthy() // designated
+    expect(screen.queryByText('カフェH')).toBeNull() // 未登録
   })
 })

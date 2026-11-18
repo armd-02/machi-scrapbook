@@ -39,7 +39,7 @@ function codePart(file) {
  */
 function runRedirect(code, {
   search = '',
-  pathname = '/osm-data-explorer/index.html',
+  pathname = '/machi-scrapbook/index.html',
   hash = '',
   localStorageBroken = false,
   lastRedirectMsAgo = Infinity
@@ -87,7 +87,7 @@ describe('セルフヒーリングリダイレクトの動作', () => {
     const appv = Number(p.get('appv'))
     expect(appv).toBeGreaterThanOrEqual(before)
     expect(appv).toBeLessThanOrEqual(Date.now())
-    expect(replaceCalls[0]).toContain('/osm-data-explorer/index.html?')
+    expect(replaceCalls[0]).toContain('/machi-scrapbook/index.html?')
   })
 
   it('既存のURL状態パラメータとハッシュを保持する', () => {

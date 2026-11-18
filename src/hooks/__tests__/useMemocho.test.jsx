@@ -6,7 +6,8 @@ import { MEMOCHO_STORAGE_KEY, memochoKeyOf } from '../../utils/memocho'
 
 /**
  * 第2ピース: まちメモ帳の状態管理フック
- * - 追加・削除・メモ更新が items と localStorage の両方に反映される
+ * - 追加・削除（論理削除・完全削除）・メモ更新が items と localStorage の両方に反映される
+ * - ごみ箱（deletedAt）: trash/restore/wipeAll/emptyTrash、active（アクティブのみ）
  * - 複数フックインスタンス間で状態が同期する（モジュールレベルストア＋購読）
  * - 変更のたびに localStorage へ保存される
  */
@@ -144,18 +145,27 @@ describe('useMemocho', () => {
     expect(a.result.current.items[0].rating).toBe(3)
   })
 
-  it('toggle: 未登録なら追加（added）、登録済みなら削除（removed）', () => {
+  it('toggle: 未登録なら追加（added）、登録済みならごみ箱へ（removed）、ごみ箱なら復元（added）', () => {
     const { result } = renderHook(() => useMemocho())
     let action
     act(() => { action = result.current.toggle(COFFEE) })
     expect(action).toBe('added')
     expect(result.current.has(memochoKeyOf(COFFEE))).toBe(true)
 
+    // 2回目: 論理削除（deletedAt を付けてごみ箱へ）。ストアには残り続ける
     act(() => { action = result.current.toggle(COFFEE) })
     expect(action).toBe('removed')
     expect(result.current.has(memochoKeyOf(COFFEE))).toBe(false)
-    expect(result.current.items).toHaveLength(0)
-    expect(storedItems()).toHaveLength(0)
+    expect(result.current.active).toHaveLength(0)
+    expect(result.current.items).toHaveLength(1) // ごみ箱のアイテムもストアに残る
+    expect(result.current.items[0].deletedAt).toBeTruthy()
+
+    // 3回目: ごみ箱から復元（deletedAt が除去される）
+    act(() => { action = result.current.toggle(COFFEE) })
+    expect(action).toBe('added')
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(true)
+    expect(result.current.active).toHaveLength(1)
+    expect(result.current.items[0].deletedAt).toBeUndefined()
   })
 
   it('複数フック間で状態が同期する（1つで追加すると他も即座に反映）', () => {
@@ -187,17 +197,104 @@ describe('useMemocho', () => {
     expect(storedItems()).toBe(null) // 何も保存されていない
   })
 
-  it('全件削除は remove を各アイテムに適用することで実現する（clearAll なし）', () => {
+  it('wipeAll: アクティブ＋ごみ箱の全件を完全に削除し、消去した件数を返す', () => {
     const { result } = renderHook(() => useMemocho())
     act(() => { result.current.add(COFFEE) })
     act(() => { result.current.add(PARK) })
     expect(result.current.items).toHaveLength(2)
 
-    // HeaderMenu / MemochoSection の全消去は items.forEach(item => remove(key))
-    act(() => {
-      const items = result.current.items
-      items.forEach((item) => result.current.remove(memochoKeyOf(item)))
-    })
+    // 1件を論理削除（ごみ箱）にする
+    act(() => { result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(result.current.active).toHaveLength(1)
+    expect(result.current.trashItems).toHaveLength(1)
+
+    // wipeAll はごみ箱のアイテムも含めて全件を完全に削除する
+    let count
+    act(() => { count = result.current.wipeAll() })
+    expect(count).toBe(2)
+    expect(result.current.items).toEqual([])
+    expect(storedItems()).toEqual([])
+  })
+
+  it('trash: 論理削除 — deletedAt が付き、has() が false になる', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(true)
+
+    let trashed
+    act(() => { trashed = result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(trashed).toBe(true)
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(false)
+    expect(result.current.active).toHaveLength(0)
+    expect(result.current.trashItems).toHaveLength(1)
+    const stored = storedItems()
+    expect(stored).toHaveLength(1)
+    expect(stored[0].deletedAt).toBeTruthy()
+  })
+
+  it('trash: 存在しないキーは無変更（false を返す）', () => {
+    const { result } = renderHook(() => useMemocho())
+    let trashed
+    act(() => { trashed = result.current.trash('node/999') })
+    expect(trashed).toBe(false)
+    expect(storedItems()).toBe(null)
+  })
+
+  it('restore: ごみ箱から復元（deletedAt が除去される）', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(result.current.trashItems).toHaveLength(1)
+
+    let restored
+    act(() => { restored = result.current.restore(memochoKeyOf(COFFEE)) })
+    expect(restored).toBe(true)
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(true)
+    expect(result.current.active).toHaveLength(1)
+    expect(result.current.trashItems).toHaveLength(0)
+    expect(result.current.items[0].deletedAt).toBeUndefined()
+  })
+
+  it('add: 同じキーがごみ箱にある場合、復元する（重複作成しない）', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(false)
+
+    // 同じ検索結果を再度追加 → 復元される（新規重複にならない）
+    let added
+    act(() => { added = result.current.add(COFFEE) })
+    expect(added).toBe(true)
+    expect(result.current.items).toHaveLength(1)
+    expect(result.current.has(memochoKeyOf(COFFEE))).toBe(true)
+  })
+
+  it('emptyTrash: ごみ箱のみを完全に削除する（アクティブは影響しない）', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.add(PARK) })
+    act(() => { result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(result.current.active).toHaveLength(1)
+    expect(result.current.trashItems).toHaveLength(1)
+
+    let removed
+    act(() => { removed = result.current.emptyTrash() })
+    expect(removed).toBe(1)
+    expect(result.current.items).toHaveLength(1)
+    expect(result.current.active).toHaveLength(1)
+    expect(result.current.trashItems).toHaveLength(0)
+    expect(result.current.active[0].name).toBe('みらい公園')
+  })
+
+  it('remove: 完全削除はごみ箱のアイテムも削除できる', () => {
+    const { result } = renderHook(() => useMemocho())
+    act(() => { result.current.add(COFFEE) })
+    act(() => { result.current.trash(memochoKeyOf(COFFEE)) })
+    expect(result.current.items).toHaveLength(1)
+
+    let removed
+    act(() => { removed = result.current.remove(memochoKeyOf(COFFEE)) })
+    expect(removed).toBe(true)
     expect(result.current.items).toEqual([])
     expect(storedItems()).toEqual([])
   })

@@ -35,6 +35,7 @@
  */
 
 import GeocodeCandidateList from '../GeocodeCandidateList'
+import PlaceNameInput from '../PlaceNameInput'
 
 // 目的タイル（10種）。purpose → 目的グループ検索、category → 単一カテゴリ検索。
 // 順序は仕様の表示順（食べる・買う・病院・薬局・役所・手続き・遊ぶ・公園・
@@ -86,6 +87,7 @@ export function QuickTopIntro({
   searchError = null,
   areaName = null,
   areaSet = false,
+  geocoding = false,
   disabled = false,
   candidates = null,
   candidatesHeading = null,
@@ -101,7 +103,7 @@ export function QuickTopIntro({
   return (
     <>
       <p className="pt-1 text-base text-slate-600">
-        近くの施設を、みんなの地図で探す
+        お気に入りで作る
       </p>
 
       {/* 場所指定: 地名・駅名を入力し、「検索する」を押すと
@@ -110,20 +112,15 @@ export function QuickTopIntro({
         <label htmlFor="quick-place-input" className="block text-sm font-semibold text-slate-700">
           どこあたりの場所？
         </label>
-        <input
+        <PlaceNameInput
           id="quick-place-input"
-          type="text"
           value={placeQuery}
-          onChange={(e) => onPlaceQueryChange(e.target.value)}
+          onChange={onPlaceQueryChange}
           onKeyDown={handleKeyDown}
           placeholder="地名・駅名（例: 大阪駅）"
           disabled={disabled}
-          className={
-            areaSet
-              ? // 検索エリア設定成功: 場所が決まったことを入力欄の色で示す
-                'w-full px-3 py-2 text-sm border border-green-500 bg-green-50 rounded-lg'
-              : 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg disabled:bg-slate-50'
-          }
+          geocoding={geocoding}
+          areaSet={areaSet}
         />
         {/* 地名候補リスト（入力欄の下）。サジェスト（入力中の候補）と
             「候補が複数あります」の提示で共通の GeocodeCandidateList を使う。

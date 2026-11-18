@@ -16,7 +16,7 @@ import { resetMemochoStore } from '../../../hooks/useMemocho'
  * - OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * - 住所・営業時間は未登録なら行ごとに出さない（捏造しない）
  * - 電話・Webサイトは常時行を表示。未登録なら「-」（リンクにはしない）
- * - カード全体タップで onOpen(result)
+ * - カード内の「🔎詳細」ボタン押下で onOpen(result)（カード本体タップでは詳細は開かない）
  */
 
 afterEach(() => cleanup())
@@ -34,7 +34,16 @@ describe('ユーティリティ関数（facilityLabels.js 経由の再エクス�
   it('facilityName: name → name:ja → フォールバックの順で解決する', () => {
     expect(facilityName(COFFEE)).toBe('テスト珈琲店')
     expect(facilityName({ tags: { 'name:ja': '日本語名' } })).toBe('日本語名')
-    expect(facilityName({})).toBe('名前のない要素')
+    expect(facilityName({})).toBe('（名称不明）')
+  })
+
+  it('facilityName: データ側のセンチネル（名称なし）は「名前がない」として扱いフォールバックを返す', () => {
+    // まちメモ帳のアイテムは名前の無い施設に name:'名称なし' を格納する（データ出力用）。
+    // 表示では（名称不明）を使う（データ出力には影響させない）。
+    expect(facilityName({ name: '名称なし' })).toBe('（名称不明）')
+    expect(facilityName({ name: '名称なし', tags: { 'name:ja': '日本語名' } })).toBe('日本語名')
+    expect(facilityName({ name: 'テストカフェ' })).toBe('テストカフェ')
+    expect(facilityName({ name: '' })).toBe('（名称不明）')
   })
 
   it('formatAddress: city→suburb→street→housenumber の順に連結する', () => {
@@ -93,7 +102,7 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
   it('住所・営業時間が未登録なら行ごとに出ない（捏造しない）', () => {
     const bare = { type: 'node', id: 9, lat: 34.8, lon: 135.5, tags: { amenity: 'bench' } }
     render(<MobileFacilityCard result={bare} onOpen={vi.fn()} />)
-    expect(screen.getByRole('heading', { name: '名前のない要素' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '（名称不明）' })).toBeTruthy()
     expect(screen.queryByText(/大阪市/)).toBeNull()
     expect(screen.queryByText(/公式サイト/)).toBeNull()
     expect(screen.queryByText(/📞/)).toBeNull()
@@ -114,11 +123,21 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.queryByRole('link', { name: /公式サイト/ })).toBeNull()
   })
 
-  it('カード全体タップで onOpen(result) が呼ばれる', () => {
+  it('カード本体タップでは onOpen は呼ばれない（詳細は開かない）', () => {
     const onOpen = vi.fn()
     render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
-    // 施設名（h3）はカードdivの内側なので、クリックはカード全体onClickへ伝播する
+    // 施設名（h3）・カード内の情報行をタップしても onClick は無い
     fireEvent.click(screen.getByRole('heading', { name: 'テスト珈琲店' }))
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('「🔎詳細」ボタン押下で onOpen(result) が呼ばれる', () => {
+    const onOpen = vi.fn()
+    render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
+    const btn = screen.getByRole('button', { name: 'テスト珈琲店の詳細' })
+    expect(btn.textContent).toBe('🔎詳細')
+    fireEvent.click(btn)
+    expect(onOpen).toHaveBeenCalledTimes(1)
     expect(onOpen).toHaveBeenCalledWith(COFFEE)
   })
 
@@ -326,12 +345,16 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     expect(stored[0]).toMatchObject({ type: 'node', id: 1001, name: 'テスト珈琲店' })
   })
 
-  it('もう一度押すと削除され、表示が「メモ帳に追加」に戻る（toggle）', () => {
+  it('もう一度押すとごみ箱へ移動され、表示が「メモ帳に追加」に戻る（toggle・論理削除）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /メモ帳に追加/ }))
     fireEvent.click(screen.getByRole('button', { name: /登録済み/ }))
+    // 論理削除: has() が false になり表示は「メモ帳に追加」に戻る
     expect(screen.getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
-    expect(JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))).toHaveLength(0)
+    // アイテムはごみ箱としてストアに残る（deletedAt が付く）
+    const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
+    expect(stored).toHaveLength(1)
+    expect(stored[0].deletedAt).toBeTruthy()
   })
 
   it('ボタンを押しても詳細が開かない（onOpen は呼ばれない）', () => {
@@ -348,5 +371,114 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     const btn = screen.getByRole('button', { name: /登録済み/ })
     expect(btn.getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+describe('MobileFacilityCard: 作業スペース系 電源・Wi-Fi', () => {
+  it('対象4種（cafe/library/internet_cafe/coworking）には電源・Wi-Fi 行が表示される', () => {
+    const targets = [
+      { amenity: 'cafe' },
+      { amenity: 'library' },
+      { amenity: 'internet_cafe' },
+      { office: 'coworking' },
+    ]
+    for (const tags of targets) {
+      cleanup()
+      render(<MobileFacilityCard result={{ type: 'node', id: 40, tags: { ...tags, name: 'テスト施設' } }} onOpen={vi.fn()} />)
+      expect(screen.getByText('電源')).toBeTruthy()
+      expect(screen.getByText('Wi-Fi')).toBeTruthy()
+    }
+  })
+
+  it('対象外の施設には行ごとに出さない（何も表示されない）', () => {
+    const outOfScope = [
+      { amenity: 'restaurant' },
+      { shop: 'convenience' },
+      { amenity: 'bench' },
+      { amenity: 'community_centre' },
+      { office: 'company' },
+    ]
+    for (const tags of outOfScope) {
+      cleanup()
+      render(<MobileFacilityCard result={{ type: 'node', id: 41, tags: { ...tags, name: 'テスト施設' } }} onOpen={vi.fn()} />)
+      expect(screen.queryByText('電源')).toBeNull()
+      expect(screen.queryByText('Wi-Fi')).toBeNull()
+    }
+  })
+
+  it('Wi-Fi: あり（internet_access が no 以外）は緑バッジで表示', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 42, tags: { amenity: 'cafe', name: 'A', internet_access: 'wlan', socket: 'no' } }} onOpen={vi.fn()} />)
+    const badge = screen.getByText('📶 あり')
+    expect(badge.className).toContain('bg-emerald-50')
+  })
+
+  it('Wi-Fi: ない（internet_access=no）は赤バッジで表示', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 43, tags: { amenity: 'cafe', name: 'B', internet_access: 'no', socket: 'yes' } }} onOpen={vi.fn()} />)
+    const badge = screen.getByText('📶 なし')
+    expect(badge.className).toContain('bg-rose-50')
+  })
+
+  it('Wi-Fi: 未登録はバッジを使わない控えめなプレーン表示', () => {
+    // wifi 未登録・power はあり（socket:yes）→ 「未登録」は wifi 側のみ1つ
+    render(<MobileFacilityCard result={{ type: 'node', id: 44, tags: { amenity: 'cafe', name: 'C', socket: 'yes' } }} onOpen={vi.fn()} />)
+    const el = screen.getByText('未登録')
+    // バッジ（border・背景色）ではない
+    expect(el.className).not.toContain('border')
+    expect(el.className).not.toContain('bg-')
+  })
+
+  it('電源: power_supply=yes は緑バッジ', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 45, tags: { amenity: 'cafe', name: 'D', power_supply: 'yes' } }} onOpen={vi.fn()} />)
+    const badge = screen.getByText('⚡ あり')
+    expect(badge.className).toContain('bg-emerald-50')
+  })
+
+  it('電源: socket 系キーが no 以外ならあり（socket:count のみでも）', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 46, tags: { amenity: 'library', name: 'E', 'socket:count': '2' } }} onOpen={vi.fn()} />)
+    const badge = screen.getByText('⚡ あり')
+    expect(badge.className).toContain('bg-emerald-50')
+  })
+
+  it('電源: socket=no は赤バッジ', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 47, tags: { amenity: 'cafe', name: 'F', socket: 'no', internet_access: 'wlan' } }} onOpen={vi.fn()} />)
+    const badge = screen.getByText('⚡ なし')
+    expect(badge.className).toContain('bg-rose-50')
+  })
+
+  it('電源: 未登録は控えめなプレーン表示', () => {
+    // power 未登録・wifi はあり（wlan）→ 「未登録」は power 側のみ1つ
+    render(<MobileFacilityCard result={{ type: 'node', id: 48, tags: { amenity: 'internet_cafe', name: 'G', internet_access: 'wlan' } }} onOpen={vi.fn()} />)
+    const el = screen.getByText('未登録')
+    expect(el.className).not.toContain('border')
+  })
+
+  it('両方未登録なら「未登録」が2つ（電源・Wi-Fi それぞれ）', () => {
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    expect(screen.getAllByText('未登録')).toHaveLength(2)
+  })
+
+  it('電源・Wi-Fi は独立に判定される（片方だけ登録されたケース）', () => {
+    // wifi あり・power 未登録
+    render(<MobileFacilityCard result={{ type: 'node', id: 49, tags: { amenity: 'cafe', name: 'H', internet_access: 'wired' } }} onOpen={vi.fn()} />)
+    expect(screen.getByText('📶 あり')).toBeTruthy()
+    expect(screen.getByText('未登録')).toBeTruthy()
+    cleanup()
+    // wifi なし・power あり
+    render(<MobileFacilityCard result={{ type: 'node', id: 50, tags: { amenity: 'cafe', name: 'I', internet_access: 'no', power_supply: 'yes' } }} onOpen={vi.fn()} />)
+    expect(screen.getByText('📶 なし')).toBeTruthy()
+    expect(screen.getByText('⚡ あり')).toBeTruthy()
+  })
+
+  it('既存の表示（基本項目・- の表記）は壊れない（COFFEE: 電話・Webサイト未登録で「-」2つ）', () => {
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    expect(screen.getAllByText('-')).toHaveLength(2)
+    expect(screen.getByText('電話')).toBeTruthy()
+    expect(screen.getByText('Webサイト')).toBeTruthy()
+  })
+
+  it('生タグ値（wlan 等）は表示しない', () => {
+    render(<MobileFacilityCard result={{ type: 'node', id: 51, tags: { amenity: 'cafe', name: 'J', internet_access: 'wlan', 'socket:count': '2' } }} onOpen={vi.fn()} />)
+    expect(screen.queryByText(/^wlan$/)).toBeNull()
+    expect(screen.queryByText(/^2$/)).toBeNull()
   })
 })

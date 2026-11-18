@@ -218,7 +218,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     // 左ペイン: 幅600px固定、非hidden（検索トップ表示）
     expect(left.className).toContain('w-[600px]')
     expect(left.hasAttribute('hidden')).toBe(false)
-    expect(within(left).getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(within(left).getByText('お気に入りで作る')).toBeTruthy()
     expect(within(left).getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     // 一般トップのため地図はhidden
     expect(within(left).getByTestId('map-block').hasAttribute('hidden')).toBe(true)
@@ -232,7 +232,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(other.hasAttribute('hidden')).toBe(true)
 
     // ヘッダー・下フッターは全幅で常時表示
-    expect(screen.getByRole('heading', { name: 'まちデータ帳' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'まちのスクラップブック' })).toBeTruthy()
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
 
     // フッターの active は右ペインの内容（メモ帳）に従う
@@ -272,7 +272,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     await expectRightListVisible()
 
     // 一覧で名前フィルタを設定
-    const nameInput = within(getRightPane()).getByPlaceholderText('施設名で絞り込む')
+    const nameInput = within(getRightPane()).getByPlaceholderText('名前・メモで絞り込む')
     fireEvent.change(nameInput, { target: { value: '珈琲' } })
     await waitFor(() => {
       expect(within(getRightPane()).getByText(/3件中、1件を表示/)).toBeTruthy()
@@ -294,7 +294,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     await waitFor(() => {
       expect(within(getRightPane()).getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
     })
-    expect(within(getRightPane()).getByPlaceholderText('施設名で絞り込む').value).toBe('珈琲')
+    expect(within(getRightPane()).getByPlaceholderText('名前・メモで絞り込む').value).toBe('珈琲')
     expect(tabIsCurrent('一覧')).toBe(true)
   }, IT_TIMEOUT)
 
@@ -351,7 +351,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
 
     // 左ペイン: 一般トップへ戻る
     await waitFor(() => {
-      expect(within(getLeftPane()).getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+      expect(within(getLeftPane()).getByText('お気に入りで作る')).toBeTruthy()
     })
     // 右ペイン: 一覧のまま（内容は保持）
     expect(within(getRightPane()).getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
@@ -394,9 +394,9 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     seedMemocho()
     renderApp()
 
-    // 初期表示（右ペイン＝メモ帳）でメモ帳カードから開く
-    const memoCard = within(getRightPane()).getByRole('heading', { name: 'メモ珈琲店' })
-    fireEvent.click(memoCard)
+    // 初期表示（右ペイン＝メモ帳）でメモ帳カードの「🔎詳細」ボタンから開く
+    // （カード本体タップでは詳細は開かない。サムネイルの「…の詳細を表示」とは別）
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'メモ珈琲店の詳細' }))
     let dialog = await screen.findByRole('dialog', { name: /施設詳細: メモ珈琲店/ })
     // 詳細シートはメモ本文を表示しない。登録済み状態（「メモ帳から削除」トグル）を確認する
     expect(within(dialog).getByText(/メモ帳から削除/)).toBeTruthy()
@@ -409,7 +409,8 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(selectCategoryChip('カフェ')).toBe(true)
     await runMapSearch()
     await expectRightListVisible()
-    fireEvent.click(within(getRightPane()).getByRole('heading', { name: 'テスト珈琲店' }))
+    // 一覧カードの「🔎詳細」ボタンから開く
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'テスト珈琲店の詳細' }))
     dialog = await screen.findByRole('dialog', { name: /施設詳細: テスト珈琲店/ })
     expect(dialog).toBeTruthy()
   }, IT_TIMEOUT)
@@ -429,7 +430,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(nav).toBeTruthy()
     expect(tabIsCurrent('検索')).toBe(true)
     // 初期表示は検索タブ（一般トップ）
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     setMediaMatches(false)
   })
 })
@@ -445,7 +446,7 @@ describe('matchMedia 変更でレイアウトが追従する', () => {
     await waitFor(() => {
       expect(getLeftPane()).toBeNull()
     })
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
 
     // PCへ
     fireMediaChange(false)

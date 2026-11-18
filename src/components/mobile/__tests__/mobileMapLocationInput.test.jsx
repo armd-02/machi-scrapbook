@@ -96,6 +96,18 @@ const OVERPASS_ELEMENTS = [
 ]
 
 let nominatimRows = [UEDA_ROW]
+// (place) Nominatim の fetch を「未解決」に保てる deferred（スピナー表示検証用）。
+// null のときは従来どおり nominatimRows を即返す（既存テストへの影響なし）
+let nominatimDeferred = null
+
+function createDeferred() {
+  let resolveFn
+  const promise = new Promise((r) => { resolveFn = r })
+  return {
+    promise,
+    resolve: (v) => resolveFn(v),
+  }
+}
 let overpassCalls = []
 
 // ===== フック =====
@@ -123,6 +135,15 @@ function setupFetchMock() {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
     }
     if (u.includes('nominatim')) {
+      if (nominatimDeferred) {
+        // (place) リクエストを実際に Pending 状態に保ち、スピナー表示を検証する
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: () => nominatimDeferred.promise,
+        }
+      }
       return {
         ok: true,
         status: 200,
@@ -253,6 +274,7 @@ beforeEach(() => {
   }
   overpassCalls = []
   nominatimRows = [UEDA_ROW]
+  nominatimDeferred = null
   setupFetchMock()
   clearCache()
 })
@@ -496,5 +518,37 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
       expect(overpassCalls.length).toBeGreaterThanOrEqual(1)
     }, { timeout: 8000 })
     expect(overpassCalls[0]).toContain('34.800000,135.400000,34.900000,135.600000')
+  }, 15000)
+
+  it('ジオコーディング問い合わせ中に入力欄右端にスピナーが表示され、完了で消える（入力は無効化されない）', async () => {
+    renderApp()
+    await openMapMode()
+    // Nominatim の fetch を未解決に保つ（リクエストを実際に Pending 状態にする）
+    nominatimDeferred = createDeferred()
+
+    const input = getLocationInput()
+    // 2文字以上入力 → デバウンス（400ms）後に geocodeCandidates が走り、
+    // リクエスト開始でスピナーが表示される
+    fireEvent.change(input, { target: { value: '梅田' } })
+
+    // スピナーが現れるまで待つ（デバウンス＋率制限待ちを含む）
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // スピナー表示中も入力は無効化されない（disabled にならない）
+    expect(getLocationInput().disabled).toBe(false)
+    // 右パディングが広がっている（スピナーのスペース確保: pr-9）
+    expect(getLocationInput().className).toContain('pr-9')
+
+    // リクエスト完了（候補返却）→ スピナー消滅 ＋ 候補リスト表示
+    nominatimDeferred.resolve([UEDA_ROW])
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeNull()
+    }, { timeout: 8000 })
+    // 候補が表示される（同じ React 更新で現れる）
+    await waitFor(() => {
+      expect(getSuggestOptions().length).toBeGreaterThanOrEqual(1)
+    }, { timeout: 8000 })
   }, 15000)
 })

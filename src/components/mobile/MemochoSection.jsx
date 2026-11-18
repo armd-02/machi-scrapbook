@@ -1,9 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import MobileFacilityCard from './MobileFacilityCard'
+import MemochoTrash from './MemochoTrash'
 import { useMemocho } from '../../hooks/useMemocho'
-import { memochoKeyOf } from '../../utils/memocho'
+import { memochoKeyOf, activeItems } from '../../utils/memocho'
 import { captureMapImage } from '../../utils/mapCapture'
 import { linkifySegments } from '../../utils/linkify'
+import { cuisineFacetValues } from '../../utils/resultFilters'
+import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
+import {
+  FilterInput, FilterSelect, FilterChipRow, CategorySelect, PerspectiveChips, CuisineChips,
+  WheelchairChips, WIFI_OPTIONS, POWER_OPTIONS, RATING_OPTIONS, MISSING_OPTIONS, KEYWORD_LABEL
+} from '../ResultFilterBar'
 
 /**
  * (まちメモ帳 第3ピース) まちメモ帳セクション
@@ -17,10 +24,37 @@ import { linkifySegments } from '../../utils/linkify'
  *   フォーカスを外すと setMemo で保存される
  * - 各カードに星5つの評価行（メモ欄の上）: 星をタップして 1〜5 を設定できる。
  *   現在の値と同じ星をタップすると 0（未評価）に解除される
- * - カード右上の✕ボタンで登録を削除できる
+ * - カード右上の✕ボタンは2段階確認（1回目で「削除しますか？（ごみ箱へ移動します）」
+ *   の確認_stripが出、2回目で実行）。実行すると論理削除（deletedAt を付け
+ *   ごみ箱へ移動）され、通常の一覧からは消える（自動で期限切れ削除されない）
+ * - ごみ箱ビュー（view='trash'）: ヘッダーメニューの「ごみ箱」から入ると
+ *   MemochoTrash を代わりに描画する（復元・完全削除・ごみ箱を空にする・
+ *   一覧に戻る）。view/onViewChange は App reducer の memochoView と連動する
  * - 書き出し（JSON/CSV）・読み込み・全消去は、#79 でヘッダー右端の
  *   ハンバーガーメニュー（HeaderMenu）に統一されたため、本コンポーネントには
  *   メニューボタン・ファイル入力は持たない
+ *
+ * - フィルタバー（まちメモ帳絞り込み）: 見出しの下にフィルタUIを置く。状態は
+ *   メモ帳ローカル（本コンポーネントの useState）で、アプリ全体の
+ *   resultFilters（App reducer）とは混ぜないため、検索一覧や書き出しには
+ *   影響しない。絞り込みロジックは検索一覧と完全に統一されており
+ *   （(共通フィルタバー) utils/resultFilters.js の applyResultFilters 等を
+ *    utils/memochoFilters.js が薄いアダプタとして再利用）、以下の条件は
+ *   すべて AND 結合:
+ *   - キーワード（nameFilter）: 名前（name / name:ja）とメモ本文の対象にした部分一致
+ *   - カテゴリ（catFilter）: 一覧と同じ categoryMatchesElement
+ *   - 属性欠落（missingFilter）: 一覧と同じ missingAttributesOf ベース
+ *   - 視点（perspective）: 一覧と同じ matchesPerspective
+ *   - 料理の種別（cuisine）: アイテムの tags.cuisine を cuisineFacetValues で集計
+ *   - WiFi（wifi）: internet_access タグの3状態判定（wifiStatus）。あり＝'yes'、
+ *     なし＝'no'。未登録（unknown）はどちらにも含めない
+ *   - 電源（power）: powerSupply タグの3状態判定（powerStatus）。「あり」＝'yes' のみ
+ *   - 車椅子対応（wheelchair）: tags.wheelchair の値で判定（yes/designated＝対応可、
+ *     limited＝一部対応、no＝対応なし）。未登録はどの絞り込みにも一致しない
+ *   - ★評価（rating）: rating フィールド（0＝未評価）ベース。★N以上＝rating >= N、
+ *     ★5のみ＝rating === 5。未評価（0）は「すべて」にのみ該当
+ *   - 絞り込み中は見出しの件数が「全n件中 m件を表示」になり、フィルタバー
+ *     上部に全条件を一括解除する「フィルタをクリア」ボタンが出る
  */
 
 // リンクタップ時のイベント伝播を止める（編集モードへの切替・詳細シート展開を防止）
@@ -55,17 +89,41 @@ const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細
 // 地図サムネイルの生成を試行済みのキー（セッション内のみ。失敗の再試行防止）
 const attemptedMapKeys = new Set()
 
-export default function MemochoSection({ onOpenDetail }) {
-  const { items, remove, setMemo, setMapImage, setRating } = useMemocho()
+export default function MemochoSection({ onOpenDetail, view = 'list', onViewChange }) {
+  // items = 全件（アクティブ＋ごみ箱）/ active = アクティブ（deletedAt 無し）のみ
+  const {
+    items, active, trashItems: trashList,
+    remove, trash: trashItem, restore, emptyTrash,
+    setMemo, setMapImage, setRating,
+  } = useMemocho()
 
   const [memoDrafts, setMemoDrafts] = useState({}) // { [key]: 編集途中のメモ }
+  // (まちメモ帳絞り込み) フィルタ状態はメモ帳ローカル。
+  // アプリ全体の resultFilters（App reducer）とは混ぜない（検索一覧・書き出しに影響しない）
+  const [memoFilters, setMemoFilters] = useState(DEFAULT_MEMO_FILTERS)
+
+  // 絞り込んだ一覧: 5条件すべて AND 結合（ロジックは utils/memochoFilters の
+  // 純粋関数 applyMemochoFilters）。対象はアクティブアイテムのみ（ごみ箱は対象外）
+  const filtered = useMemo(
+    () => applyMemochoFilters(activeItems(items), memoFilters),
+    [items, memoFilters]
+  )
+
+  // 料理ジャンルの選択肢: アクティブアイテム（フィルタ適用前）の tags.cuisine を集計
+  const cuisineFacets = useMemo(() => cuisineFacetValues(activeItems(items)), [items])
+
+  // いずれかの条件が有効なら「絞り込み中」（純粋関数 isMemoFilterActive）
+  const filtersActive = isMemoFilterActive(memoFilters)
+
+  const resetMemoFilters = () => setMemoFilters(DEFAULT_MEMO_FILTERS)
 
   // 地図サムネイル: 座標があり未生成のアイテムを1件ずつ順番に生成して保存する。
   // 失敗したアイテムはセッション内では再試行しない（attemptedMapKeys）。
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      for (const item of items) {
+      // アクティブアイテムのみを対象にする（ごみ箱のアイテムには生成しない）
+      for (const item of activeItems(items)) {
         if (cancelled) return
         const key = memochoKeyOf(item)
         if (item.mapImage || item.lat == null || item.lon == null) continue
@@ -83,6 +141,20 @@ export default function MemochoSection({ onOpenDetail }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
+
+  // ごみ箱ビュー（ヘッダーメニューの「ごみ箱」で memochoView が 'trash' になる）。
+  // 通常の一覧ではなく MemochoTrash を描画する
+  if (view === 'trash') {
+    return (
+      <MemochoTrash
+        items={trashList}
+        onRestore={restore}
+        onRemove={remove}
+        onEmptyTrash={emptyTrash}
+        onBack={() => onViewChange && onViewChange('list')}
+      />
+    )
+  }
 
   // ===== メモ欄 =====
 
@@ -105,18 +177,112 @@ export default function MemochoSection({ onOpenDetail }) {
       {/* 見出し＋件数（#79: ☰メニューはヘッダーの HeaderMenu に統一） */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
         <h2 className="text-sm font-bold text-slate-800">まちメモ帳</h2>
-        <span className="text-xs text-slate-500">{items.length}件</span>
+        <span className="text-xs text-slate-500">
+          {filtersActive
+            ? `全${active.length.toLocaleString()}件中、${filtered.length.toLocaleString()}件を表示`
+            : `${active.length}件`}
+        </span>
       </div>
 
-      {/* 一覧（0件のときは案内文） */}
+      {/* (共通フィルタバー) コントロール・選択肢・CSSクラス構成は ResultFilterBar に集約
+          （検索一覧と共用）。状態はメモ帳ローカルで、検索結果の resultFilters とは
+          独立している（キー名は resultFilters と統一） */}
+      {active.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+            {/* 絞り込み中は全条件を一括解除するクリアボタンが出る */}
+            {filtersActive && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={resetMemoFilters}
+                  className="min-h-[44px] px-3 text-xs font-medium rounded-full border bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                >
+                  フィルタをクリア
+                </button>
+              </div>
+            )}
+            <FilterInput
+              label={KEYWORD_LABEL}
+              value={memoFilters.nameFilter}
+              onChange={(e) => setMemoFilters((f) => ({ ...f, nameFilter: e.target.value }))}
+              filter="keyword"
+            />
+            <FilterChipRow
+              label="WiFi有無で絞る"
+              options={WIFI_OPTIONS}
+              value={memoFilters.wifi}
+              onChange={(v) => setMemoFilters((f) => ({ ...f, wifi: v }))}
+              filter="wifi"
+            />
+            <FilterChipRow
+              label="電源で絞り込む"
+              options={POWER_OPTIONS}
+              value={memoFilters.power}
+              onChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
+              filter="power"
+            />
+            <WheelchairChips
+              value={memoFilters.wheelchair}
+              onChange={(v) => setMemoFilters((f) => ({ ...f, wheelchair: v }))}
+            />
+            <CategorySelect
+              items={activeItems(items)}
+              value={memoFilters.catFilter || ''}
+              onChange={(e) => setMemoFilters((f) => ({ ...f, catFilter: e.target.value }))}
+            />
+            <FilterSelect
+              label="属性の欠落で絞る"
+              value={memoFilters.missingFilter || 'none'}
+              onChange={(e) => setMemoFilters((f) => ({ ...f, missingFilter: e.target.value }))}
+              filter="missing"
+            >
+              {MISSING_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </FilterSelect>
+            <PerspectiveChips
+              value={memoFilters.perspective || 'none'}
+              onChange={(v) => setMemoFilters((f) => ({ ...f, perspective: v }))}
+            />
+            {/* 料理の種別: アイテムに cuisine タグがあるときだけ行を表示（一覧タブと同じ
+                CuisineChips 共用・折りたたみ式） */}
+            <CuisineChips
+              facets={cuisineFacets}
+              value={memoFilters.cuisine || ''}
+              onChange={(v) => setMemoFilters((prev) => ({ ...prev, cuisine: v }))}
+            />
+            <FilterChipRow
+              label="評価で絞る"
+              options={RATING_OPTIONS}
+              value={memoFilters.rating}
+              onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
+              filter="rating"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 一覧（0件のときは案内文、絞り込みで0件のときはリセット案内） */}
       <div className="px-3 pb-3">
-        {items.length === 0 ? (
+        {active.length === 0 ? (
           <p className="text-sm text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-4 text-center">
             {EMPTY_TEXT}
           </p>
+        ) : filtered.length === 0 ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center space-y-2">
+            <p className="text-sm text-amber-800">現在の絞り込み条件に一致するアイテムはありません。</p>
+            <button
+              type="button"
+              onClick={resetMemoFilters}
+              className="min-h-[44px] px-4 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg"
+            >
+              フィルタをリセット
+            </button>
+          </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 @min-[620px]:grid-cols-2 @min-[980px]:grid-cols-3 @min-[1340px]:grid-cols-4">
-            {items.map((item) => (
+            {filtered.map((item) => (
               <MemochoCard
                 key={memochoKeyOf(item)}
                 item={item}
@@ -125,7 +291,8 @@ export default function MemochoSection({ onOpenDetail }) {
                 onDraftChange={onDraftChange}
                 onDraftCommit={onDraftCommit}
                 onSetRating={setRating}
-                onRemove={remove}
+                // 論理削除: deletedAt を付けてごみ箱へ移動する
+                onRemove={trashItem}
               />
             ))}
           </div>
@@ -141,6 +308,9 @@ export default function MemochoSection({ onOpenDetail }) {
  * - カード本体タップで施設詳細シートが開く（onOpenDetail）。地図サムネイルのタップでも開く
  * - 評価行（星5つ）はメモ欄の上に置く。タップでその値を設定し、現在の値と
  *   同じ星をタップすると 0（未評価）に解除される。状態は aria-pressed で表現する
+ * - 右上の✕は2段階確認: 1回目で「削除しますか？（ごみ箱へ移動します）」の確認
+ *   帯がカード上部に出、削除で論理削除（ごみ箱へ）、キャンセルで戻す
+ *   （window.confirm は使わない。HeaderMenu の全消去と同じ方式）
  * - メモ欄は表示モード/編集モードの2状態: 未編集中（draft なし）はメモ文字を
  *   表示モードで描画（改行保持・http(s):// URL を target=_blank のリンク化、
  *   リンクタップは stopPropagation で詳細シート・編集開始を防止）。表示をタップ
@@ -156,6 +326,8 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
   const rating = item.rating ?? 0 // 旧データ（rating 無し）は未評価として扱う
   const isEditing = draft != null
   const editRef = useRef(null)
+  // 削除の2段階確認状態（1回目の✕タップで true、実行/キャンセルで false）
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // 編集モードへ切替たら textarea を自動フォーカス（従来の input がタップで
   // フォーカスされてキーボードが出るのと同じ体験にする）
@@ -166,6 +338,31 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
 
   return (
     <div className="relative bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      {/* 2段階確認中: 上部に確認帯を表示（カード内容を押下して配置） */}
+      {confirmDelete && (
+        <div className="flex items-center gap-1.5 bg-red-50 border-b border-red-200 px-2 py-1.5">
+          <span className="flex-1 min-w-0 text-[11px] leading-tight text-red-700">
+            削除しますか？（ごみ箱へ移動します）
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmDelete(false)
+              onRemove && onRemove(key)
+            }}
+            className="shrink-0 min-h-[28px] px-2 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-700 rounded"
+          >
+            削除
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(false)}
+            className="shrink-0 min-h-[28px] px-2 text-[11px] text-slate-600 hover:bg-red-100 rounded"
+          >
+            キャンセル
+          </button>
+        </div>
+      )}
       <div className="flex items-stretch">
         <div className={`flex-1 min-w-0 ${item.mapImage ? '' : 'pr-8'}`}>
           <MobileFacilityCard
@@ -189,16 +386,18 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
           </div>
         )}
       </div>
-      <button
-        type="button"
-        aria-label={`${item.name}をメモ帳から削除`}
-        onClick={() => onRemove && onRemove(key)}
-        className={`absolute top-2 right-2 z-10 w-7 h-7 grid place-items-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 ${
-          item.mapImage ? 'bg-white/90 shadow' : ''
-        }`}
-      >
-        ✕
-      </button>
+      {!confirmDelete && (
+        <button
+          type="button"
+          aria-label={`${item.name}をメモ帳から削除`}
+          onClick={() => setConfirmDelete(true)}
+          className={`absolute top-2 right-2 z-10 w-7 h-7 grid place-items-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 ${
+            item.mapImage ? 'bg-white/90 shadow' : ''
+          }`}
+        >
+          ✕
+        </button>
+      )}
       <div className="px-3 pb-3">
         {/* 星5つの評価行（メモ欄の上）。施設カード本体のクリック領域の外 */}
         <div

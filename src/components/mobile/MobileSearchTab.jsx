@@ -13,6 +13,7 @@ import SearchActionButton from '../SearchActionButton'
 import ShareButton from '../ShareButton'
 import MapView from '../MapView'
 import GeocodeCandidateList from '../GeocodeCandidateList'
+import PlaceNameInput from '../PlaceNameInput'
 import { QuickTopIntro, QuickTopTiles } from './MobileQuickTop'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import PoiDescription from '../PoiDescription'
@@ -101,6 +102,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
 
   // (top) 地名入力のサジェスト: 入力欄の下に表示する候補（geocodeCandidates の結果）
   const [suggestCandidates, setSuggestCandidates] = useState([])
+  // (top) ジオコーディング問い合わせ中カウント（サジェスト用）。リクエスト開始で増え、
+  // 完了（候補返却／エラー）で減る。地名入力欄右端のスピナー表示に使う
+  const [geocodePending, setGeocodePending] = useState(0)
+  // 地名入力のジオコーディング問い合わせ中（サジェスト or 検索確定のいずれか）。
+  // 地名入力欄右端のスピナー表示に使う（入力欄自体は無効化しない）
+  const geocoding = searching || geocodePending > 0
   // (top) 自治体サジェスト候補（municipalities.json からローカル計算）。Nominatim の
   // 順位に左右されず、自治体名を確実に選べるようにするため Nominatim 候補より
   // 前に表示する（ローカル計算なので即座に出る）。QuickTopIntro 渡しの候補は
@@ -394,12 +401,15 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       const seq = suggestSeqRef.current
       suggestTimerRef.current = setTimeout(() => {
         suggestTimerRef.current = null
+        setGeocodePending((c) => c + 1) // リクエスト開始 → スピナー表示
         geocodeCandidates(q)
           .then((cands) => {
+            setGeocodePending((c) => c - 1) // リクエスト完了 → スピナー解除
             // その間に入力が変わっていたら（seq が進行していたら）古い結果は無視
             if (seq === suggestSeqRef.current) setSuggestCandidates(cands)
           })
           .catch(() => {
+            setGeocodePending((c) => c - 1) // リクエスト完了（エラー）→ スピナー解除
             if (seq === suggestSeqRef.current) setSuggestCandidates([])
           })
       }, 400)
@@ -751,19 +761,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             範囲にfitし青い矩形が描画される。入力をクリアすると矩形が消え、地図の
             表示範囲で検索する（AreaCard が「地図の現在表示範囲」を表示） */}
         <div className="space-y-2">
-          <input
-            type="text"
+          <PlaceNameInput
             value={placeQuery}
-            onChange={(e) => handlePlaceQueryChange(e.target.value)}
+            onChange={handlePlaceQueryChange}
             onKeyDown={handleMapPlaceKeyDown}
             placeholder="地名・駅名（例: 大阪駅）"
             disabled={state.status === 'loading'}
-            className={
-              placeAreaSet
-                ? // 検索エリア設定成功: 場所が決まったことを入力欄の色で示す
-                  'w-full px-3 py-2 text-sm border border-green-500 bg-green-50 rounded-lg'
-                : 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white disabled:bg-slate-50'
-            }
+            geocoding={geocoding}
+            areaSet={placeAreaSet}
           />
           {/* 候補リスト（サジェスト＋複数候補提示は共通の GeocodeCandidateList） */}
           {mapCandidates.length > 0 && (
@@ -815,6 +820,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               searchError={searchError}
               areaName={areaName}
               areaSet={placeAreaSet}
+              geocoding={geocoding}
               onSearch={handleTopSearch}
               disabled={state.status === 'loading'}
               candidates={pendingCandidates

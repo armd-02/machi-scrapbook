@@ -3,7 +3,10 @@
  * (#44) applyResultFilters / hasActiveFilters: 目的スコープ（purposeFilter）
  */
 import { describe, it, expect } from 'vitest'
-import { applyResultFilters, hasActiveFilters, matchesPerspective, cuisineFacetValues } from '../resultFilters'
+import {
+  applyResultFilters, hasActiveFilters, matchesPerspective, cuisineFacetValues,
+  matchesKeyword, matchesWifi, matchesPower, matchesWheelchair, matchesRating,
+} from '../resultFilters'
 
 const cafe = { type: 'node', id: 1, tags: { amenity: 'cafe' } }
 const park = { type: 'node', id: 2, tags: { leisure: 'park' } }
@@ -495,5 +498,191 @@ describe('applyResultFilters: kerbHeight（縁石の高さ）', () => {
     const namedLowered = { type: 'node', id: 129, name: '公園縁石', tags: { barrier: 'kerb', name: '公園縁石', kerb: 'lowered' }, bf: { kind: 'node', kerb: 'lowered' } }
     const out = applyResultFilters([namedFlush, namedLowered], { ...BASE, kerbHeight: 'flat', nameFilter: '駅前' })
     expect(out.map((r) => r.id)).toEqual([128])
+  })
+})
+
+// ===== (共通フィルタバー) 両画面共通の判定関数 =====
+
+const mItem = (over = {}) => ({
+  type: 'node', id: 1, name: 'テスト店', tags: { name: 'テスト店' }, memo: '', rating: 0, ...over,
+})
+
+describe('matchesKeyword（名前・name:ja・メモ本文の部分一致）', () => {
+  it('名前が部分一致すれば true（大小文字無視）', () => {
+    const it1 = mItem({ name: 'Cafe Latte' })
+    expect(matchesKeyword(it1, 'CAFE')).toBe(true)
+    expect(matchesKeyword(it1, 'ramen')).toBe(false)
+  })
+
+  it('name:ja タグも対象になる', () => {
+    const it1 = mItem({ name: 'Test Shop', tags: { name: 'Test Shop', 'name:ja': 'テスト喫茶' } })
+    expect(matchesKeyword(it1, '喫茶')).toBe(true)
+  })
+
+  it('メモ本文も対象になる（メモ帳アイテム）', () => {
+    const it1 = mItem({ memo: '静かでWiFiが速い' })
+    expect(matchesKeyword(it1, '静か')).toBe(true)
+    expect(matchesKeyword(it1, 'WIFI')).toBe(true)
+  })
+
+  it('検索結果アイテム（memo フィールドなし）でも例外にならない', () => {
+    const it1 = { type: 'node', id: 1, name: 'Cafe', tags: { name: 'Cafe' } }
+    expect(matchesKeyword(it1, 'cafe')).toBe(true)
+    expect(matchesKeyword(it1, 'メモ')).toBe(false)
+  })
+
+  it('空・空白だけのキーワードは全件一致。item が null なら空キーワードで true・それ以外 false', () => {
+    expect(matchesKeyword(mItem(), '')).toBe(true)
+    expect(matchesKeyword(mItem(), '   ')).toBe(true)
+    expect(matchesKeyword(null, 'abc')).toBe(false)
+    expect(matchesKeyword(null, '')).toBe(true)
+  })
+})
+
+describe('matchesWifi（wifiStatus の3状態判定）', () => {
+  const withAccess = (v) => mItem({ tags: { internet_access: v } })
+
+  it("'all' は全件一致", () => {
+    expect(matchesWifi(mItem(), 'all')).toBe(true)
+    expect(matchesWifi(withAccess('no'), 'all')).toBe(true)
+  })
+
+  it("'yes'（あり）: 設定されていて 'no' でない値。未設定・空文字は一致しない", () => {
+    for (const v of ['wireless', 'wired', 'proprietary', 'yes', 'pay']) {
+      expect(matchesWifi(withAccess(v), 'yes')).toBe(true)
+    }
+    expect(matchesWifi(withAccess('no'), 'yes')).toBe(false)
+    expect(matchesWifi(mItem(), 'yes')).toBe(false)
+    expect(matchesWifi(withAccess(''), 'yes')).toBe(false)
+  })
+
+  it("'no'（なし）: 'no' の場合のみ。未登録（unknown）は「なし」に含まない", () => {
+    expect(matchesWifi(withAccess('no'), 'no')).toBe(true)
+    expect(matchesWifi(mItem(), 'no')).toBe(false)
+    expect(matchesWifi(withAccess(''), 'no')).toBe(false)
+    expect(matchesWifi(withAccess('wireless'), 'no')).toBe(false)
+  })
+
+  it('数値など文字列でない値は未登録として扱う', () => {
+    expect(matchesWifi(mItem({ tags: { internet_access: 2 } }), 'yes')).toBe(false)
+    expect(matchesWifi(mItem({ tags: { internet_access: 2 } }), 'no')).toBe(false)
+  })
+})
+
+describe('matchesPower（powerStatus の3状態判定・「あり」の絞り込みのみ）', () => {
+  const withTag = (tags) => mItem({ tags })
+
+  it("'all' は全件一致", () => {
+    expect(matchesPower(mItem(), 'all')).toBe(true)
+    expect(matchesPower(withTag({ power_supply: 'no' }), 'all')).toBe(true)
+  })
+
+  it("'yes'（あり）: power_supply='yes'、または socket 系キーが 'no' 以外で設定済み", () => {
+    expect(matchesPower(withTag({ power_supply: 'yes' }), 'yes')).toBe(true)
+    expect(matchesPower(withTag({ socket: 'yes' }), 'yes')).toBe(true)
+    expect(matchesPower(withTag({ 'socket:indoor': 'yes' }), 'yes')).toBe(true)
+    expect(matchesPower(withTag({ 'socket:outdoor': 'pay' }), 'yes')).toBe(true)
+  })
+
+  it("'yes': power_supply='no' / socket='no' / 未登録・空文字は一致しない", () => {
+    expect(matchesPower(withTag({ power_supply: 'no' }), 'yes')).toBe(false)
+    expect(matchesPower(withTag({ socket: 'no' }), 'yes')).toBe(false)
+    expect(matchesPower(withTag({ power_supply: 'no', socket: 'no' }), 'yes')).toBe(false)
+    expect(matchesPower(mItem(), 'yes')).toBe(false)
+    expect(matchesPower(withTag({ socket: '' }), 'yes')).toBe(false)
+  })
+
+  it("'no' などの不明なモードは一致しない（選択肢は all|yes のみ）", () => {
+    expect(matchesPower(withTag({ power_supply: 'no' }), 'no')).toBe(false)
+  })
+})
+
+describe('matchesWheelchair（tags.wheelchair の値で判定）', () => {
+  const withWc = (v) => mItem({ tags: { wheelchair: v } })
+
+  it("'all' は全件一致", () => {
+    expect(matchesWheelchair(mItem(), 'all')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'all')).toBe(true)
+  })
+
+  it("'yes'（対応可）: 'yes' / 'designated'。limited・no・未登録は一致しない", () => {
+    expect(matchesWheelchair(withWc('yes'), 'yes')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'yes')).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), 'yes')).toBe(false)
+    expect(matchesWheelchair(withWc('no'), 'yes')).toBe(false)
+    expect(matchesWheelchair(mItem(), 'yes')).toBe(false)
+  })
+
+  it("'partial'（一部対応）: 'limited' のみ", () => {
+    expect(matchesWheelchair(withWc('limited'), 'partial')).toBe(true)
+    expect(matchesWheelchair(withWc('yes'), 'partial')).toBe(false)
+    expect(matchesWheelchair(mItem(), 'partial')).toBe(false)
+  })
+
+  it("'no'（対応なし）: 'no' のみ（未登録は一致しない）", () => {
+    expect(matchesWheelchair(withWc('no'), 'no')).toBe(true)
+    expect(matchesWheelchair(withWc('yes'), 'no')).toBe(false)
+    expect(matchesWheelchair(mItem(), 'no')).toBe(false)
+  })
+})
+
+describe('matchesRating（rating フィールド。0＝未評価）', () => {
+  const withRating = (v) => mItem({ rating: v })
+
+  it("'all' は全件一致（未評価も含まれる）", () => {
+    expect(matchesRating(withRating(0), 'all')).toBe(true)
+    expect(matchesRating(withRating(5), 'all')).toBe(true)
+  })
+
+  it("'gteN': rating >= N（gte1〜gte4）。未評価（0）は一致しない", () => {
+    expect(matchesRating(withRating(1), 'gte1')).toBe(true)
+    expect(matchesRating(withRating(4), 'gte4')).toBe(true)
+    expect(matchesRating(withRating(3), 'gte4')).toBe(false)
+    expect(matchesRating(withRating(0), 'gte1')).toBe(false)
+    expect(matchesRating(mItem({}), 'gte1')).toBe(false) // rating 未設定（旧データ）も 0 扱い
+  })
+
+  it("'eq5': rating === 5 のみ", () => {
+    expect(matchesRating(withRating(5), 'eq5')).toBe(true)
+    expect(matchesRating(withRating(4), 'eq5')).toBe(false)
+    expect(matchesRating(withRating(0), 'eq5')).toBe(false)
+  })
+
+  it('整数でない rating は 0（未評価）として扱う', () => {
+    expect(matchesRating(withRating(3.5), 'gte1')).toBe(false)
+    expect(matchesRating(withRating('5'), 'eq5')).toBe(false)
+  })
+
+  it('不明なモードは一致しない', () => {
+    expect(matchesRating(withRating(5), 'gte9')).toBe(false)
+    expect(matchesRating(withRating(5), 'xyz')).toBe(false)
+  })
+})
+
+describe('hasActiveFilters（共通キー拡張）', () => {
+  const base = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', rating: 'all', kerbHeight: 'any' }
+
+  it('初期値・空オブジェクトは false', () => {
+    expect(hasActiveFilters(base)).toBe(false)
+    expect(hasActiveFilters({})).toBe(false)
+    expect(hasActiveFilters(undefined)).toBe(false)
+  })
+
+  it('共通キーが初期値から外れると true', () => {
+    expect(hasActiveFilters({ ...base, nameFilter: 'カフェ' })).toBe(true)
+    expect(hasActiveFilters({ ...base, catFilter: 'cafe' })).toBe(true)
+    expect(hasActiveFilters({ ...base, missingFilter: 'phone' })).toBe(true)
+    expect(hasActiveFilters({ ...base, perspective: 'wheelchair' })).toBe(true)
+    expect(hasActiveFilters({ ...base, cuisine: 'ramen' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wifi: 'yes' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wifi: 'no' })).toBe(true)
+    expect(hasActiveFilters({ ...base, power: 'yes' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: 'partial' })).toBe(true)
+    expect(hasActiveFilters({ ...base, rating: 'gte1' })).toBe(true)
+    expect(hasActiveFilters({ ...base, rating: 'eq5' })).toBe(true)
+  })
+
+  it('nameFilter が空白だけなら絞り込み中ではない', () => {
+    expect(hasActiveFilters({ ...base, nameFilter: '   ' })).toBe(false)
   })
 })

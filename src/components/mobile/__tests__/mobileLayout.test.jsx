@@ -14,7 +14,7 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 検索タブ内の地図モード検索 → クエリに地図BBOXが反映される
 // - 検索成功時の「一覧」タブ自動切替
 // - 検索タブの「この表示範囲で検索」明示トリガー（地図移動だけでは検索しない）
-// - 施設カードタップ → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
+// - 施設カードの「🔎詳細」ボタン → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
 // - (#66) 初期検索ソースがmunicipalityになったため、地図モード検証テストは
@@ -123,6 +123,18 @@ const OSAKA_UEMACHI_ROW = {
   address: { state: '大阪府', county: '北区', city: '大阪市' },
 }
 let nominatimRows = [UEDA_ROW]
+// (place) Nominatim の fetch を「未解決」に保てる deferred（スピナー表示検証用）。
+// null のときは従来どおり nominatimRows を即返す（既存テストへの影響なし）
+let nominatimDeferred = null
+
+function createDeferred() {
+  let resolveFn
+  const promise = new Promise((r) => { resolveFn = r })
+  return {
+    promise,
+    resolve: (v) => resolveFn(v),
+  }
+}
 
 // ===== フック =====
 let mediaMatches = true
@@ -159,6 +171,16 @@ function setupFetchMock() {
     // (#63) Nominatimジオコード（QuickTopIntroの「検索」・地名入力サジェスト・
     // 複数候補提示の検証用）。テスト側が nominatimRows を切り替えられる
     if (u.includes('nominatim')) {
+      if (nominatimDeferred) {
+        // (place) リクエストを実際に Pending 状態に保ち、スピナー表示を検証する
+        // （resolve するまで json() が解決しない）
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: () => nominatimDeferred.promise,
+        }
+      }
       return {
         ok: true,
         status: 200,
@@ -244,7 +266,7 @@ function selectCategoryChip(catLabel) {
   throw new Error(`カテゴリチップが見つからない: ${catLabel}`)
 }
 
-// ヘッダーのタイトルボタン（アプリアイコン＋「まちデータ帳」。押下でトップ画面に戻る）
+// ヘッダーのタイトルボタン（アプリアイコン＋「まちのスクラップブック」。押下でトップ画面に戻る）
 function getHeaderButton() {
   return screen.getByRole('button', { name: 'トップ画面に戻る' })
 }
@@ -324,6 +346,7 @@ beforeEach(() => {
   overpassStatus = 200
   overpassElements = OVERPASS_ELEMENTS
   nominatimRows = [UEDA_ROW]
+  nominatimDeferred = null
   setupFetchMock()
   clearCache()
 })
@@ -383,7 +406,7 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
 
     // 左ペイン: 一般向けトップ表示（「くわしく探す」ボタンが在席）
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
 
     // (#63) トップ画面には地図を描画しない（マウントされたままhidden）
     const mapBlock = screen.queryByTestId('map-block')
@@ -416,7 +439,7 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     }, { timeout: 3000 })
     // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素を確認
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
     // 元に戻る → PC: 2ペイン構造が復帰
@@ -437,7 +460,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     expect(btn.closest('h1')).toBeTruthy()
 
     // タイトル文字はボタン内でアイコーの隣に横並び（flex items-center gap-2.5）
-    const title = screen.getByText('まちデータ帳')
+    const title = screen.getByText('まちのスクラップブック')
     expect(title.closest('button')).toBe(btn)
     expect(btn.className).toContain('flex')
     expect(btn.className).toContain('items-center')
@@ -475,7 +498,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     // 検索タブがアクティブになり、トップ画面の要素が表示される
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('一覧')).toBe(false)
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
     // 従来フォームの要素は消える（view='top' でアンマウントされる）
@@ -489,14 +512,14 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     // トップ → 従来フォーム
     openFormView()
     expect(screen.getByRole('tab', { name: '自治体から探す' })).toBeTruthy()
-    expect(screen.queryByText('近くの施設を、みんなの地図で探す')).toBeNull()
+    expect(screen.queryByText('お気に入りで作る')).toBeNull()
 
     // ヘッダーのタイトルボタンを押す
     fireEvent.click(getHeaderButton())
 
     // トップ画面の要素が戻り、フォームの要素は消える
     expect(tabIsCurrent('検索')).toBe(true)
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
     expect(screen.queryByRole('button', { name: /トップへ戻る/ })).toBeNull()
@@ -514,7 +537,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
 
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('その他')).toBe(false)
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
   }, IT_TIMEOUT)
 
@@ -529,7 +552,8 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     await waitFor(() => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
-    fireEvent.click(screen.getByRole('heading', { name: /テスト珈琲店/ }))
+    // 施設カード内の「🔎詳細」ボタンを押す（カード本体タップでは詳細は開かない）
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeTruthy()
     }, { timeout: 3000 })
@@ -543,7 +567,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     }, { timeout: 3000 })
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('一覧')).toBe(false)
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
   }, IT_TIMEOUT)
 })
 
@@ -762,8 +786,8 @@ describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
 
-    // 施設カードをタップ（カード内の施設名h3をクリック。onClickはカードdivへ伝播する）
-    fireEvent.click(screen.getByRole('heading', { name: /テスト珈琲店/ }))
+    // 施設カードの「🔎詳細」ボタンを押す（カード本体タップでは詳細は開かない）
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細' }))
 
     // ボトムシート（dialog）が開く: 名称・住所・カテゴリチップ・OSMリンク
     const dialog = await waitFor(() => {
@@ -843,7 +867,7 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
     expect(screen.getByText(/3件中、3件を表示/)).toBeTruthy()
 
     // 施設名フィルタ: 「珈琲」→ テスト珈琲店の1件のみ
-    const nameInput = screen.getByLabelText('施設名で絞り込む')
+    const nameInput = screen.getByLabelText('名前・メモで絞り込む')
     fireEvent.change(nameInput, { target: { value: '珈琲' } })
 
     await waitFor(() => {
@@ -991,6 +1015,80 @@ describe('(#59) エラー表示の継続性', () => {
   }, IT_TIMEOUT)
 })
 
+describe('StatusBanner: まちメモ帳タブ表示中は出さない', () => {
+  // 仕様: メモ帳タブ表示中は StatusBanner を出さない（loading/error/success 全バリアント）。
+  // 検索・一覧・その他の3タブでは従来どおり表示される。状態は reducer に保持される
+  // ため、メモ帳を離れると再び表示される。
+  it('成功バナー: メモ帳タブでは出ず、検索・一覧・その他タブでは従来どおり出る', async () => {
+    renderApp()
+
+    // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
+    openFormView()
+    await switchToMapMode()
+
+    selectCategoryChip('カフェ')
+    fireEvent.click(screen.getByRole('button', { name: 'この表示範囲で検索' }))
+
+    // 成功で一覧タブへ自動切替され、成功バナーが表示される（一覧タブ ✓）
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    await waitFor(() => {
+      expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // 他タブでも従来どおりバナーが出る（状態が保持されるため）
+    clickTab('検索')
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy() // 検索タブ ✓
+
+    clickTab('その他')
+    expect(tabIsCurrent('その他')).toBe(true)
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy() // その他タブ ✓
+
+    // まちメモ帳タブへ → StatusBanner（成功バナー）は表示されない
+    clickTab('メモ帳')
+    expect(tabIsCurrent('メモ帳')).toBe(true)
+    expect(screen.queryByText('3件の結果を取得しました')).toBeNull()
+
+    // 一覧タブへ戻る → バナーが再び表示される
+    clickTab('一覧')
+    expect(tabIsCurrent('一覧')).toBe(true)
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('エラーバナー: メモ帳タブでは出ず、検索・一覧・その他タブでは従来どおり出る（StatusBanner ごと非表示）', async () => {
+    renderApp()
+
+    // 検索エリア未設定のままタイル選択+「検索する」 → 検証エラーが StatusBanner で
+    // 表示される（Overpass クエリは送出されない＝高速）。エラー時は検索タブのまま
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+    await waitFor(() => {
+      expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
+    }, { timeout: 8000 })
+    expect(tabIsCurrent('検索')).toBe(true) // 検索タブ ✓
+    expect(overpassCalls).toHaveLength(0)
+
+    // 他タブでも従来どおりバナーが出る（状態が保持されるため）
+    clickTab('一覧')
+    expect(tabIsCurrent('一覧')).toBe(true)
+    expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy() // 一覧タブ ✓
+
+    clickTab('その他')
+    expect(tabIsCurrent('その他')).toBe(true)
+    expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy() // その他タブ ✓
+
+    // まちメモ帳タブへ → エラーバナーも表示されない（loading/error/success 全バリアント）
+    clickTab('メモ帳')
+    expect(tabIsCurrent('メモ帳')).toBe(true)
+    expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+
+    // 検索タブへ戻る → バナーが再び表示される
+    clickTab('検索')
+    expect(tabIsCurrent('検索')).toBe(true)
+    expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
+  }, IT_TIMEOUT)
+})
+
 describe('バリアフリー検索: 成功時は一覧タブへ自動切替（検索の種類によらず統一）', () => {
   it('地図モード: バリアフリー検索成功 → 「一覧」タブへ自動切替され、BFカード・結果マップ・凡例が表示される', async () => {
     renderApp()
@@ -1100,7 +1198,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     renderApp()
 
     // introと場所指定
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
 
     // 目的タイル10種が揃って表示される
@@ -1323,12 +1421,12 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.getByPlaceholderText('例: 珈琲、ラーメン')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
     // トップ固有要素が消える
-    expect(screen.queryByText('近くの施設を、みんなの地図で探す')).toBeNull()
+    expect(screen.queryByText('お気に入りで作る')).toBeNull()
     expect(screen.queryByRole('button', { name: /くわしく探す/ })).toBeNull()
 
     // 従来フォーム → トップ
     fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-    expect(screen.getByText('近くの施設を、みんなの地図で探す')).toBeTruthy()
+    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
 
@@ -1715,6 +1813,36 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     expect(overpassCalls[0]).toContain('31.580000,130.680000,31.600000,130.710000')
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+  }, IT_TIMEOUT)
+
+  it('ジオコーディング問い合わせ中に入力欄右端にスピナーが表示され、完了で消える（入力は無効化されない）', async () => {
+    renderApp()
+    // Nominatim の fetch を未解決に保つ（リクエストを実際に Pending 状態にする）
+    nominatimDeferred = createDeferred()
+
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    // 2文字以上入力 → デバウンス（400ms）後に geocodeCandidates が走り、
+    // リクエスト開始でスピナーが表示される
+    fireEvent.change(input, { target: { value: '梅田' } })
+
+    // スピナーが現れるまで待つ（デバウンス＋率制限待ちを含む）
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // スピナー表示中も入力は無効化されない（disabled にならない）
+    const inputDuring = screen.getByPlaceholderText(PLACE_INPUT)
+    expect(inputDuring.disabled).toBe(false)
+    // 右パディングが広がっている（スピナーのスペース確保: pr-9）
+    expect(inputDuring.className).toContain('pr-9')
+
+    // リクエスト完了（候補返却）→ スピナー消滅 ＋ 候補リスト表示
+    nominatimDeferred.resolve([UEDA_ROW])
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeNull()
+    }, { timeout: 8000 })
+    // 候補リストが表示される（同じ React 更新で現れる）
+    await waitForSuggestOption('梅田（大阪府大阪市）')
   }, IT_TIMEOUT)
 })
 

@@ -5,7 +5,7 @@ import HeaderMenu from './HeaderMenu'
 /**
  * (#76) アプリ共通ヘッダー
  *
- * アプリアイコン＋タイトル（まちデータ帳）。タイトルボタンを押すと
+ * アプリアイコン＋タイトル（まちのスクラップブック）。タイトルボタンを押すと
  * 一般トップへ戻る（onGoTop コールバック。戻る先の操作はシェルごとに異なるため
  * プロップで渡す）。右端にはハンバーガーメニュー（HeaderMenu:
  * CSV/GeoJSON保存・まちメモ帳全消去）。
@@ -28,7 +28,7 @@ export default function AppHeader({ onGoTop }) {
             className="flex items-center gap-2.5"
           >
             <AppIcon className="w-9 h-9" />
-            <span className="text-xl font-bold text-slate-800">まちデータ帳</span>
+            <span className="text-xl font-bold text-slate-800">まちのスクラップブック</span>
           </button>
         </h1>
         {/* ハンバーガーメニュー: CSV/GeoJSON保存・まちメモ帳全消去 */}

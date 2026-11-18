@@ -5,6 +5,9 @@
  * - addMemocho: スナップショット生成・name優先順位・tagsコピーの独立性・重複防止
  * - removeMemocho / updateMemo / updateRating / hasMemocho
  * - mergeMemocho: added/skipped 件数、既存優先
+ * - ごみ箱（論理削除）: isDeletedItem / activeItems / trashItems /
+ *   trashMemocho / restoreMemocho。hasMemocho はごみ箱を未登録扱い、
+ *   addMemocho はごみ箱の同キーを復元、parseMemochoJSON は deletedAt を保持
  * - serializeMemocho → parseMemochoJSON の往復
  * - parseMemochoJSON: 素の配列・全体が不正な場合
  */
@@ -23,6 +26,11 @@ import {
   mergeMemocho,
   serializeMemocho,
   parseMemochoJSON,
+  isDeletedItem,
+  activeItems,
+  trashItems,
+  trashMemocho,
+  restoreMemocho,
 } from '../memocho'
 
 /** localStorage のインメモリスタブ */
@@ -281,6 +289,118 @@ describe('memocho', () => {
       expect(items).toEqual([])
       expect(added).toEqual([])
       expect(skipped).toBe(0)
+    })
+  })
+
+  describe('ごみ箱（論理削除）', () => {
+    const trashed = (overrides = {}) => ({ ...makeItem({ ...overrides, deletedAt: '2026-06-15T10:30:00.000Z' }) })
+
+    it('isDeletedItem: deletedAt が非空の文字列なら true', () => {
+      expect(isDeletedItem(trashed())).toBe(true)
+      expect(isDeletedItem(makeItem())).toBe(false)
+      expect(isDeletedItem({ ...makeItem(), deletedAt: '' })).toBe(false)
+      expect(isDeletedItem({ ...makeItem(), deletedAt: 123 })).toBe(false)
+      expect(isDeletedItem(null)).toBe(false)
+    })
+
+    it('activeItems / trashItems: deletedAt で分割する', () => {
+      const items = [makeItem(), trashed({ type: 'node', id: 789, name: 'ごみ箱店' })]
+      expect(activeItems(items)).toEqual([items[0]])
+      expect(trashItems(items)).toEqual([items[1]])
+      expect(activeItems([])).toEqual([])
+      expect(trashItems([])).toEqual([])
+    })
+
+    it('hasMemocho: ごみ箱のアイテムは未登録として扱う', () => {
+      expect(hasMemocho([trashed()], 'way/456')).toBe(false) // ごみ箱＝未登録
+      expect(hasMemocho([makeItem()], 'way/456')).toBe(true)
+    })
+
+    it('trashMemocho: 該当キーに deletedAt（ISO）を付けて論理削除する', () => {
+      const items = [makeItem({ type: 'node', id: 1 }), makeItem({ type: 'node', id: 2 })]
+      const next = trashMemocho(items, 'node/1')
+      expect(next).toHaveLength(2)
+      expect(next[0].deletedAt).toBeTypeOf('string')
+      expect(new Date(next[0].deletedAt).toISOString()).toBe(next[0].deletedAt) // ISO形式
+      expect(next[1].deletedAt).toBeUndefined() // 他は不変
+      expect(items[0].deletedAt).toBeUndefined() // 元の配列は不変
+      expect(next[0]).not.toBe(items[0]) // 新しいオブジェクト
+    })
+
+    it('trashMemocho: 既にゴミ箱にある・存在しないキーならそのまま返す', () => {
+      const src = [trashed()]
+      expect(trashMemocho(src, 'way/456')).toBe(src) // 既にゴミ箱
+      const src2 = [makeItem()]
+      expect(trashMemocho(src2, 'node/999')).toBe(src2) // 存在しない
+    })
+
+    it('restoreMemocho: deletedAt を除去して復元する', () => {
+      const items = [trashed(), makeItem({ type: 'node', id: 2 })]
+      const next = restoreMemocho(items, 'way/456')
+      expect(next[0].deletedAt).toBeUndefined()
+      expect(next[0]).not.toBe(items[0])
+      expect(next[0]).toEqual(makeItem()) // 他のフィールドは保持
+      expect(next[1]).toBe(items[1]) // 他は不変（同じ参照）
+    })
+
+    it('restoreMemocho: ごみ箱に該当キーが無ければそのまま返す', () => {
+      const src = [makeItem()]
+      expect(restoreMemocho(src, 'way/456')).toBe(src)
+    })
+
+    it('addMemocho: 同じキーがごみ箱にあるなら復元する（重複作成しない）', () => {
+      const result = makeResult() // node/123
+      const items = [trashed({ type: 'node', id: 123, name: 'ごみ箱店', tags: { name: 'ごみ箱店' } })]
+      const next = addMemocho(items, result)
+      expect(next).toHaveLength(1) // 重複作成されない
+      expect(next[0].deletedAt).toBeUndefined()
+      expect(next[0].name).toBe('ごみ箱店') // 既存条目のデータ（メモ・評価等）を保持
+    })
+
+    it('parseMemochoJSON: 妥当な deletedAt を保持する（ごみ箱も復元できる）', () => {
+      const items = parseMemochoJSON(JSON.stringify({
+        app: 'machi-memocho', version: 1,
+        items: [{ ...makeItem(), deletedAt: '2026-06-15T10:30:00.000Z' }],
+      }))
+      expect(items[0].deletedAt).toBe('2026-06-15T10:30:00.000Z')
+    })
+
+    it('parseMemochoJSON: 不正な deletedAt は落とす（寛容な方式）', () => {
+      for (const bad of [123, '', null, { at: 'x' }]) {
+        const items = parseMemochoJSON(JSON.stringify({
+          app: 'machi-memocho', version: 1,
+          items: [{ ...makeItem(), deletedAt: bad }],
+        }))
+        expect('deletedAt' in items[0]).toBe(false)
+      }
+    })
+
+    it('serialize → parse で deletedAt が往復する', () => {
+      const items = [makeItem(), trashed({ type: 'node', id: 789, name: 'ごみ箱店' })]
+      const round = parseMemochoJSON(serializeMemocho(items))
+      expect(round[0].deletedAt).toBeUndefined()
+      expect(round[1].deletedAt).toBe('2026-06-15T10:30:00.000Z')
+    })
+
+    it('mergeMemocho: 既存がゴミ箱・読み込みがアクティブなら復元（読み込み側で差し替え）', () => {
+      const current = [trashed({ type: 'node', id: 1, name: '既存A', memo: '既存メモ', tags: { name: '既存A' } })]
+      const imported = [makeItem({ type: 'node', id: 1, name: '取り込みA', memo: '取り込みメモ', tags: { name: '取り込みA' } })]
+      const { items, added, skipped } = mergeMemocho(current, imported)
+      expect(items).toHaveLength(1)
+      expect(added).toHaveLength(1)
+      expect(skipped).toBe(0)
+      expect(items[0].name).toBe('取り込みA') // 読み込み側で差し替え（復元）
+      expect(items[0].deletedAt).toBeUndefined()
+    })
+
+    it('mergeMemocho: 既存と読み込みの両方がゴミ箱ならスキップ', () => {
+      const current = [trashed({ type: 'node', id: 1, name: '既存A', memo: '既存メモ', tags: { name: '既存A' } })]
+      const imported = [trashed({ type: 'node', id: 1, name: '取り込みA', memo: '取り込みメモ', tags: { name: '取り込みA' } })]
+      const { items, added, skipped } = mergeMemocho(current, imported)
+      expect(items).toHaveLength(1)
+      expect(items[0].name).toBe('既存A') // 既存優先
+      expect(added).toHaveLength(0)
+      expect(skipped).toBe(1)
     })
   })
 

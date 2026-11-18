@@ -78,7 +78,7 @@ describe('PoiDescription — 施設POI（タグ少ない）', () => {
       lat: 34.6, lon: 135.5
     }
     render(<PoiDescription tappedPoi={poi} />)
-    expect(screen.getByText('名前のない要素')).toBeTruthy()
+    expect(screen.getByText('（名称不明）')).toBeTruthy()
     expect(screen.getByText('公共トイレ')).toBeTruthy()
     // OSMリンクはある
     expect(screen.getByText(/OSMで見る/)).toBeTruthy()

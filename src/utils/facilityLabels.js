@@ -16,11 +16,29 @@ import { CATEGORIES } from '../data/categories'
 import { categoryMatchesElement } from './categoryMatch'
 
 /**
+ * 名前の無い施設を表示する際の代替文言。
+ * 「名前のない要素」は実在の名前に見えてしまうため、括弧付きの「（名称不明）」に統一する。
+ */
+export const NAME_FALLBACK = '（名称不明）'
+
+/**
+ * 名前のない代わりにデータ側で格納される既知の文言。
+ * 表示では NAME_FALLBACK に置き換える（データ出力には影響させない）。
+ * まちメモ帳のアイテムは名前の無い施設に name:'名称なし' を持つ。
+ */
+const NAME_SENTINELS = new Set(['名称なし'])
+
+/**
  * 施設名を取得（name → name:ja → フォールバック）
+ * 名前の無い施設は NAME_FALLBACK（（名称不明））を返す。
+ * データ側のセンチネル（名称なし）は「名前がない」として扱い、表示では NAME_FALLBACK を使う。
  */
 export function facilityName(result) {
-  if (!result) return '名前のない要素'
-  return result.name || result.tags?.['name:ja'] || '名前のない要素'
+  if (!result) return NAME_FALLBACK
+  const name = result.name
+  const realName =
+    typeof name === 'string' && name !== '' && !NAME_SENTINELS.has(name) ? name : null
+  return realName || result.tags?.['name:ja'] || NAME_FALLBACK
 }
 
 /**

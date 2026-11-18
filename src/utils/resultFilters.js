@@ -8,7 +8,8 @@
  *
  * フィルタ状態は App.jsx の reducer state.resultFilters に置き、
  * { nameFilter, typeFilter, catFilter, sortDir } を持つ。
- *   - nameFilter:   施設名の部分一致（name / name:ja、大文字小文字無視）
+ *   - nameFilter:   キーワード（name / name:ja / メモ本文の部分一致、大文字小文字無視）。
+ *     一覧・まちメモ帳で共用（matchesKeyword）。メモ帳はメモ本文（memo）にも効く
  *   - typeFilter:   OSM要素種別（all | node | way | relation）
  *   - catFilter:    施設カテゴリID（categoryMatchesElement で判定）
  *   - purposeFilter: 目的名（その目的に属するカテゴリのいずれかに一致するものだけ）
@@ -18,6 +19,13 @@
  *     タグに基づく判定で「登録あり」が確認できるものだけを残し、未登録は含めない。
  *   - cuisine:      料理ジャンル（tags.cuisine の '; ' 区切り値の一部一致・大小文字無視）。
  *     選択肢は cuisineFacetValues（フィルタ適用前の結果から集計）が提供する。
+ *   - wifi:         WiFi有無（all | yes | no）。wifiStatus（3状態）と一致するものだけ。
+ *     未登録（unknown）は「あり」にも「なし」にも含めない。
+ *   - power:        電源有無（all | yes）。powerStatus（3状態）で 'yes' のものだけ。
+ *   - wheelchair:   車椅子対応（all | yes | partial | no）。tags.wheelchair の値で判定。
+ *     未登録はどの絞り込みにも含めない。
+ *   - rating:       ★評価（all | gte1〜gte4 | eq5）。rating は整数 0-5（0 = 未評価）。
+ *     未評価は「すべて」にのみ該当する。まちメモ帳専用の絞り込み。
  *   - kerbHeight:   縁石の高さ（any | flat | low | high | unknown）。
  *     bf を持つ結果のみ kerbHeightClass（barrierFreeResults.js）で分類し、
  *     一致するものだけ残す。bf を持たない結果は除外される。
@@ -33,6 +41,7 @@ import { facilityName } from './facilityLabels'
 import { getCategoriesForPurpose } from '../data/categories'
 import { missingAttributesOf } from './statistics'
 import { kerbHeightClass } from './barrierFreeResults'
+import { powerStatus, wifiStatus } from './powerWifi'
 
 // ===== 視点フィルタ =====
 
@@ -255,6 +264,17 @@ const CUISINE_LABELS = {
  * @param {number} limit - 返すファセット値の最大件数（既定10）
  * @returns {Array<{value:string, label:string, count:number}>}
  */
+/**
+ * cuisine タグ値の日本語表示ラベルを返す（辞書に載っていない値はそのまま返す）。
+ * チップ行（cuisineFacetValues）と折りたたみ見出し行（CuisineChips）でラベルを
+ * 統一するために共用する。
+ * @param {string} value - cuisine タグ値（小文字化された値）
+ * @returns {string} 日本語ラベル、または生の値
+ */
+export function cuisineLabelOf(value) {
+  return CUISINE_LABELS[value] || value
+}
+
 export function cuisineFacetValues(results, limit = 10) {
   const counts = new Map()
   for (const r of Array.isArray(results) ? results : []) {
@@ -268,7 +288,7 @@ export function cuisineFacetValues(results, limit = 10) {
   }
   const items = [...counts.entries()].map(([value, count]) => ({
     value,
-    label: CUISINE_LABELS[value] || value,
+    label: cuisineLabelOf(value),
     count
   }))
   items.sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
@@ -278,6 +298,72 @@ export function cuisineFacetValues(results, limit = 10) {
 /**
  * アクティブなフィルタが1つでも存在するか
  */
+// ===== キーワード・WiFi・電源・車椅子・評価の判定（一覧・まちメモ帳共通） =====
+
+/**
+ * キーワード絞り込み（一覧・メモ帳で統一）:
+ * 名称（name / name:ja）とメモ本文（memo）のいずれかにキーワードが
+ * 部分一致すれば該当する（大文字小文字無視）。
+ * 一覧の結果には memo フィールドが無いので実質 name+name:ja となる。
+ */
+export function matchesKeyword(item, keyword) {
+  const kw = (keyword || '').trim().toLowerCase()
+  if (!kw) return true
+  const tags = (item && item.tags) || {}
+  const haystack = [item && item.name, tags['name:ja'], item && item.memo]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(kw)
+}
+
+/**
+ * WiFi 有無で絞る（'all' | 'yes' | 'no'）。
+ * wifiStatus（3状態）が mode と一致するものだけ残す。
+ * 'yes' = 登録されて yes、'no' = 登録されて no。未登録（unknown）はどちらにも該当しない。
+ */
+export function matchesWifi(item, mode) {
+  if (mode === 'all') return true
+  return wifiStatus((item && item.tags) || {}) === mode
+}
+
+/**
+ * 電源有無で絞る（'all' | 'yes'）。
+ * 「あり」のみで絞り込む仕様: powerStatus（3状態）が 'yes' のものだけ残す。
+ * 'no' / 未登録（unknown）は「あり」に含まない（未登録＝なしと混同しない）。
+ */
+export function matchesPower(item, mode) {
+  if (mode === 'all') return true
+  return powerStatus((item && item.tags) || {}) === 'yes'
+}
+
+/**
+ * 車椅子対応で絞る（'all' | 'yes' | 'partial' | 'no'）。
+ * 'partial' = limited、'yes' = yes / designated。
+ * 未登録（tags.wheelchair が無い）はどの絞り込みにも該当しない。
+ */
+export function matchesWheelchair(item, mode) {
+  const v = ((item && item.tags) || {}).wheelchair
+  if (mode === 'all') return true
+  if (mode === 'yes') return v === 'yes' || v === 'designated'
+  if (mode === 'partial') return v === 'limited'
+  if (mode === 'no') return v === 'no'
+  return true
+}
+
+/**
+ * ★評価で絞る（'all' | 'gte1'〜'gte4' | 'eq5'）。
+ * rating は整数 0-5（0 = 未評価）。未評価（0）は「すべて」にのみ該当する。
+ */
+export function matchesRating(item, mode) {
+  if (mode === 'all') return true
+  const r = (item && Number.isInteger(item.rating)) ? item.rating : 0
+  if (mode === 'eq5') return r === 5
+  const m = /^gte(\d+)$/.exec(mode || '')
+  if (m) return r >= Number(m[1])
+  return false
+}
+
 export function hasActiveFilters(filters) {
   const f = filters || {}
   return !!(
@@ -288,6 +374,10 @@ export function hasActiveFilters(filters) {
     (f.missingFilter && f.missingFilter !== 'none') ||
     (f.perspective && f.perspective !== 'none') ||
     ((f.cuisine || '').trim() !== '') ||
+    (f.wifi && f.wifi !== 'all') ||
+    (f.power && f.power !== 'all') ||
+    (f.wheelchair && f.wheelchair !== 'all') ||
+    (f.rating && f.rating !== 'all') ||
     (f.kerbHeight && f.kerbHeight !== 'any') ||
     (f.sortDir && f.sortDir !== 'none')
   )
@@ -303,13 +393,7 @@ export function applyResultFilters(results, filters) {
   const f = filters || {}
   let out = results || []
 
-  const name = (f.nameFilter || '').trim().toLowerCase()
-  if (name) {
-    out = out.filter((r) => {
-      const n = `${r.name || ''} ${r.tags?.['name:ja'] || ''}`.toLowerCase()
-      return n.includes(name)
-    })
-  }
+  if ((f.nameFilter || '').trim()) out = out.filter((r) => matchesKeyword(r, f.nameFilter))
 
   if (f.typeFilter && f.typeFilter !== 'all') {
     out = out.filter((r) => r.type === f.typeFilter)
@@ -350,6 +434,12 @@ export function applyResultFilters(results, filters) {
       return String(raw).split(';').some((part) => part.trim().toLowerCase().includes(cuisine))
     })
   }
+
+  // 一覧・まちメモ帳共通: WiFi / 電源 / 車椅子 / ★評価
+  if (f.wifi && f.wifi !== 'all') out = out.filter((r) => matchesWifi(r, f.wifi))
+  if (f.power && f.power !== 'all') out = out.filter((r) => matchesPower(r, f.power))
+  if (f.wheelchair && f.wheelchair !== 'all') out = out.filter((r) => matchesWheelchair(r, f.wheelchair))
+  if (f.rating && f.rating !== 'all') out = out.filter((r) => matchesRating(r, f.rating))
 
   // 縁石の高さ（バリアフリー一覧専用）: bf を持つ結果のうち kerbHeightClass が
   // 一致するものだけ残し、bf を持たない結果（および縁石でない要素）は除外する

@@ -3,7 +3,7 @@
  */
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
-const USER_AGENT = 'OSM-Data-Explorer/0.1 (https://armd-02.github.io/osm-data-explorer/)'
+const USER_AGENT = 'Machi-Scrapbook/0.1 (https://armd-02.github.io/machi-scrapbook/)'
 
 // (#63) 検索エリア判定（searchAreaFromGeocode）でBBOXの妥当性を確認するのに使う
 import { isValidBbox } from './searchBbox'

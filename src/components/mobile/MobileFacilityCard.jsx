@@ -11,6 +11,7 @@ import { formatOpeningHoursJa } from '../../utils/openingHours'
 import { missingAttributesOf, ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { memochoKeyOf } from '../../utils/memocho'
 import { useMemocho } from '../../hooks/useMemocho'
+import { powerWifiStatus, isWorkspaceFacility } from '../../utils/powerWifi'
 
 // テスト・他コンポーネントの互換のために再エクスポート
 export { facilityName, formatAddress, safeWebsite }
@@ -19,6 +20,28 @@ export { facilityName, formatAddress, safeWebsite }
 // カテゴリプロファイル（keyInfoFor）の項目のうちこれらと重なるものは
 // 基本行で表示するため、追加行から除外して二重表示を防ぐ。
 const BASE_KEYS = new Set(['address', 'phone', 'opening_hours', 'website'])
+
+// (作業スペース系 電源・Wi-Fi) 3状態の表示:
+// - あり: 緑バッジ（登録済みの事実）
+// - なし: 赤バッジ（登録済みの事実・TONE_CLASSES の no トーンと同じ色）
+// - 未登録: バッジなしのプレーン表示（電話・Webサイトの「-」と同じく控えめ）
+function PowerWifiValue({ state, icon }) {
+  if (state === 'yes') {
+    return (
+      <span className="text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md px-2 py-0.5">
+        {icon} あり
+      </span>
+    )
+  }
+  if (state === 'no') {
+    return (
+      <span className="text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-2 py-0.5">
+        {icon} なし
+      </span>
+    )
+  }
+  return <span>未登録</span>
+}
 
 /**
  * モバイル施設カード（電話帳型）
@@ -31,12 +54,14 @@ const BASE_KEYS = new Set(['address', 'phone', 'opening_hours', 'website'])
  *       未登録ならリンクにせず「-」と表記する。
  *     - 住所・営業時間は従来どおり登録がある場合だけ行を表示する。
  *     - 個別にタップできるようにカードは button ではなく div。
- *       リンクは stopPropagation で詳細シートの展開を防ぐ。
+ *       詳細シートの展開はカード内の「🔎詳細」ボタンの押下のみ
+ *       （カード本体のタップでは詳細は開かない）。
  *   - カテゴリ別の追加情報（keyInfoFor のプロファイル項目）のうち、
  *     基本4項目と重ならないものは基本項目の下に続けて表示。
  *   - 車椅子バッジ・欠落フィルタ時の「未登録」表示は従来どおり。
  *
- * カード全体をタップすると詳細シート（onOpen(result)）が開く。
+ * 詳細シートはカード内の「🔎詳細」ボタン（aria-label: {施設名}の詳細）を
+ * 押したときだけ onOpen(result) で開く。
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
  */
@@ -54,15 +79,21 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
   )
   const wcBadge = wheelchairBadge(tags)
 
+  // (作業スペース系 電源・Wi-Fi) 対象施設（cafe/library/internet_cafe/coworking）のみ
+  // 電源・Wi-Fi の3状態を表示する。対象外は行ごとに出さない。
+  const pwStatus = isWorkspaceFacility(tags) ? powerWifiStatus(tags) : null
+
   // まちメモ帳（第2ピース）: この施設が登録済みかどうか
   const { has, toggle } = useMemocho()
   const registered = has(memochoKeyOf(result))
 
-  // リンクタップ時の詳細シート展開を止める（カード全体の onClick を通さない）
+  // （レガシー）カード全体の onClick は撤去済みで、これらの stopPropagation は
+  // 現状では何もしない。それでも上位コンポーネント側で新たな伝播ハンドラが
+  // 増えた場合に備え、従来どおり残す（リンク・トグルの操作自体は不変）。
   const stopOpen = (e) => e.stopPropagation()
 
   // メモ帳ボタンのタップ: 追加/削除を切り替える（toggle）。
-  // カード全体の onClick（詳細を開く）へは伝播させない（stopOpen と同じパターン）
+  // stopPropagation は上記のレガシーパターン（伝播防御）として維持する。
   const onToggleMemo = (e) => {
     e.stopPropagation()
     toggle(result)
@@ -70,17 +101,27 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
 
   return (
     <div
-      onClick={() => onOpen(result)}
       className={bare
-        ? "w-full text-left p-3 space-y-1.5 active:bg-slate-50 cursor-pointer"
-        : "w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5 active:bg-slate-50 cursor-pointer"}
+        ? "w-full text-left p-3 space-y-1.5"
+        : "w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5"}
     >
-      {/* 施設名（大きめ・太字）＋カテゴリラベル */}
+      {/* 施設名（大きめ・太字）＋カテゴリラベル＋「🔎詳細」ボタン。
+          カード本体のタップでは詳細は開かず、ボタンの押下のみで開く */}
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-base font-bold text-slate-800 min-w-0 break-words">{name}</h3>
-        <span className="shrink-0 text-[11px] text-primary-700 bg-primary-50 rounded-md px-2 py-0.5">
-          {typeLabel}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="text-[11px] text-primary-700 bg-primary-50 rounded-md px-2 py-0.5">
+            {typeLabel}
+          </span>
+          <button
+            type="button"
+            onClick={() => onOpen && onOpen(result)}
+            aria-label={`${name}の詳細`}
+            className="text-[11px] leading-tight px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100"
+          >
+            🔎詳細
+          </button>
+        </div>
       </div>
 
       {/* 基本項目行。住所・営業時間は登録済みのみ。
@@ -127,6 +168,22 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
         <p className="text-xs text-slate-600">
           <span className="text-slate-400">Webサイト</span>
           <span className="ml-1">-</span>
+        </p>
+      )}
+
+      {/* (作業スペース系) 電源・Wi-Fi の状態。基本4項目のあと・カテゴリ追加項目の前。
+          対象施設のみ表示。あり/なしはバッジ（登録済みの事実）、
+          未登録は控えめなプレーン表示（電話・Webサイトの「-」と同様） */}
+      {pwStatus && (
+        <p className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1">
+            <span className="text-slate-400">電源</span>
+            <PowerWifiValue state={pwStatus.power} icon="⚡" />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="text-slate-400">Wi-Fi</span>
+            <PowerWifiValue state={pwStatus.wifi} icon="📶" />
+          </span>
         </p>
       )}
 

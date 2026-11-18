@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>キャッシュ診断 | まちデータ帳</title>
+  <title>キャッシュ診断 | まちのスクラップブック</title>
   <style>
     body { font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; max-width: 640px; margin: 0 auto; padding: 24px 16px; line-height: 1.7; color: #1f2937; background: #f8fafc; }
     h1 { font-size: 1.3rem; }
@@ -23,7 +23,7 @@
 <body>
   <h1>🔍 ブラウザキャッシュ診断</h1>
   <p>
-    まちデータ帳は GitHub Pages に公開されており、<code>index.html</code> は
+    まちのスクラップブックは GitHub Pages に公開されており、<code>index.html</code> は
     <strong>10分間ブラウザにキャッシュされる</strong>仕様です（GitHub Pages はキャッシュ設定に
     対応していないため）。デプロイ（更新）直後に通常リロードしても、
     キャッシュの古い HTML・JS が読み込まれ、<strong>古いコードが動き続ける</strong>ことがあります。
@@ -43,7 +43,7 @@
 
   <div class="card">
     <h2>アプリのタブを確認する</h2>
-    <p>まちデータ帳のタブで DevTools のコンソールを開き、次の一行を貼り付けて実行してください:</p>
+    <p>まちのスクラップブックのタブで DevTools のコンソールを開き、次の一行を貼り付けて実行してください:</p>
     <pre>document.querySelector('meta[name="app-version"]')?.content ?? '旧HTML（機構なし）'</pre>
     <p>
       表示された値が上の「最新 app-version」と<strong>一致していれば最新</strong>です。
@@ -64,7 +64,7 @@
     <h2>その他の回避方法</h2>
     <ul>
       <li>ハードリロード: <code>Ctrl+Shift+R</code>（Mac: <code>Cmd+Shift+R</code>）</li>
-      <li>URL に任意の query を付加して開く: <code>…/osm-data-explorer/?x=1</code></li>
+      <li>URL に任意の query を付加して開く: <code>…/machi-scrapbook/?x=1</code></li>
       <li>DevTools → Application → Storage → “Clear site data”</li>
       <li>10分待つ（キャッシュの有効期限が切れると次回リロードで最新版になります）</li>
     </ul>

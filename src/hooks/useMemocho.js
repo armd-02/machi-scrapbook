@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import {
   addMemocho,
+  activeItems,
   hasMemocho,
   loadMemocho,
   memochoKeyOf,
   mergeMemocho,
   removeMemocho,
+  restoreMemocho,
   saveMemocho,
+  trashItems,
+  trashMemocho,
   updateMapImage,
   updateRating,
   updateMemo
@@ -60,13 +64,20 @@ export function resetMemochoStore() {
  * まちメモ帳の状態と変更操作を返す。
  *
  * 戻り値:
- *   items    現在のアイテム配列（React state。購読で自動更新される）
- *   has(key)        キー（'node/123' 形式）が登録済みかを返す
- *   add(result)     検索結果を追加。実際に追加したら true（重複なら false）
- *   remove(key)     キーのアイテムを削除。削除できたら true（存在しなければ false）
- *   toggle(result)  未登録なら追加（'added'）、登録済みなら削除（'removed'）
+ *   items          現在のアイテム配列（React state。アクティブ＋ごみ箱。購読で自動更新）
+ *   active         アクティブ（deletedAt が無い）アイテムの配列（表示・絞り込み・CSV の対象）
+ *   trashItems     ごみ箱（deletedAt 付き）アイテムの配列
+ *   has(key)       キー（'node/123' 形式）がアクティブに登録済みかを返す（ごみ箱は未登録扱い）
+ *   add(result)    検索結果を追加。追加・復元したら true（アクティブ重複なら false）
+ *   remove(key)    キーのアイテムを完全に削除。削除できたら true（存在しなければ false）
+ *   trash(key)     論理削除（deletedAt を付けてごみ箱へ）。できたら true
+ *   restore(key)   ごみ箱から復元（deletedAt を除去）。できたら true
+ *   toggle(result) 未登録なら追加（'added'）、登録済みならごみ箱へ（'removed'）、
+ *                  ごみ箱なら復元（'added'）
  *   setMemo(key, text)  そのキーのメモ文字列を差し替える
  *   importItems(items)  読み込み用アイテム配列を合流。{ added, skipped }（件数）を返す
+ *   wipeAll()      アクティブ＋ごみ箱の全件を完全に削除。消去した件数を返す
+ *   emptyTrash()   ごみ箱の全件を完全に削除。削除した件数を返す
  */
 export function useMemocho() {
   const [items, setItems] = useState(getStore)
@@ -80,6 +91,12 @@ export function useMemocho() {
   return {
     items,
 
+    // 通常の一覧表示・件数・絞り込み・CSV 書き出しの対象（アクティブのみ）
+    active: activeItems(items),
+
+    // ごみ箱ビューで使うアイテム
+    trashItems: trashItems(items),
+
     has: (key) => hasMemocho(items, key),
 
     add: (result) => {
@@ -90,6 +107,7 @@ export function useMemocho() {
       return added
     },
 
+    // 完全削除（ハード削除）。ごみ箱の完全削除・全消去の内部で使う
     remove: (key) => {
       const current = getStore()
       const next = removeMemocho(current, key)
@@ -98,11 +116,31 @@ export function useMemocho() {
       return removed
     },
 
+    // 論理削除: 該当キーのアクティブアイテムを deletedAt を付けてごみ箱へ
+    trash: (key) => {
+      const current = getStore()
+      const next = trashMemocho(current, key)
+      const trashed = next !== current
+      if (trashed) setStore(next)
+      return trashed
+    },
+
+    // ごみ箱から復元（deletedAt を除去）
+    restore: (key) => {
+      const current = getStore()
+      const next = restoreMemocho(current, key)
+      const restored = next !== current
+      if (restored) setStore(next)
+      return restored
+    },
+
+    // 「メモ帳に追加」トグル。登録済みならごみ箱へ（論理削除）、
+    // ごみ箱にあるなら復元、無ければ追加。addMemocho はごみ箱の復元を内包している
     toggle: (result) => {
       const current = getStore()
       const key = memochoKeyOf(result)
       if (hasMemocho(current, key)) {
-        setStore(removeMemocho(current, key))
+        setStore(trashMemocho(current, key))
         return 'removed'
       }
       const next = addMemocho(current, result)
@@ -141,6 +179,22 @@ export function useMemocho() {
       const { items: next, added, skipped } = mergeMemocho(current, importedItems)
       if (added.length > 0) setStore(next)
       return { added: added.length, skipped }
+    },
+
+    /** 「まちメモ帳をすべて削除」。アクティブ＋ごみ箱の全件を完全に削除する。消去した件数を返す */
+    wipeAll: () => {
+      const count = getStore().length
+      setStore([])
+      return count
+    },
+
+    /** 「ごみ箱を空にする」。deletedAt 付き（ごみ箱）のみを完全に削除する。削除した件数を返す */
+    emptyTrash: () => {
+      const current = getStore()
+      const kept = activeItems(current)
+      const removed = current.length - kept.length
+      if (removed > 0) setStore(kept)
+      return removed
     }
   }
 }

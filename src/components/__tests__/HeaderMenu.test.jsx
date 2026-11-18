@@ -104,7 +104,7 @@ describe('HeaderMenu: メニューの開閉', () => {
     expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
-  it('☰ クリックでメニューが開き、検索結果系・まちメモ帳系・全消去の6項目が表示される (#79)', () => {
+  it('☰ クリックでメニューが開き、検索結果系・まちメモ帳系・ごみ箱・全消去の7項目が表示される', () => {
     render(<Harness><HeaderMenu /></Harness>)
     fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
     expect(screen.getByRole('button', { name: 'メニュー' }).getAttribute('aria-expanded')).toBe('true')
@@ -115,6 +115,8 @@ describe('HeaderMenu: メニューの開閉', () => {
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をJSONで書き出し/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ })).toBeTruthy()
+    // ごみ箱（論理削除されたアイテムの表示・復元へ）
+    expect(screen.getByRole('menuitem', { name: /ごみ箱/ })).toBeTruthy()
     // 全消去
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })).toBeTruthy()
   })
@@ -123,7 +125,7 @@ describe('HeaderMenu: メニューの開閉', () => {
     render(<Harness><HeaderMenu /></Harness>)
     const btn = screen.getByRole('button', { name: 'メニュー' })
     fireEvent.click(btn)
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(6)
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(7)
     fireEvent.click(btn)
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
   })
@@ -135,8 +137,8 @@ describe('HeaderMenu: グルーピング（#80）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
     expect(screen.getByText('検索結果')).toBeTruthy()
     expect(screen.getByText('まちメモ帳')).toBeTruthy()
-    // 見出しは menuitem にならない（6項目のまま）
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(6)
+    // 見出しは menuitem にならない（7項目のまま）
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(7)
   })
 
   it('全消去は危険操作として従来どおり赤字で表示される', () => {
@@ -287,8 +289,9 @@ describe('HeaderMenu: まちメモ帳をすべて削除（2段階）', () => {
     expect(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ }).disabled).toBe(true)
     // 読み込みはメモ帳が空でも実行できる（空に読み込む操作）
     expect(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }).disabled).toBe(false)
-    // 書き出し系の件数表記は「0件」（無効化の理由を表示）
-    expect(screen.getAllByText('0件')).toHaveLength(2)
+    // 書き出し系の件数表記は「0件」（無効化の理由を表示）。
+    // JSON・CSV・ごみ箱の3項目に表示される
+    expect(screen.getAllByText('0件')).toHaveLength(3)
   })
 })
 
@@ -447,6 +450,85 @@ describe('HeaderMenu: まちメモ帳の読み込み (#79)', () => {
       expect(screen.getByRole('status').textContent).toContain('読み込みに失敗しました')
     }, { timeout: 5000 })
     expect(storedItems()).toEqual([makeMemoItem()])
+  })
+})
+
+describe('HeaderMenu: ごみ箱（論理削除）', () => {
+  const TRASHED = () => makeMemoItem({ id: 1002, name: 'パン屋B', deletedAt: '2026-06-15T10:30:00.000Z' })
+
+  it('「ごみ箱」を押すと SET_MEMOCHO_VIEW(trash) が dispatch され、メニューが閉じる', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem(), TRASHED()]))
+    let dispatchMock
+    render(
+      <AppContext.Provider value={{ state: createInitialState(), dispatch: (dispatchMock = vi.fn()) }}>
+        <HeaderMenu />
+      </AppContext.Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    const trashBtn = screen.getByRole('menuitem', { name: /ごみ箱/ })
+    // 件数表記はごみ箱の件数を反映する
+    expect(trashBtn.textContent).toContain('1件')
+
+    fireEvent.click(trashBtn)
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'SET_MEMOCHO_VIEW', payload: 'trash' })
+    // 操作後はメニューが閉じる（シェル側がメモ帳タブへ自動切替する）
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('CSV書き出し: ごみ箱のアイテム（deletedAt 付き）は除外される', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeMemoItem({ memo: 'アクティブ', rating: 3 }),
+      TRASHED(),
+    ]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳をCSVで書き出し/ }))
+
+    const csv = await URL.createObjectURL.mock.calls[0][0].text()
+    expect(csv).toContain('テスト珈琲店')
+    expect(csv).not.toContain('パン屋B') // ごみ箱のアイテムは除外
+    // 件数表記はアクティブのみ（1件）
+    expect(screen.getByRole('status').textContent).toContain('1件をCSVとして書き出しました')
+  })
+
+  it('JSON書き出し: ごみ箱のアイテムも含めて全件を含む', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeMemoItem({ memo: 'アクティブ' }),
+      TRASHED(),
+    ]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳をJSONで書き出し/ }))
+
+    const parsed = JSON.parse(await URL.createObjectURL.mock.calls[0][0].text())
+    expect(parsed.items).toHaveLength(2)
+    expect(parsed.items.some((i) => i.deletedAt)).toBe(true) // ごみ箱も保持
+  })
+
+  it('すべて削除: ごみ箱のアイテムも含めて全件が完全削除される', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem(), TRASHED()]))
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+
+    // 件数表記はごみ箱を含んだ全件（2件）
+    fireEvent.click(screen.getByRole('menuitem', { name: 'まちメモ帳をすべて削除（2件）' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '本当にすべて削除しますか？' }))
+
+    expect(storedItems()).toEqual([]) // ごみ箱のアイテムも消える
+    expect(screen.getByRole('status').textContent).toContain('2件すべて削除しました')
+  })
+
+  it('メモ帳が空のとき「ごみ箱」は有効（件数表記は0件）', () => {
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    const trashBtn = screen.getByRole('menuitem', { name: /ごみ箱/ })
+    expect(trashBtn.disabled).toBe(false) // 空でも開ける
+    expect(trashBtn.textContent).toContain('0件')
   })
 })
 

@@ -181,7 +181,7 @@ function buildPopupElement(result) {
 
   const nameEl = document.createElement('div')
   nameEl.className = 'map-popup-name'
-  nameEl.textContent = result.name || '（名前のない要素）'
+  nameEl.textContent = result.name || '（名称不明）'
   root.appendChild(nameEl)
 
   const metaEl = document.createElement('div')

@@ -464,10 +464,13 @@ describe('まちメモ帳ボタン（第2ピース・フッター）', () => {
     expect(stored).toHaveLength(1)
     expect(stored[0]).toMatchObject({ type: 'node', id: 1001, name: 'テスト珈琲店' })
 
-    // もう一度押すと削除され「メモ帳に追加」に戻る
+    // もう一度押すとごみ箱へ移動され（論理削除）「メモ帳に追加」に戻る
     fireEvent.click(within(dialog).getByRole('button', { name: /メモ帳から削除/ }))
     expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
-    expect(JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))).toHaveLength(0)
+    // アイテムはごみ箱としてストアに残る（deletedAt が付く）
+    const stored2 = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
+    expect(stored2).toHaveLength(1)
+    expect(stored2[0].deletedAt).toBeTruthy()
   })
 
   it('既存アクション（経路検索・iDで編集・閉じる）はメモ帳ボタンの追加後も維持される', () => {

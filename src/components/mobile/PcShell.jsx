@@ -15,7 +15,8 @@ import AppHeader from '../AppHeader'
  *
  * 画面いっぱいの 2 パネルレイアウト。ヘッダー・StatusBanner・下フッター
  * （MobileBottomNav）は全幅で常時表示され、フッターの選択が中央 main 領域の
- * 中身を決める。
+ * 中身を決める。（左ペインの検索が常時表示される一体型レイアウトのため、
+ * 右ペインが「メモ帳」でも StatusBanner は表示する＝現状維持）
  *
  * - 左ペイン（幅600px固定）: 「検索」（MobileSearchTab）。top/form 切替は
  *   モバイルと同一。常時マウントされ、"その他"表示中は hidden 属性で隠す
@@ -36,7 +37,7 @@ import AppHeader from '../AppHeader'
  * map.resize() を呼ぶ（MobileShell の検索タブ復帰時リサイズと同機構）。
  */
 export default function PcShell() {
-  const { state } = useApp()
+  const { state, dispatch } = useApp()
   // 'main' = 2ペイン（左:検索 / 右:一覧・メモ帳） | 'other' = その他全幅
   const [mode, setMode] = useState('main')
   // 右ペインの内容: 'list' | 'memo'（初期: メモ帳）
@@ -66,6 +67,23 @@ export default function PcShell() {
     const map = getMapInstance()
     if (map && typeof map.resize === 'function') map.resize()
   }, [mode])
+
+  // ごみ箱ビュー（memochoView='trash'）が設定されると、2ペインに戻して
+  // 右ペインをメモ帳へ自動切替する（MobileShell と同機構）。
+  useEffect(() => {
+    if (state.memochoView === 'trash') {
+      setMode('main')
+      setRightTab('memo')
+    }
+  }, [state.memochoView])
+
+  // メモ帳を表示していない（一覧・検索・その他）状態になると、ごみ箱ビューを
+  // 通常一覧（'list'）にリセットする（MobileShell と同機構）。
+  useEffect(() => {
+    if ((mode !== 'main' || rightTab !== 'memo') && state.memochoView === 'trash') {
+      dispatch({ type: 'SET_MEMOCHO_VIEW', payload: 'list' })
+    }
+  }, [mode, rightTab, state.memochoView, dispatch])
 
   const openDetail = (result, origin) => setDetail({ result, origin })
   const closeDetail = () => setDetail(null)
@@ -122,7 +140,11 @@ export default function PcShell() {
           </div>
           <div data-testid="pc-right-memo" hidden={rightTab !== 'memo'} className="absolute inset-0">
             <div className="h-full overflow-y-auto">
-              <MemochoSection onOpenDetail={openDetail} />
+              <MemochoSection
+                onOpenDetail={openDetail}
+                view={state.memochoView}
+                onViewChange={(v) => dispatch({ type: 'SET_MEMOCHO_VIEW', payload: v })}
+              />
             </div>
           </div>
         </div>
