@@ -1238,3 +1238,71 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
   })
 })
+
+describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1コントロール＋チップ横スクロール）', () => {
+  it('チップ行は1行で横スクロールし、縦に改行しない（WiFi・電源・車椅子）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    for (const name of ['WiFi有無で絞る', '電源で絞り込む', '車椅子対応で絞る']) {
+      const group = screen.getByRole('group', { name })
+      // チップ群は1行で横スクロール（overflow-x-auto・flex は nowrap の意図）。改行用 flex-wrap は無い
+      expect(group.className).toContain('overflow-x-auto')
+      expect(group.className).toContain('flex')
+      expect(group.className).not.toContain('flex-wrap')
+      // 見出しはチップ群と同じ行（row）に横並び。row は flex の1行容器
+      const row = group.parentElement
+      expect(row.className).toContain('flex')
+      expect(row.className).toContain('min-h-[44px]')
+      expect(group.previousElementSibling).toBeTruthy() // 見出しが直前の子
+      expect(group.previousElementSibling.className).toContain('min-h-[44px]')
+    }
+  })
+
+  it('入力・セレクト行も横長の1行で、見出し（アイコン＋文言）がコントロールの右隣に並ぶ', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    // キーワード入力行: 見出し（🔍）＋入力が同じ flex 行
+    const kw = screen.getByRole('textbox', { name: '名前・メモで絞り込む' })
+    expect(kw.parentElement.className).toContain('flex')
+    expect(kw.parentElement.className).toContain('min-h-[44px]')
+    const kwHeading = kw.previousElementSibling
+    expect(kwHeading).toBeTruthy()
+    expect(kwHeading.textContent).toContain('キーワード')
+    expect(kwHeading.textContent).toContain('🔍')
+
+    // カテゴリ・並び順セレクト: 見出し（アイコン＋文言）がセレクトの右隣に並ぶ
+    const cat = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    expect(cat.parentElement.className).toContain('flex')
+    expect(cat.previousElementSibling.textContent).toContain('カテゴリ')
+    expect(cat.previousElementSibling.textContent).toContain('📁')
+    const sort = screen.getByRole('combobox', { name: '並び順' })
+    expect(sort.parentElement.className).toContain('flex')
+    expect(sort.previousElementSibling.textContent).toContain('並び順')
+    expect(sort.previousElementSibling.textContent).toContain('↕️')
+  })
+
+  it('バリアフリー一覧: 要素種別セレクトとリセットが1行に横並びし、種別見出しはセレクトの右隣', () => {
+    render(<Harness preActions={bfMobileActions()} />)
+
+    // バリアフリー一覧には施設向けのカテゴリ・未登録セレクトは出ない
+    expect(screen.queryByRole('combobox', { name: 'カテゴリで絞り込む' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '属性の欠落で絞る' })).toBeNull()
+
+    const type = screen.getByRole('combobox', { name: '要素種別で絞り込む' })
+    const reset = screen.getByRole('button', { name: 'リセット' })
+    // 種別セレクト行とリセットは同じ flex 行（1行に横並び）。
+    // リセットの直前の子が種別セレクト行（row）なら、両者は同じ flex 行の隣り合う子
+    const typeRow = type.parentElement // FilterSelect の row（見出し＋セレクト）
+    expect(typeRow).toBe(reset.previousElementSibling)
+    expect(reset.parentElement.className).toContain('flex') // 両方を収める flex 行
+    // 見出し（📏 要素種別）はセレクトの右隣に並ぶ
+    expect(type.previousElementSibling.textContent).toContain('要素種別')
+    expect(type.previousElementSibling.textContent).toContain('📏')
+  })
+})

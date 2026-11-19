@@ -103,7 +103,7 @@ export function QuickTopIntro({
   return (
     <>
       <p className="pt-1 text-base text-slate-600">
-        お気に入りで作る
+        好きな場所で作る、わたしのまち
       </p>
 
       {/* 場所指定: 地名・駅名を入力し、「検索する」を押すと

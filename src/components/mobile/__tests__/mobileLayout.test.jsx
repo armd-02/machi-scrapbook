@@ -406,7 +406,7 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
 
     // 左ペイン: 一般向けトップ表示（「くわしく探す」ボタンが在席）
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
 
     // (#63) トップ画面には地図を描画しない（マウントされたままhidden）
     const mapBlock = screen.queryByTestId('map-block')
@@ -439,7 +439,7 @@ describe('(#59) レイアウト切替（ビューポート幅ベース）', () =
     }, { timeout: 3000 })
     // (#63) 検索タブの初期表示は一般向けトップ: トップ固有要素を確認
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
     // 元に戻る → PC: 2ペイン構造が復帰
@@ -498,7 +498,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     // 検索タブがアクティブになり、トップ画面の要素が表示される
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('一覧')).toBe(false)
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
     // 従来フォームの要素は消える（view='top' でアンマウントされる）
@@ -512,14 +512,14 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     // トップ → 従来フォーム
     openFormView()
     expect(screen.getByRole('tab', { name: '自治体から探す' })).toBeTruthy()
-    expect(screen.queryByText('お気に入りで作る')).toBeNull()
+    expect(screen.queryByText('好きな場所で作る、わたしのまち')).toBeNull()
 
     // ヘッダーのタイトルボタンを押す
     fireEvent.click(getHeaderButton())
 
     // トップ画面の要素が戻り、フォームの要素は消える
     expect(tabIsCurrent('検索')).toBe(true)
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
     expect(screen.queryByRole('button', { name: /トップへ戻る/ })).toBeNull()
@@ -537,7 +537,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
 
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('その他')).toBe(false)
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
   }, IT_TIMEOUT)
 
@@ -567,7 +567,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     }, { timeout: 3000 })
     expect(tabIsCurrent('検索')).toBe(true)
     expect(tabIsCurrent('一覧')).toBe(false)
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
   }, IT_TIMEOUT)
 })
 
@@ -1198,7 +1198,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     renderApp()
 
     // introと場所指定
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
 
     // 目的タイル10種が揃って表示される
@@ -1421,12 +1421,12 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.getByPlaceholderText('例: 珈琲、ラーメン')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
     // トップ固有要素が消える
-    expect(screen.queryByText('お気に入りで作る')).toBeNull()
+    expect(screen.queryByText('好きな場所で作る、わたしのまち')).toBeNull()
     expect(screen.queryByRole('button', { name: /くわしく探す/ })).toBeNull()
 
     // 従来フォーム → トップ
     fireEvent.click(screen.getByRole('button', { name: /トップへ戻る/ }))
-    expect(screen.getByText('お気に入りで作る')).toBeTruthy()
+    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
 

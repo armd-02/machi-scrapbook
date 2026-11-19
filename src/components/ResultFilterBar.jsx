@@ -31,6 +31,17 @@ const CHIP_BASE = 'min-h-[44px] px-3 text-xs font-medium rounded-full border tra
 const CHIP_SELECTED = 'bg-primary-600 text-white border-primary-600'
 const CHIP_UNSELECTED = 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
 
+// ===== 横長コンパクト行レイアウト（スマホで縦長になるのを抑える） =====
+
+/** 1行1コントロールの共通行クラス（見出しとコントロールを横に並べる） */
+const ROW_CLASS = 'min-h-[44px] flex items-center gap-2'
+/** チップ群を1行で横スクロールさせる（改行しない）。スクロールバーは隠す */
+const CHIP_SCROLL_CLASS =
+  'flex-1 min-w-0 flex gap-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none]'
+/** 行内見出しのクラス（縦積みの HEADING_CLASS と同じ style token を含み、幅・padding を落とす） */
+const INLINE_HEADING_CLASS =
+  'shrink-0 flex items-center gap-1.5 min-h-[44px] text-sm font-medium text-slate-700'
+
 // ===== 選択肢定義（両画面共通の単一ソース） =====
 
 /** キーワード入力の共通ラベル（placeholder・aria-label にも使用） */
@@ -128,10 +139,10 @@ const HEADING_CLASS =
 export function FilterHeading({ icon = null, heading = null }) {
   if (!heading && !icon) return null
   return (
-    <div className={HEADING_CLASS}>
+    <span className={INLINE_HEADING_CLASS}>
       {icon ? <span aria-hidden="true" className="shrink-0 leading-none">{icon}</span> : null}
-      {heading ? <span className="min-w-0 truncate">{heading}</span> : null}
-    </div>
+      {heading ? <span className="whitespace-nowrap">{heading}</span> : null}
+    </span>
   )
 }
 
@@ -147,7 +158,7 @@ export function FilterHeading({ icon = null, heading = null }) {
 export function FilterInput({ label, value, onChange, className = 'w-full', filter = null }) {
   const meta = metaOf(filter)
   return (
-    <div className={`${className} space-y-2`}>
+    <div className={`${className} ${ROW_CLASS}`}>
       <FilterHeading icon={meta.icon} heading={meta.heading} />
       <input
         type="text"
@@ -155,7 +166,7 @@ export function FilterInput({ label, value, onChange, className = 'w-full', filt
         onChange={onChange}
         placeholder={label}
         aria-label={label}
-        className={`w-full ${FIELD_CLASS}`}
+        className={`flex-1 min-w-0 ${FIELD_CLASS}`}
       />
     </div>
   )
@@ -172,9 +183,9 @@ export function FilterInput({ label, value, onChange, className = 'w-full', filt
 export function FilterSelect({ label, value, onChange, children, className = 'w-full', filter = null }) {
   const meta = metaOf(filter)
   return (
-    <div className={`${className} space-y-2`}>
+    <div className={`${className} ${ROW_CLASS}`}>
       <FilterHeading icon={meta.icon} heading={meta.heading} />
-      <select value={value} onChange={onChange} aria-label={label} className={`w-full ${FIELD_CLASS}`}>
+      <select value={value} onChange={onChange} aria-label={label} className={`flex-1 min-w-0 ${FIELD_CLASS}`}>
         {children}
       </select>
     </div>
@@ -218,9 +229,9 @@ export function FilterChipRow({ label, options, value, onChange, className = '',
   const finalIcon = icon != null ? icon : meta.icon
   const finalHeading = heading != null ? heading : meta.heading
   return (
-    <div className={`space-y-2${className ? ` ${className}` : ''}`}>
+    <div className={`${className} ${ROW_CLASS}`}>
       <FilterHeading icon={finalIcon} heading={finalHeading} />
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+      <div className={CHIP_SCROLL_CLASS} role="group" aria-label={label}>
         {(options || []).map((o) => (
           <FilterChip
             key={o.value}
@@ -237,10 +248,9 @@ export function FilterChipRow({ label, options, value, onChange, className = '',
 /**
  * 料理ジャンルのチップ行（折りたたみ式）。一覧・まちメモ帳で共用。
  *
- * - 初期状態は折りたたみ（チップ群非表示）。見出し行（「料理ジャンル」＋開閉トグル）は
+ * - 初期状態は折りたたみ（チップ群非表示）。トグル（「料理ジャンル」＋開閉表示）は
  *   常に表示され、タップでチップ群を展開／収納する（トグルに aria-expanded）。
- * - 折りたたみ中でもジャンルが選択済みの場合、見出し行に選択中ジャンルのラベルを出し、
- *   「選択が効いているのに見えない」状態を防ぐ。
+ * - 展開中はトグルと同じ行の右側にチップ群を横スクロールで出す（1行で収める）。
  * - facets が空（料理タグのある結果・アイテムが無い）ときは、見出し行も含め行ごと非表示。
  * - チップ自体の挙動（単一選択・再タップで解除・件数表示）は従来どおり。
  *
@@ -265,13 +275,13 @@ export function CuisineChips({ facets, value, onChange }) {
   }
 
   return (
-    <>
-      {/* 見出し行: 常時表示。折りたたみ中は選択中ジャンルのラベルをここで出す */}
+    <div className={ROW_CLASS}>
+      {/* トグル: 常時表示。選択中ジャンルのラベルもここで出す（shrink-0 で幅固定） */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 text-sm font-medium text-slate-700"
+        className="shrink-0 min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
         <span className="flex items-center gap-2 min-w-0">
           <span aria-hidden="true" className="shrink-0 leading-none">{FILTER_META.cuisine.icon}</span>
@@ -280,7 +290,7 @@ export function CuisineChips({ facets, value, onChange }) {
         <span className="shrink-0 text-xs text-slate-500">{open ? '折りたたむ' : '展開'}</span>
       </button>
       {open && (
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="料理ジャンル">
+        <div className={CHIP_SCROLL_CLASS} role="group" aria-label="料理ジャンル">
           {facets.map((f) => (
             <FilterChip
               key={f.value}
@@ -291,7 +301,7 @@ export function CuisineChips({ facets, value, onChange }) {
           ))}
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -307,7 +317,7 @@ export function PerspectiveChips({ value, onChange }) {
   const [helpOpen, setHelpOpen] = useState(false)
   return (
     <>
-      <div className="flex items-start gap-1.5">
+      <div className="flex items-center gap-1.5">
         <FilterChipRow
           label="視点で絞る"
           options={PERSPECTIVES}

@@ -939,3 +939,45 @@ describe('MemochoSection: フィルタバー', () => {
     expect(storedItems()).toHaveLength(6)
   })
 })
+
+describe('MemochoSection: 横長コンパクトフィルタバー（id 28。1行1コントロール＋チップ横スクロール）', () => {
+  it('チップ行は1行で横スクロールし、縦に改行しない（WiFi・車椅子・評価）', () => {
+    seedFilterItems()
+    renderSection()
+
+    for (const name of ['WiFi有無で絞る', '車椅子対応で絞る', '評価で絞る']) {
+      const group = screen.getByRole('group', { name })
+      // チップ群は1行で横スクロール（overflow-x-auto・flex は nowrap の意図）。改行用 flex-wrap は無い
+      expect(group.className).toContain('overflow-x-auto')
+      expect(group.className).toContain('flex')
+      expect(group.className).not.toContain('flex-wrap')
+      // 見出しはチップ群と同じ行（row）に横並び
+      const row = group.parentElement
+      expect(row.className).toContain('flex')
+      expect(row.className).toContain('min-h-[44px]')
+      expect(group.previousElementSibling).toBeTruthy()
+      expect(group.previousElementSibling.className).toContain('min-h-[44px]')
+    }
+  })
+
+  it('料理ジャンルはトグル＋チップが同じ行で、展開中はチップが横スクロールで右に出る', () => {
+    seedFilterItems()
+    renderSection()
+
+    const header = cuisineHeader()
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(cuisineGroup()).toBeNull() // 初期は折りたたみ（チップ群非表示）
+
+    fireEvent.click(header) // 展開
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+
+    const group = cuisineGroup()
+    // チップ群はトグルと同じ行（1行で横スクロール）
+    expect(group.parentElement).toBe(header.parentElement)
+    expect(group.parentElement.className).toContain('flex')
+    expect(group.parentElement.className).toContain('min-h-[44px]')
+    expect(group.previousElementSibling).toBe(header) // トグルが直前の子
+    expect(group.className).toContain('overflow-x-auto')
+    expect(group.className).not.toContain('flex-wrap')
+  })
+})
