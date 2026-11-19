@@ -6,7 +6,10 @@
  *
  * - QuickTopIntro: 一文の説明 ＋ 場所指定（地名・駅名入力）
  *   （トップ画面には地図を描画しない #63。「地図で見る」は結果側の導線）
- * - QuickTopTiles: 目的タイル10種 → タップで「選択」だけ（タップで検索しない）。
+ * - QuickTopTiles: 目的タイル11種（カテゴリタイル10＋バリアフリーの特別枠1）
+ *   → タップで「選択」だけ（タップで検索しない）。
+ *   バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと
+ *   同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離する。
  *   選択中のタイルはハイライト（枠・背景色）で表示され、同時に選べるのは1つだけ
  *   （別のタイルを押すと選択が移る）。
  * - タイルの下に「検索する」ボタン: 押下（または場所入力欄で Enter）で初めて
@@ -37,21 +40,33 @@
 import GeocodeCandidateList from '../GeocodeCandidateList'
 import PlaceNameInput from '../PlaceNameInput'
 
-// 目的タイル（10種）。purpose → 目的グループ検索、category → 単一カテゴリ検索。
-// 順序は仕様の表示順（食べる・買う・病院・薬局・役所・手続き・遊ぶ・公園・
-// 泊まる・駅・交通・トイレ・学ぶ・バリアフリー）。
+// 目的タイル（10種）＋バリアフリー特別枠（1種）。purpose → 目的グループ検索、
+// category → 単一カテゴリ検索。
+// 並びは種類ごとにまとめる（このピース）: 「すること」系（食べる・買う・
+// 遊ぶ・公園・学ぶ・泊まる）→「生活の施設」系（病院・薬局・役所・手続き・
+// 会社・事務所・駅・交通・トイレ）。
+// バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと同格に
+// 並べず、グリッドの下に横長（全幅）1行の特別枠として分離する（BARRIER_FREE_TILE）。
 export const QUICK_TILES = [
+  // 「すること」系
   { id: 'eat', label: '食べる', icon: '🍜', purpose: '食べる' },
   { id: 'buy', label: '買う', icon: '🛍️', purpose: '買う' },
+  { id: 'play', label: '遊ぶ・公園', icon: '🎠', purpose: '遊ぶ' },
+  { id: 'learn', label: '学ぶ', icon: '📚', purpose: '学ぶ' },
+  { id: 'stay', label: '泊まる', icon: '🏨', category: 'accommodation' },
+  // 「生活の施設」系
   { id: 'medical', label: '病院・薬局', icon: '🏥', purpose: '病院・薬局' },
   { id: 'government', label: '役所・手続き', icon: '🏛️', purpose: '役所・手続き' },
-  { id: 'play', label: '遊ぶ・公園', icon: '🎠', purpose: '遊ぶ' },
-  { id: 'stay', label: '泊まる', icon: '🏨', category: 'accommodation' },
+  { id: 'company', label: '会社・事務所', icon: '🏢', category: 'company_office' },
   { id: 'traffic', label: '駅・交通', icon: '🚉', category: 'transport' },
-  { id: 'toilet', label: 'トイレ', icon: '🚻', category: 'toilets' },
-  { id: 'learn', label: '学ぶ', icon: '📚', purpose: '学ぶ' },
-  { id: 'barrierFree', label: 'バリアフリー', icon: '♿', purpose: 'バリアフリー' }
+  { id: 'toilet', label: 'トイレ', icon: '🚻', category: 'toilets' }
 ]
+
+// バリアフリー: 場所の種類ではなく見方のモードなので、QUICK_TILES（カテゴリ
+// タイル）から外し、グリッドの下に横長（全幅）1行の特別枠として分離表示する。
+// QUICK_TILES の要素と同じ形（purpose 持ち）なので、親のタイル処理はそのまま
+// 通用する。
+export const BARRIER_FREE_TILE = { id: 'barrierFree', label: 'バリアフリー', icon: '♿', purpose: 'バリアフリー' }
 
 /**
  * トップ冒頭ブロック: 説明一行 ＋ 場所指定（地名・駅名入力）。
@@ -192,6 +207,26 @@ export function QuickTopTiles({
             )
           })}
         </div>
+
+        {/* バリアフリー: 場所の種類ではなく見方のモードなので、カテゴリタイルと
+            同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離表示。
+            他のタイルと同じくタップで「選択」だけを行い、「検索する」で検索する */}
+        <button
+          type="button"
+          onClick={() => onTileTap(BARRIER_FREE_TILE)}
+          disabled={disabled}
+          aria-pressed={selectedTileId === BARRIER_FREE_TILE.id}
+          className={
+            selectedTileId === BARRIER_FREE_TILE.id
+              ? // 選択中: 他のタイルと同じハイライト（実線・プライマリ色）
+                'w-full min-h-[48px] rounded-xl border-2 border-primary-600 bg-primary-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-primary-700 disabled:opacity-50'
+              : // 特別枠であることを破線枠で表現
+                'w-full min-h-[48px] rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-slate-700 active:bg-primary-50 disabled:opacity-50'
+          }
+        >
+          <span aria-hidden="true" className="text-xl leading-none">{BARRIER_FREE_TILE.icon}</span>
+          {BARRIER_FREE_TILE.label}
+        </button>
 
         {/* 「検索する」: 施設検索を実行する唯一のエントリ（場所geocode→検索→一覧切替）。
             種別未選択のまま押下しても検索は実行されず、親が案内表示を出す */}

@@ -13,17 +13,15 @@
  *   - typeFilter:   OSM要素種別（all | node | way | relation）
  *   - catFilter:    施設カテゴリID（categoryMatchesElement で判定）
  *   - purposeFilter: 目的名（その目的に属するカテゴリのいずれかに一致するものだけ）
- *   - missingFilter: 主要属性の欠落で絞り込み（none | any | phone | opening_hours | website | address）(B2)
- *   - perspective:  視点フィルタ（none | wheelchair | vision | child | elderly）
- *     利用者目線で「誰にとって使いやすいか」で絞る（matchesPerspective）。
- *     タグに基づく判定で「登録あり」が確認できるものだけを残し、未登録は含めない。
  *   - cuisine:      料理ジャンル（tags.cuisine の '; ' 区切り値の一部一致・大小文字無視）。
  *     選択肢は cuisineFacetValues（フィルタ適用前の結果から集計）が提供する。
  *   - wifi:         WiFi有無（all | yes | no）。wifiStatus（3状態）と一致するものだけ。
  *     未登録（unknown）は「あり」にも「なし」にも含めない。
  *   - power:        電源有無（all | yes）。powerStatus（3状態）で 'yes' のものだけ。
- *   - wheelchair:   車椅子対応（all | yes | partial | no）。tags.wheelchair の値で判定。
- *     未登録はどの絞り込みにも含めない。
+ *   - wheelchair:   車椅子対応（複数選択）。選択した状態値の配列（[] = 絞り込みなし、
+ *     ['yes'] / ['yes','no'] 等）。tags.wheelchair がチェックした状態のいずれかに
+ *     一致すれば残す（OR）。'yes'=yes/designated、'partial'=limited、'no'=no。未登録は
+ *     どの状態にも含めない。単一値（'all'|'yes'|'partial'|'no'）も後方互換で受け付ける。
  *   - rating:       ★評価（all | gte1〜gte4 | eq5）。rating は整数 0-5（0 = 未評価）。
  *     未評価は「すべて」にのみ該当する。まちメモ帳専用の絞り込み。
  *   - kerbHeight:   縁石の高さ（any | flat | low | high | unknown）。
@@ -39,90 +37,9 @@
 import { categoryMatchesElement } from './categoryMatch'
 import { facilityName } from './facilityLabels'
 import { getCategoriesForPurpose } from '../data/categories'
-import { missingAttributesOf } from './statistics'
 import { kerbHeightClass } from './barrierFreeResults'
 import { powerStatus, wifiStatus } from './powerWifi'
 
-// ===== 視点フィルタ =====
-
-/**
- * 視点フィルタ（matchesPerspective）
- *
- * データ項目ではなく「誰にとって使いやすいか」で結果を絞る。
- * タグ（tags）またはバリアフリー整形フィールド（bf）に基づく判定で、
- * 「登録あり」が確認できるものだけを残し、未登録は含めない。
- *
- * 視点:
- *   - wheelchair（車椅子）: tags.wheelchair が 'yes' / 'designated' ／
- *     bf.kerb が 'flush' / 'lowered' ／
- *     tags['kerb:height'] が数値として解釈できて 0.03（m）以下
- *   - vision（目の不自由な方）: tags.tactile_paving === 'yes' ／
- *     bf.tactile === 'yes' ／ bf.hasSound ／ bf.hasVibration
- *   - child（子ども連れ）: tags.diaper が存在し 'no' でない ／
- *     tags.changing_table === 'yes' ／ tags.kids_area === 'yes' ／ tags.highchair === 'yes'
- *   - elderly（お年寄り）: tags.wheelchair が 'yes' / 'designated' ／
- *     tags.ramp === 'yes' ／ tags['ramp:wheelchair'] === 'yes' ／ tags.elevator === 'yes'
- *
- * perspective が 'none'（または不明な値）なら全件が該当する（フィルタしない）。
- *
- * @param {object} result - 結果要素（tags を持ち、バリアフリー結果は bf も持つ）
- * @param {string} perspective - 視点ID（'none' | 'wheelchair' | 'vision' | 'child' | 'elderly'）
- * @returns {boolean}
- */
-export function matchesPerspective(result, perspective) {
-  if (!perspective || perspective === 'none') return true
-
-  const r = result || {}
-  const tags = r.tags || {}
-  const bf = r.bf && typeof r.bf === 'object' ? r.bf : null
-
-  switch (perspective) {
-    case 'wheelchair':
-      // 車椅子: 施設タグ / バリアフリーの縁石情報 のいずれかが登録済みで良好
-      // !! で真偽値を正規化（bf 側の undefined が || 経由で外に漏れない）
-      return !!(
-        tags.wheelchair === 'yes' || tags.wheelchair === 'designated' ||
-        (bf && (bf.kerb === 'flush' || bf.kerb === 'lowered')) ||
-        kerbHeightLe(tags['kerb:height'], 0.03)
-      )
-    case 'vision':
-      // 目の不自由な方: 点字ブロック / 音声・振動案内 のいずれかが登録済み
-      // !! で真偽値を正規化（bf.hasSound 等の undefined が || 経由で外に漏れない）
-      return !!(
-        tags.tactile_paving === 'yes' ||
-        (bf && (bf.tactile === 'yes' || bf.hasSound || bf.hasVibration))
-      )
-    case 'child':
-      // 子ども連れ: おむつ台・授乳・キッズエリア・ハイチェア のいずれかが登録済み
-      return (
-        (tags.diaper && tags.diaper !== 'no') ||
-        tags.changing_table === 'yes' ||
-        tags.kids_area === 'yes' ||
-        tags.highchair === 'yes'
-      )
-    case 'elderly':
-      // お年寄り: 車椅子対応・スロープ・エレベーター のいずれかが登録済み
-      return (
-        tags.wheelchair === 'yes' || tags.wheelchair === 'designated' ||
-        tags.ramp === 'yes' ||
-        tags['ramp:wheelchair'] === 'yes' ||
-        tags.elevator === 'yes'
-      )
-    default:
-      // 不明な視点IDはフィルタしない（安全側の挙動）
-      return true
-  }
-}
-
-/**
- * kerb:height の値が数値として解釈できて maxM（m）以下か
- * （未登録・空文字・数値解釈不可は false）
- */
-function kerbHeightLe(value, maxM) {
-  if (value == null || value === '') return false
-  const n = Number(value)
-  return Number.isFinite(n) && n <= maxM
-}
 
 // ===== 料理ジャンルファセット（cuisine） =====
 
@@ -344,11 +261,67 @@ export function matchesPower(item, mode) {
  */
 export function matchesWheelchair(item, mode) {
   const v = ((item && item.tags) || {}).wheelchair
+  // 複数選択（配列）: 空配列は絞り込みなし。1つ以上ならチェックした状態のいずれかに
+  // 一致すれば該当（OR 判定）。
+  if (Array.isArray(mode)) {
+    if (mode.length === 0) return true
+    return mode.some((m) => matchWcValue(v, m))
+  }
+  // 単一値（従来の仕様をそのまま保持）
   if (mode === 'all') return true
   if (mode === 'yes') return v === 'yes' || v === 'designated'
   if (mode === 'partial') return v === 'limited'
   if (mode === 'no') return v === 'no'
   return true
+}
+
+/**
+ * 車椅子の単一状態値がアイテムの tags.wheelchair に一致するか。
+ * 'yes' = yes / designated、'partial' = limited、'no' = no。
+ * 未登録（undefined）はどの状態にも一致しない（false を返す）。
+ */
+function matchWcValue(v, mode) {
+  if (mode === 'yes') return v === 'yes' || v === 'designated'
+  if (mode === 'partial') return v === 'limited'
+  if (mode === 'no') return v === 'no'
+  return false
+}
+
+/**
+ * 車椅子フィルタの値を新しい形式（配列）に正規化する（後方互換）。
+ * 古い形式（単一文字列）の値を読み込んでも壊れないようにする（移行）。
+ *
+ * - 配列: 有効な値（'yes'|'partial'|'no'）だけを残して返す
+ * - 文字列:
+ *   - 'all' → []（絞り込みなし）
+ *   - 'yes' / 'partial' / 'no' → [値]（移行：単一選択を配列に変換）
+ *   - それ以外 → []（初期値）
+ * - undefined / null / その他 → []
+ *
+ * @param {*} value - wheelchair フィルタ値（配列または文字列）
+ * @returns {string[]} 新しい形式の配列
+ */
+export function normalizeWheelchair(value) {
+  const VALID = ['yes', 'partial', 'no']
+  if (Array.isArray(value)) {
+    return value.filter((v) => VALID.includes(v))
+  }
+  if (typeof value === 'string') {
+    if (value === 'all') return []
+    if (VALID.includes(value)) return [value]
+    return []
+  }
+  return []
+}
+
+/**
+ * 車椅子フィルタが有効か（絞り込みが掛かっているか）。
+ * 配列（複数選択）なら1つ以上選択済み、単一値なら 'all' 以外 を判定する。
+ */
+function wheelchairActive(f) {
+  const wc = f && f.wheelchair
+  if (Array.isArray(wc)) return wc.length > 0
+  return !!wc && wc !== 'all'
 }
 
 /**
@@ -371,12 +344,10 @@ export function hasActiveFilters(filters) {
     (f.typeFilter && f.typeFilter !== 'all') ||
     (f.catFilter || '') ||
     (f.purposeFilter || '') ||
-    (f.missingFilter && f.missingFilter !== 'none') ||
-    (f.perspective && f.perspective !== 'none') ||
     ((f.cuisine || '').trim() !== '') ||
     (f.wifi && f.wifi !== 'all') ||
     (f.power && f.power !== 'all') ||
-    (f.wheelchair && f.wheelchair !== 'all') ||
+    wheelchairActive(f) ||
     (f.rating && f.rating !== 'all') ||
     (f.kerbHeight && f.kerbHeight !== 'any') ||
     (f.sortDir && f.sortDir !== 'none')
@@ -411,20 +382,6 @@ export function applyResultFilters(results, filters) {
     }
   }
 
-  // (B2) 主要属性が欠落している施設だけを表示
-  if (f.missingFilter && f.missingFilter !== 'none') {
-    out = out.filter((r) => {
-      const missing = missingAttributesOf(r)
-      if (f.missingFilter === 'any') return missing.length > 0
-      return missing.includes(f.missingFilter)
-    })
-  }
-
-  // 視点フィルタ: 「誰にとって使いやすいか」で絞る（登録ありのものだけ残す）
-  if (f.perspective && f.perspective !== 'none') {
-    out = out.filter((r) => matchesPerspective(r, f.perspective))
-  }
-
   // 料理ジャンル: tags.cuisine（';' 区切り）に値を含む結果だけ残す（部分一致・大小文字無視）
   const cuisine = (f.cuisine || '').trim().toLowerCase()
   if (cuisine) {
@@ -438,7 +395,7 @@ export function applyResultFilters(results, filters) {
   // 一覧・まちメモ帳共通: WiFi / 電源 / 車椅子 / ★評価
   if (f.wifi && f.wifi !== 'all') out = out.filter((r) => matchesWifi(r, f.wifi))
   if (f.power && f.power !== 'all') out = out.filter((r) => matchesPower(r, f.power))
-  if (f.wheelchair && f.wheelchair !== 'all') out = out.filter((r) => matchesWheelchair(r, f.wheelchair))
+  if (wheelchairActive(f)) out = out.filter((r) => matchesWheelchair(r, f.wheelchair))
   if (f.rating && f.rating !== 'all') out = out.filter((r) => matchesRating(r, f.rating))
 
   // 縁石の高さ（バリアフリー一覧専用）: bf を持つ結果のうち kerbHeightClass が

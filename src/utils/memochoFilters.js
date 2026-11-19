@@ -13,12 +13,10 @@
  *
  *   - nameFilter:    キーワード（name + name:ja + メモ本文の部分一致）
  *   - catFilter:     カテゴリ（categoryMatchesElement）
- *   - missingFilter: 属性欠落（none | any | phone | hours | website | address）
- *   - perspective:   視点（none | wheelchair | vision | child | elderly）
  *   - cuisine:       料理ジャンル
  *   - wifi:          WiFi（all | yes | no。未登録はどちらにも含めない）
  *   - power:         電源（all | yes。「あり」= 3状態判定の 'yes' のみ）
- *   - wheelchair:    車椅子（all | yes | partial | no）
+ *   - wheelchair:    車椅子対応（複数選択）。選択値の配列（[] = 絞り込みなし、['yes'] 等）。
  *   - rating:        ★評価（all | gte1〜gte4 | eq5。0 = 未評価）
  *
  * 各条件は AND 結合。
@@ -39,12 +37,10 @@ export { matchesKeyword, matchesWifi, matchesWheelchair, matchesRating }
 export const DEFAULT_MEMO_FILTERS = {
   nameFilter: '',
   catFilter: '',
-  missingFilter: 'none',
-  perspective: 'none',
   cuisine: '',
   wifi: 'all',
   power: 'all',
-  wheelchair: 'all',
+  wheelchair: [],
   rating: 'all'
 }
 

@@ -1,11 +1,34 @@
 import React, { useState } from 'react'
 import { CATEGORY_GROUPS, getCategoriesForPurpose, getCategoryById, getPurposeOfCategory } from '../data/categories'
 
+// 目的グループの表示順（このピース）: 「すること」系（食べる・買う・遊ぶ・学ぶ）
+// →「生活の施設」系（病院・薬局・役所・手続き・暮らす・その他）。
+// モバイルクイックトップ（QUICK_TILES）の表示順と同一のグループ分け・順序とする
+// （チップ側は目的単位: 泊まる=遊ぶ、駅・交通=その他、会社・事務所とトイレは
+// 暮らすに含まれる）。
+const PURPOSE_DISPLAY_ORDER = ['食べる', '買う', '遊ぶ', '学ぶ', '病院・薬局', '役所・手続き', '暮らす', 'その他']
+
+const orderIndexOf = (name) => {
+  const i = PURPOSE_DISPLAY_ORDER.indexOf(name)
+  return i === -1 ? PURPOSE_DISPLAY_ORDER.length : i
+}
+
+// チップグリッドに載せるグループ（表示順・バリアフリーは除外して特別枠で表示）
+const GRID_GROUPS = [...CATEGORY_GROUPS]
+  .filter((g) => g.name !== 'バリアフリー')
+  .sort((a, b) => orderIndexOf(a.name) - orderIndexOf(b.name))
+
+// バリアフリーグループ（グリッドの下に横長特別枠として表示）
+const BARRIER_FREE_GROUP = CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー') || null
+
 /**
  * (#44 生活者目線UI) カテゴリピッカー
  *
  * variant='pc'    : 従来どおりのグループ付き <select>（PC検索パネル用）
- * variant='mobile': 目的ベースのアイコンチップ（食べる／買う／遊ぶ／暮らす／学ぶ／その他）
+ * variant='mobile': 目的ベースのアイコンチップ。「すること」系→「生活の施設」系の順で表示
+ *                  （食べる／買う／遊ぶ／学ぶ → 病院・薬局／役所・手続き／暮らす／その他）。
+ *                  バリアフリーは場所の種類ではなく見方のモードなので、グリッドの下に
+ *                  横長（全幅）1行の特別枠として分離表示する。
  *                  → タップするとその目的の具体カテゴリチップが展開する
  *                  （段階的開示 = progressive disclosure）
  */
@@ -96,9 +119,9 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
 
   return (
     <div>
-      {/* 目的チップ */}
+      {/* 目的チップ: 「すること」系 → 「生活の施設」系の順（バリアフリーは除外） */}
       <div className="grid grid-cols-3 gap-1.5">
-        {CATEGORY_GROUPS.map((g) => {
+        {GRID_GROUPS.map((g) => {
           const isSel = selectedCat && purposeOf(selectedCat.id) === g.name
           const isOpen = openPurpose === g.name
           return (
@@ -122,6 +145,28 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
           )
         })}
       </div>
+
+      {/* バリアフリー: 場所の種類ではなく見方のモードなので、目的チップと
+          同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離表示。
+          挙動は目的チップと同じ（タップで目的スコープ設定＋カテゴリ展開） */}
+      {BARRIER_FREE_GROUP && (
+        <button
+          type="button"
+          onClick={() => tapPurpose(BARRIER_FREE_GROUP.name)}
+          aria-expanded={openPurpose === BARRIER_FREE_GROUP.name}
+          aria-pressed={!!(selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name)}
+          className={`w-full mt-1.5 min-h-[48px] rounded-xl border-2 flex flex-row items-center justify-center gap-1.5 px-2 text-sm font-medium transition-colors ${
+            selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name
+              ? 'bg-primary-50 border-primary-400 text-primary-700'
+              : openPurpose === BARRIER_FREE_GROUP.name
+                ? 'bg-primary-50 border-dashed border-primary-300'
+                : 'bg-white border-dashed border-slate-300 text-slate-600 active:bg-slate-50'
+          }`}
+        >
+          <span className="text-lg leading-none" aria-hidden="true">{BARRIER_FREE_GROUP.icon}</span>
+          <span>{BARRIER_FREE_GROUP.name}</span>
+        </button>
+      )}
 
       {/* 展開された具体カテゴリチップ */}
       {openPurpose && openCategories.length > 0 && (

@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { getGroupedCategories } from '../data/categories'
 import { countCategoriesInResults, filterGroupsByCounts } from '../utils/resultCategories'
-import { cuisineLabelOf } from '../utils/resultFilters'
-import PerspectiveHelpModal from './mobile/PerspectiveHelpModal'
+import { cuisineLabelOf, normalizeWheelchair } from '../utils/resultFilters'
 
 /**
  * (共通フィルタバー部品) 検索一覧（MobileListTab: POI / バリアフリー）と
@@ -11,10 +10,9 @@ import PerspectiveHelpModal from './mobile/PerspectiveHelpModal'
  * CSSクラス構成・コントロール実装・選択肢（ラベル・値・挙動）をこのモジュールに
  * 1か所に集約し、画面側での重複定義をなくする。
  *
- * 共通8項目（両画面で同じラベル・選択肢・挙動）:
+ * 共通6項目（両画面で同じラベル・選択肢・挙動）:
  *   キーワード(nameFilter) / カテゴリ(catFilter) / 料理ジャンル(cuisine) /
- *   WiFi(wifi) / 電源(power) / 車椅子(wheelchair) / 視点(perspective) /
- *   属性欠落(missingFilter)
+ *   WiFi(wifi) / 電源(power) / 車椅子(wheelchair)
  * 画面固有項目（このモジュールのコントロールで描画し、定義は各画面が持つ）:
  *   一覧 = 要素種別(typeFilter)・縁石の高さ(kerbHeight)
  *   メモ帳 = ★評価(rating)
@@ -65,14 +63,12 @@ export const WHEELCHAIR_OPTIONS = [
   { value: 'no', label: '対応なし' },
 ]
 
-/** 視点フィルタの選択肢（「誰にとって使いやすいか」で絞る） */
-export const PERSPECTIVES = [
-  { value: 'none', label: 'すべて' },
-  { value: 'wheelchair', label: '車椅子' },
-  { value: 'vision', label: '目の不自由な方' },
-  { value: 'child', label: '子ども連れ' },
-  { value: 'elderly', label: 'お年寄り' },
-]
+/** filter キー → 選択肢（FilterCheckboxRow が options を渡されないときに解決用） */
+const FILTER_OPTIONS = {
+  wifi: WIFI_OPTIONS,
+  power: POWER_OPTIONS,
+  wheelchair: WHEELCHAIR_OPTIONS,
+}
 
 /** ★評価の選択肢（まちメモ帳用。0 = 未評価） */
 export const RATING_OPTIONS = [
@@ -84,29 +80,19 @@ export const RATING_OPTIONS = [
   { value: 'eq5', label: '★5のみ' },
 ]
 
-/** 属性欠落の選択肢（missingFilter。値は missingAttributesOf が返すキー名と一致） */
-export const MISSING_OPTIONS = [
-  { value: 'none', label: '未登録の絞り込み: なし' },
-  { value: 'any', label: 'いずれかの属性が未登録' },
-  { value: 'phone', label: '電話が未登録' },
-  { value: 'opening_hours', label: '営業時間が未登録' },
-  { value: 'website', label: 'Webサイトが未登録' },
-  { value: 'address', label: '住所が未登録' },
-]
-
 // ===== 統一「アイコン＋見出し」定義（フィルタバー全項目・id 27） =====
 
 /**
  * フィルタバー全項目の「アイコン＋見出し」を 1 か所に集約する単一ソース。
  *
- * 共通8項目（キーワード/カテゴリ/料理/WiFi/電源/車椅子/視点/属性欠落）＋
+ * 共通6項目（キーワード/カテゴリ/料理/WiFi/電源/車椅子）＋
  * 画面固有項目（★評価/並び順/要素種別/縁石の高さ）のアイコンと見出しをここで
  * 定義し、一覧タブ・まちメモ帳・バリアフリー一覧のいずれでも同じ表示になる。
  *
  * アイコンはアプリ内で既に使われている表現に揃える（電源=⚡・Wi-Fi=📶 は
  * WorkspacePowerWifiSummary の集計表示、料理=🍜・カテゴリ=📁 は categories.js、
- * 車椅子=♿ はバリアフリー関連、キーワード=🔍 は検索系、未登録=⚠️ は注意表示、
- * 視点=👁️ は"見通し"、評価=★ は RATING_OPTIONS と同じ星、並び順=↕️ は順序）。
+ * 車椅子=♿ はバリアフリー関連、キーワード=🔍 は検索系、
+ * 評価=★ は RATING_OPTIONS と同じ星、並び順=↕️ は順序）。
  */
 export const FILTER_META = {
   keyword:     { icon: '🔍', heading: 'キーワード' },
@@ -114,8 +100,6 @@ export const FILTER_META = {
   power:       { icon: '⚡', heading: '電源' },
   wheelchair:  { icon: '♿', heading: '車椅子' },
   category:    { icon: '📁', heading: 'カテゴリ' },
-  missing:     { icon: '⚠️', heading: '未登録' },
-  perspective: { icon: '👁️', heading: '視点' },
   cuisine:     { icon: '🍜', heading: '料理ジャンル' },
   rating:      { icon: '★', heading: '評価' },
   sort:        { icon: '↕️', heading: '並び順' },
@@ -154,12 +138,27 @@ export function FilterHeading({ icon = null, heading = null }) {
  * @param {string} value - 現在値
  * @param {(e) => void} onChange - React の input イベントハンドラ
  * @param {string} [className='w-full'] - 幅指定（w-full 等）
+ * @param {string} [filter] - FILTER_META のキー（アイコン・見出しの解決）
+ * @param {string|null} [heading] - 見出し文言のオーバーライド。省略時は filter 由来の
+ *   見出しを使う。null を渡すと見出し文言を除去する（アイコンのみ残る）。
+ *   例: キーワード行はプレースホルダ（「名前・メモで絞り込む」）で意味が伝わるため
+ *   見出し文言を外し、右側をフィルタクリアのシンボル用に確保する。
+ * @param {boolean} [showClearAll=false] - フィルタ全クリアのシンボル（✕）を表示するか
+ * @param {Function} [onClearAll] - クリアシンボルのクリックハンドラ（フィルタ全クリア）。
+ *   指定すると入力欄の右側に固定幅のスロット（w-9）を常時確保する。シンボルは
+ *   showClearAll で出し入れされるがスロット幅は不変なので、表示・非表示でレイアウト
+ *   がずれない。
+ * @param {string} [clearAllLabel='フィルタをクリア'] - クリアシンボルの aria-label と
+ *   ツールチップ（title）。シンボル単体だと「キーワードだけを消す」ようにも読めるため、
+ *   このラベルで「フィルタをクリア」であることを示す。
  */
-export function FilterInput({ label, value, onChange, className = 'w-full', filter = null }) {
+export function FilterInput({ label, value, onChange, className = 'w-full', filter = null, heading = undefined, showClearAll = false, onClearAll = null, clearAllLabel = 'フィルタをクリア' }) {
   const meta = metaOf(filter)
+  const finalHeading = heading === undefined ? meta.heading : heading
+  const hasClearAll = typeof onClearAll === 'function'
   return (
     <div className={`${className} ${ROW_CLASS}`}>
-      <FilterHeading icon={meta.icon} heading={meta.heading} />
+      <FilterHeading icon={meta.icon} heading={finalHeading} />
       <input
         type="text"
         value={value}
@@ -168,6 +167,24 @@ export function FilterInput({ label, value, onChange, className = 'w-full', filt
         aria-label={label}
         className={`flex-1 min-w-0 ${FIELD_CLASS}`}
       />
+      {hasClearAll && (
+        /* フィルタ全クリアのスロット: 固定幅（w-9）を常時確保し、シンボルは
+           showClearAll で出し入れする（未使用時は空のまま幅だけ維持）。幅が変わらない
+           ためシンボルの出現でレイアウトがずれない */
+        <div className="shrink-0 w-9 flex items-center justify-center">
+          {showClearAll && (
+            <button
+              type="button"
+              onClick={onClearAll}
+              aria-label={clearAllLabel}
+              title={clearAllLabel}
+              className="w-9 h-9 rounded-full border border-slate-300 bg-white text-slate-500 flex items-center justify-center hover:bg-slate-50 hover:text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <span aria-hidden="true" className="text-sm leading-none">✕</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -211,34 +228,210 @@ export function FilterChip({ label, selected, onPress }) {
   )
 }
 
+const CHECKBOX_GROUP_CLASS =
+  'flex-1 min-w-0 flex items-center gap-2.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none]'
+
 /**
- * 単一選択チップ行（role=group + aria-label 付き）
- * @param {string} label - グループの aria-label
- * @param {Array<{value: string, label: string}>} options - 選択肢
- * @param {string} value - 現在選択中の値
- * @param {(value: string) => void} onChange - 選択値のコールバック
- * @param {string} [className=''] - 追加クラス（例: 'flex-1'）
- * @param {string} [heading=null] - チップ群の上に表示する見出し（例: '車椅子'）。
- *   チップの文言だけでは絞り込みの意味が分からない行（車椅子など）で使う。
- *   見出しは料理ジャンル行（CuisineChips）の見出しと同一の見た目（text-sm・
- *   font-medium・text-slate-700・min-h-[44px]・px-3 py-2）に揃える。
+ * チップ見た目のチェックボックス（1個）。既存のチップ（FilterChip）と同じ
+ * ピル形状・色・サイズ（min-h-[44px]・px-3・text-xs・font-medium・rounded-full）
+ * で描画し、チェックボックスの箱（✓）を中に残す。選択中はチップと同じ
+ * primary-600 の実色ピルになり、箱は accent を white に切り替えて視認性を保つ。
+ *
+ * @param {boolean} checked - チェック状態
+ * @param {(e) => void} onChange - input の onChange ハンドラ
+ * @param {React.ReactNode} children - ラベルテキスト
  */
-export function FilterChipRow({ label, options, value, onChange, className = '', filter = null, heading = null, icon = null }) {
+function CheckboxPill({ checked, onChange, children }) {
+  return (
+    <label
+      className={`${CHIP_BASE} ${checked ? CHIP_SELECTED : CHIP_UNSELECTED} flex items-center gap-2 cursor-pointer select-none`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className={`w-4 h-4 shrink-0 ${checked ? 'accent-white' : 'accent-primary-600'}`}
+      />
+      <span className="whitespace-nowrap">{children}</span>
+    </label>
+  )
+}
+
+/**
+ * フィルタチェックボックス行（単一選択）。Wi-Fi／電源／車椅子用に、
+ * チップからチェックボックスへ置き換えて描画する（表示の圧縮のため）。
+ *
+ * チップと同じ「一度に1つだけ選択できる」単一選択の挙動をそのまま保持しつつ、
+ * 見た目をチェックボックスにする。選択肢配列の先頭（default、通常
+ * {value:'all',label:'すべて'}）はチェックボックスとして描画せず、「全 unchecked
+ * ＝ すべて（default）」で表現する。
+ *   - unchecked の箱をタップ → その値を選択（他は自動で unchecked）
+ *   - checked   の箱をタップ → 選択解除（全 unchecked ＝ default に戻る）
+ *
+ * 状態の形（単一値 'all'|'yes'|...）と絞り込みロジック（utils/resultFilters.js）
+ * は変更しない。onChange には単一値を渡す（従来チップと同じ契約）。
+ *
+ * @param {string} label - グループの aria-label（例: 'WiFi有無で絞る'）
+ * @param {string} value - 現在選択中の値（default ＝ 全 unchecked）
+ * @param {(value: string) => void} onChange - 新値（default ＝ 解除）を渡して呼ばれる
+ * @param {string} [filter] - FILTER_META のキー（アイコン・見出し・選択肢の解決）
+ * @param {Array<{value: string, label: string}>} [options] - 選択肢（省略時は filter 由来）
+ * @param {string} [className=''] - 追加クラス
+ */
+export function FilterCheckboxRow({ label, value, onChange, filter = null, options = null, className = '' }) {
   const meta = metaOf(filter)
-  // 優先度: 明示的な icon/heading 引数 > filter 解決値
-  const finalIcon = icon != null ? icon : meta.icon
-  const finalHeading = heading != null ? heading : meta.heading
+  const opts = options != null ? options : ((filter && FILTER_OPTIONS[filter]) || [])
+  if (!opts.length) return null
+  // default（「すべて」）＝ options の先頭。チェックボックスには出さない（全 unchecked ＝ default）。
+  const defaultValue = opts[0].value
+  const realOptions = opts.filter((o) => o.value !== defaultValue)
   return (
     <div className={`${className} ${ROW_CLASS}`}>
-      <FilterHeading icon={finalIcon} heading={finalHeading} />
-      <div className={CHIP_SCROLL_CLASS} role="group" aria-label={label}>
-        {(options || []).map((o) => (
-          <FilterChip
-            key={o.value}
-            label={o.label}
-            selected={value === o.value}
-            onPress={() => onChange(o.value)}
-          />
+      <FilterHeading icon={meta ? meta.icon : null} heading={meta ? meta.heading : null} />
+      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label={label}>
+        {realOptions.map((o) => {
+          const checked = value === o.value
+          return (
+            <CheckboxPill key={o.value} checked={checked} onChange={() => onChange(checked ? defaultValue : o.value)}>
+              {o.label}
+            </CheckboxPill>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Wi-Fi・電源の統合チェックボックス行。
+ *
+ * 2値フィルタ（Wi-Fi・電源）を1行にまとめ、「あり」だけをチェックボックスで
+ * 絞り込む。各チェックボックスは独立したオン/オフ（両方 checked にできる
+ * ＝ AND）。unchecked ＝ その条件を絞らない（'all'）。従来の「なし」絞り込みは
+ * 廃止（選択肢に 'no' が無いため UI から選択できない）。
+ *
+ * 状態は単一値のまま（'all' | 'yes'）。checked='yes'・unchecked='all' を各
+ * onChange に渡す。絞り込みロジック（resultFilters.js）は変更しない（両方
+ * 'yes' のとき AND になるのは既存の仕来り）。
+ *
+ * @param {string} wifiValue - 現在の Wi-Fi 状態（'all' | 'yes'）
+ * @param {(v: string) => void} onWifiChange - 'yes' / 'all' を渡して呼ばれる
+ * @param {string} powerValue - 現在の電源状態（'all' | 'yes'）
+ * @param {(v: string) => void} onPowerChange
+ * @param {string} [className=''] - 追加クラス
+ */
+export function WifiPowerRow({ wifiValue, onWifiChange, powerValue, onPowerChange, className = '' }) {
+  const wifiChecked = wifiValue === 'yes'
+  const powerChecked = powerValue === 'yes'
+  return (
+    <div className={`${className} ${ROW_CLASS}`}>
+      <FilterHeading icon="📶" heading="Wi-Fi・電源" />
+      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label="Wi-Fi・電源のありで絞る">
+        <CheckboxPill checked={wifiChecked} onChange={() => onWifiChange(wifiChecked ? 'all' : 'yes')}>
+          WiFiあり
+        </CheckboxPill>
+        <CheckboxPill checked={powerChecked} onChange={() => onPowerChange(powerChecked ? 'all' : 'yes')}>
+          電源あり
+        </CheckboxPill>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 車椅子対応の複数選択チェックボックス行。
+ *
+ * 「対応可」(yes)「一部対応」(partial)「対応なし」(no) の3つのチェックボックスで、
+ * 複数同時選択ができる。1つ以上チェックしたら、チェックした状態のいずれかに該当する
+ * 施設だけが残る（OR 判定）。何もチェックしていなければ絞り込みなし（従来の「すべて」と
+ * 同じ）。
+ *
+ * 状態は配列（選択済みの値の集合。例: [] / ['yes'] / ['yes','no']）。チェックボックスの
+ * タップで対応する値を配列に入れ／外す（トグル）。絞り込み判定は matchesWheelchair の
+ * 配列 OR 判定に委ねる。
+ *
+ * @param {Array<string>} selected - 選択済みの車椅子状態値（[] = 絞り込みなし）
+ * @param {(values: Array<string>) => void} onChange - 更新後の配列を渡して呼ばれる
+ * @param {string} [className=''] - 追加クラス
+ */
+export function WheelchairMultiRow({ selected = [], onChange, className = '' }) {
+  const sel = normalizeWheelchair(selected)
+  const options = WHEELCHAIR_OPTIONS.filter((o) => o.value !== 'all')
+  const toggle = (v) => onChange(sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v])
+  return (
+    <div className={`${className} ${ROW_CLASS}`}>
+      <FilterHeading icon="♿" heading="車椅子" />
+      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label="車椅子対応で絞る">
+        {options.map((o) => {
+          const checked = sel.includes(o.value)
+          return (
+            <CheckboxPill key={o.value} checked={checked} onChange={() => toggle(o.value)}>
+              {o.label}
+            </CheckboxPill>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 評価フィルタ値を「点灯する星の数」に変換（0 = 未選択＝「すべて」）。
+ * 'gte1'..'gte4' → 1..4、'eq5' → 5、それ以外（'all' 等）→ 0
+ */
+function ratingSelectedStars(value) {
+  const m = /^gte([1-4])$/.exec(value || '')
+  if (m) return Number(m[1])
+  if (value === 'eq5') return 5
+  return 0
+}
+
+/**
+ * 星 n → 評価フィルタ値。★5 は「5以上」＝「5のみ」なので 'eq5'。
+ * （matchesRating は gte5 と eq5 を同一挙動として扱う）
+ */
+function ratingValueOf(n) {
+  return n === 5 ? 'eq5' : `gte${n}`
+}
+
+/**
+ * ★ 評価フィルタ行（星ボタン5つ）。まちメモ帳カードの★評価行
+ * （MemochoSection の MemochoCard）と同じ見た目・操作で揃える。
+ *
+ * - 星 n を押す →「★n以上」で絞り込む（n=1..4）。★5 は実質「★5のみ」。
+ * - 選択中にもう一度同じ星を押す → 解除して「すべて」に戻る
+ *   （カード側のトグル操作に合わせる）。
+ * - 状態は従来どおり単一文字列（'all' | 'gte1'..'gte4' | 'eq5'）のままなので、
+ *   絞り込みロジック（matchesRating / applyResultFilters）は変更しない。
+ * - 見出しは他の行と同じ統一形式（★ 評価）。
+ *
+ * @param {string} value - 現在の評価フィルタ値（'all' = 未選択）
+ * @param {(value: string) => void} onChange - 新値を渡して呼ばれる
+ * @param {string} [filter='rating'] - FILTER_META のキー（アイコン・見出しの解決）
+ * @param {string} [className=''] - 追加クラス
+ */
+export function RatingStarsRow({ value, onChange, filter = 'rating', className = '' }) {
+  const meta = metaOf(filter)
+  const selected = ratingSelectedStars(value)
+  return (
+    <div className={`${className} ${ROW_CLASS}`}>
+      <FilterHeading icon={meta.icon} heading={meta.heading} />
+      {/* 星5つの並び: カードの★評価行と同一の見た目・操作（押した星まで★・
+          同じ星を再タップで解除）。トグルのaria-pressedは現在値と一致する星だけ */}
+      <div role="group" aria-label="評価で絞る" className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={i === 5 ? '★5のみで絞り込む' : `★${i}以上で絞り込む`}
+            aria-pressed={value === ratingValueOf(i)}
+            onClick={() => onChange(value === ratingValueOf(i) ? 'all' : ratingValueOf(i))}
+            className={`shrink-0 text-sm leading-none p-0.5 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+              i <= selected ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'
+            }`}
+          >
+            {i <= selected ? '★' : '☆'}
+          </button>
         ))}
       </div>
     </div>
@@ -302,64 +495,6 @@ export function CuisineChips({ facets, value, onChange }) {
         </div>
       )}
     </div>
-  )
-}
-
-/**
- * 「視点で絞る」チップ行（一覧・まちメモ帳で共用）。
- * チップ行 + 説明ボタンのモーダル（PerspectiveHelpModal）をまとめる。
- *
- * チップの文言（車椅子/目の不自由な方/子ども連れ/お年寄り）だけでは
- * 「何を絞るのか」が分かりにくいので、料理ジャンル・車椅子と同様の
- * 見出し「視点」を付ける。説明ボタンのモーダルで判定の詳細を補足する。
- */
-export function PerspectiveChips({ value, onChange }) {
-  const [helpOpen, setHelpOpen] = useState(false)
-  return (
-    <>
-      <div className="flex items-center gap-1.5">
-        <FilterChipRow
-          label="視点で絞る"
-          options={PERSPECTIVES}
-          value={value || 'none'}
-          onChange={onChange}
-          className="flex-1"
-          filter="perspective"
-        />
-        <button
-          type="button"
-          aria-label="視点フィルタの説明"
-          onClick={() => setHelpOpen(true)}
-          className="shrink-0 w-6 h-6 rounded-full border border-slate-300 text-slate-400 text-xs italic font-serif leading-none flex items-center justify-center hover:text-slate-500 hover:border-slate-400"
-        >
-          i
-        </button>
-      </div>
-      {helpOpen && <PerspectiveHelpModal onClose={() => setHelpOpen(false)} />}
-    </>
-  )
-}
-
-/**
- * 車椅子対応のチップ行（一覧・まちメモ帳で共用）。
- *
- * チップの文言（対応可／一部対応／対応なし）だけでは絞り込みの意味が
- * 分からないため、料理ジャンル行（CuisineChips）と同じ見出し「車椅子」を
- * 付けた FilterChipRow を返す。見出しの文言・見た目はこの共通部品で
- * 固定し、一覧タブ・まちメモ帳のどちらでも同じ表示になる。
- *
- * @param {string} value - 現在選択中の値（'all' | 'yes' | 'partial' | 'no'）
- * @param {(value: string) => void} onChange - 選択値のコールバック
- */
-export function WheelchairChips({ value, onChange }) {
-  return (
-    <FilterChipRow
-      label="車椅子対応で絞る"
-      options={WHEELCHAIR_OPTIONS}
-      value={value}
-      onChange={onChange}
-      filter="wheelchair"
-    />
   )
 }
 

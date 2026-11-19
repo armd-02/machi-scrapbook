@@ -121,6 +121,15 @@ describe('#44 buildPoiQuery', () => {
     expect(query).toContain('bank')
   })
 
+  it('会社・事務所カテゴリ指定時: office の民間値 regex を使い、役所系・教育系は含まれない', () => {
+    const { query } = buildPoiQuery(testBbox, 'company_office', '')
+    // 民間の会社・事務所値で絞る
+    expect(query).toContain('[office~"^(company|coworking|lawyer|financial|it|research|accounting|marketing|telecommunication|')
+    // 役所系・教育系（既存カテゴリが扱う値）はクエリに含まれない
+    expect(query).not.toContain('government')
+    expect(query).not.toContain('educational_institution')
+  })
+
   // (#62) 未選択時にバリアフリーが混ざらないことの固定
   it('未選択時: buildPoiQuery に highway・kerb・traffic_signals が含まれない', () => {
     const { query } = buildPoiQuery(testBbox, '', '')

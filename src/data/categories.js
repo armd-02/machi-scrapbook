@@ -98,6 +98,33 @@ export const CATEGORIES = [
     description: '役所・郵便局・警察・消防・図書館など'
   },
   {
+    // 会社・事務所: 民間の会社・専門事務所・団体のオフィス。
+    // office のうち、既存カテゴリが扱う値（government/municipality → 公共施設、
+    // educational_institution → 予備校・塾）を除く全般を扱う。Overpass QL に
+    // 「値の除外」条件の機構がないため、office の共通値（taginfo）から
+    // 民間・専門職系の値を列挙する方式（上記の除外値はリストに含まれない）。
+    id: 'company_office',
+    label: '会社・事務所',
+    tags: [
+      { key: 'office', values: [
+        // 仕様が代表値として列挙する民間・専門職系の値
+        'company', 'coworking', 'lawyer', 'financial', 'it', 'research',
+        'accounting', 'marketing', 'telecommunication',
+        // その他の共通値（taginfo の office 頻出値から民間系を選定）
+        'accountant', 'advertising_agency', 'airline', 'architect', 'association',
+        'broadcaster', 'charity', 'construction_company', 'consulting', 'courier',
+        'employment_agency', 'energy_supplier', 'engineer', 'estate_agent',
+        'event_management', 'financial_advisor', 'foundation', 'graphic_design',
+        'insurance', 'logistics', 'moving_company', 'newspaper', 'ngo',
+        'notary', 'publisher', 'property_management', 'security', 'surveyor',
+        'tax_advisor', 'transport', 'travel_agent', 'union', 'visa',
+        'water_utility', 'yes'
+      ] }
+    ],
+    logic: 'or',
+    description: '民間の会社・専門事務所・団体（役所系・教育系を除く）'
+  },
+  {
     id: 'park',
     label: '公園・広場',
     tags: [
@@ -275,7 +302,7 @@ export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
   { name: '買う', icon: '🛍️', ids: ['retail', 'convenience'] },
   { name: '遊ぶ', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
-  { name: '暮らす', icon: '🏠', ids: ['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets'] },
+  { name: '暮らす', icon: '🏠', ids: ['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets', 'company_office'] },
   // (#63) モバイル一般向けトップのクイックグループ（複合タイル。「暮らす」との重複は意図的）
   { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
   { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },

@@ -145,7 +145,7 @@ describe('encodeStateToURL / decodeURLToState', () => {
 })
 
 describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
-  const baseFilters = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none' }
+  const baseFilters = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none' }
   const baseState = {
     searchMode: 'simple',
     simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '' },
@@ -153,21 +153,20 @@ describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
   }
 
   it('アクティブなフィルタのみをエンコードする（デフォルト値は省略）', () => {
-    const state = { ...baseState, resultFilters: { ...baseFilters, nameFilter: 'coffee', missingFilter: 'phone' } }
+    const state = { ...baseState, resultFilters: { ...baseFilters, nameFilter: 'coffee' } }
     const qs = encodeStateToURL(state)
     expect(qs).toContain('nf=coffee')
-    expect(qs).toContain('mf=phone')
     expect(qs).not.toContain('tf=')
     expect(qs).not.toContain('wo=')
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.resultFilters).toEqual({ nameFilter: 'coffee', missingFilter: 'phone' })
+    expect(decoded.resultFilters).toEqual({ nameFilter: 'coffee' })
   })
 
   it('全フィルタパラメータがround-tripする', () => {
-    const state = { ...baseState, resultFilters: { nameFilter: 'test', typeFilter: 'way', sortDir: 'desc', missingFilter: 'any' } }
+    const state = { ...baseState, resultFilters: { nameFilter: 'test', typeFilter: 'way', sortDir: 'desc' } }
     const qs = encodeStateToURL(state)
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.resultFilters).toEqual({ nameFilter: 'test', typeFilter: 'way', sortDir: 'desc', missingFilter: 'any' })
+    expect(decoded.resultFilters).toEqual({ nameFilter: 'test', typeFilter: 'way', sortDir: 'desc' })
   })
 
   it('catFilter/purposeFilter（フォームミラー）はエンコード対象外である', () => {
@@ -179,7 +178,7 @@ describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
   })
 
   it('無効な値はデコード時に無視される', () => {
-    const p = new URLSearchParams({ cf: 'nope', mf: 'unknown', tf: 'point', pf: 'xyz' })
+    const p = new URLSearchParams({ cf: 'nope', tf: 'point', pf: 'xyz' })
     expect(decodeURLToState('?' + p.toString())).toBeNull()
   })
 
@@ -193,11 +192,11 @@ describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
       searchSource: 'municipality',
       selectedMunicipality: { code: '27', name: '吹田市', bbox: null },
       municipalitySearch: { category: 'cafe', keyword: '', cuisine: '', purpose: '' },
-      resultFilters: { ...baseFilters, nameFilter: 'スターバックス', missingFilter: 'website' }
+      resultFilters: { ...baseFilters, nameFilter: 'スターバックス' }
     }
     const qs = encodeStateToURL(state)
     const decoded = decodeURLToState('?' + qs)
     expect(decoded.searchSource).toBe('municipality')
-    expect(decoded.resultFilters).toEqual({ nameFilter: 'スターバックス', missingFilter: 'website' })
+    expect(decoded.resultFilters).toEqual({ nameFilter: 'スターバックス' })
   })
 })

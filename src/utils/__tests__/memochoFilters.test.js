@@ -13,7 +13,7 @@
  * 共通判定関数の詳細な単体テストは resultFilters.test.js にある。
  *
  * 状態のキー名は検索一覧の resultFilters と統一:
- *   nameFilter / catFilter / missingFilter / perspective / cuisine /
+ *   nameFilter / catFilter / cuisine /
  *   wifi / power / wheelchair / rating
  */
 import { describe, it, expect } from 'vitest'
@@ -46,12 +46,10 @@ describe('DEFAULT_MEMO_FILTERS', () => {
     expect(DEFAULT_MEMO_FILTERS).toEqual({
       nameFilter: '',
       catFilter: '',
-      missingFilter: 'none',
-      perspective: 'none',
       cuisine: '',
       wifi: 'all',
       power: 'all',
-      wheelchair: 'all',
+      wheelchair: [],
       rating: 'all',
     })
   })
@@ -202,8 +200,6 @@ describe('isMemoFilterActive（共通の hasActiveFilters に委譲）', () => {
   it('各条件が初期値から外れると true', () => {
     expect(isMemoFilterActive({ ...base, nameFilter: 'カフェ' })).toBe(true)
     expect(isMemoFilterActive({ ...base, catFilter: 'cafe' })).toBe(true)
-    expect(isMemoFilterActive({ ...base, missingFilter: 'phone' })).toBe(true)
-    expect(isMemoFilterActive({ ...base, perspective: 'wheelchair' })).toBe(true)
     expect(isMemoFilterActive({ ...base, cuisine: 'ramen' })).toBe(true)
     expect(isMemoFilterActive({ ...base, wifi: 'yes' })).toBe(true)
     expect(isMemoFilterActive({ ...base, wifi: 'no' })).toBe(true)
@@ -254,17 +250,6 @@ describe('applyMemochoFilters（共通の applyResultFilters への委譲）', (
     expect(names(applyMemochoFilters(ALL, { catFilter: 'cafe' }))).toEqual(['カフェA', 'カフェB'])
   })
 
-  it('属性欠落（missingFilter）: 一覧と同じ missingAttributesOf ベース', () => {
-    const withPhone = item({ id: 9101, name: '喫茶K', tags: { name: '喫茶K', amenity: 'cafe', phone: '06-1234-5678' } })
-    const ALLP = [...ALL, withPhone]
-    // 電話が登録されているのは喫茶Kだけ。残る6件は phone 未登録（公園も phone なし）
-    expect(names(applyMemochoFilters(ALLP, { missingFilter: 'phone' }))).toEqual(['カフェA', 'カフェB', 'ラーメンC', 'ラーメンE', '寿司D', 'みらい公園'])
-    // 'any'（いずれか1つ以上欠落）: 喫茶Kも opening_hours/website/address が未登録なので全件一致
-    expect(names(applyMemochoFilters(ALLP, { missingFilter: 'any' }))).toHaveLength(7)
-    // 電話が登録済みのアイテムだけだと 'phone' には一致しない
-    expect(applyMemochoFilters([withPhone], { missingFilter: 'phone' })).toHaveLength(0)
-  })
-
   it("WiFi: あり＝'yes'（登録済みで no 以外）、なし＝'no' のみ（未登録は含めない）", () => {
     expect(names(applyMemochoFilters(ALL, { wifi: 'yes' }))).toEqual(['カフェA', 'ラーメンC', 'ラーメンE'])
     expect(names(applyMemochoFilters(ALL, { wifi: 'no' }))).toEqual(['カフェB'])
@@ -284,6 +269,14 @@ describe('applyMemochoFilters（共通の applyResultFilters への委譲）', (
     expect(names(applyMemochoFilters(ALL, { wheelchair: 'no' }))).toEqual(['寿司D'])
     const designated = item({ id: 9005, name: 'カフェJ', tags: { name: 'カフェJ', amenity: 'cafe', wheelchair: 'designated' } })
     expect(names(applyMemochoFilters([designated], { wheelchair: 'yes' }))).toEqual(['カフェJ'])
+  })
+
+  it("車椅子 配列（複数選択）: チェックした状態のいずれかに一致すれば残る（OR）", () => {
+    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes', 'no'] }))).toEqual(['カフェA', '寿司D'])
+    expect(names(applyMemochoFilters(ALL, { wheelchair: ['partial', 'no'] }))).toEqual(['ラーメンC', '寿司D'])
+    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes', 'partial', 'no'] }))).toEqual(['カフェA', 'ラーメンC', '寿司D'])
+    // 空配列は絞り込みなし（全件）
+    expect(applyMemochoFilters(ALL, { wheelchair: [] })).toHaveLength(6)
   })
 
   it('料理の種別: 一覧側と同一の処理（部分一致・";"区切り・大小文字無視）', () => {

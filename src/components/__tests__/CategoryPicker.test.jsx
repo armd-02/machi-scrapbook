@@ -209,3 +209,33 @@ describe('CategoryPicker（pc: グループ付きselect）', () => {
     expect(onChange).toHaveBeenCalledWith('cafe')
   })
 })
+
+describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー分離）', () => {
+  it('目的チップは「すること」系（食べる・買う・遊ぶ・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・暮らす・その他）の順で表示される', () => {
+    const { container } = renderPicker()
+    const grid = container.querySelector('div.grid')
+    const chips = [...grid.querySelectorAll('button')]
+    expect(chips.map((b) => b.textContent)).toEqual([
+      '🍜食べる', '🛍️買う', '🎠遊ぶ', '📚学ぶ',
+      '🏥病院・薬局', '🏛️役所・手続き', '🏠暮らす', '🧭その他'
+    ])
+  })
+
+  it('バリアフリーはチップグリッドの外に、グリッドの下に横長（全幅）特別枠として表示される', () => {
+    const { container } = renderPicker()
+    const grid = container.querySelector('div.grid')
+    const bf = screen.getByRole('button', { name: 'バリアフリー' })
+    expect(grid.contains(bf)).toBe(false)
+    expect(bf.className).toContain('w-full')
+    expect(grid.compareDocumentPosition(bf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 特別枠であることを破線枠で表現（未選択時）
+    expect(bf.className).toContain('border-dashed')
+  })
+
+  it('特別枠をタップすると目的スコープが設定される（目的チップと同じ挙動）', () => {
+    const onPurposeChange = vi.fn()
+    renderPicker('', vi.fn(), onPurposeChange)
+    fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
+    expect(onPurposeChange).toHaveBeenCalledWith('バリアフリー')
+  })
+})

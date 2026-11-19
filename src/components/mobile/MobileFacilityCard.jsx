@@ -8,7 +8,6 @@ import {
 import { wheelchairBadge } from '../../utils/accessibility'
 import { keyInfoFor } from '../../utils/categoryProfiles'
 import { formatOpeningHoursJa } from '../../utils/openingHours'
-import { missingAttributesOf, ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { memochoKeyOf } from '../../utils/memocho'
 import { useMemocho } from '../../hooks/useMemocho'
 import { powerWifiStatus, isWorkspaceFacility } from '../../utils/powerWifi'
@@ -65,7 +64,7 @@ function PowerWifiValue({ state, icon }) {
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
  */
-export default function MobileFacilityCard({ result, onOpen, showMissing = false, bare = false, hideMemoToggle = false }) {
+export default function MobileFacilityCard({ result, onOpen, bare = false, hideMemoToggle = false }) {
   const tags = result.tags || {}
   const name = facilityName(result)
   const typeLabel = facilityTypeLabel(result)
@@ -203,16 +202,6 @@ export default function MobileFacilityCard({ result, onOpen, showMissing = false
           ♿ {wcBadge.text}
         </p>
       )}
-      {/* (B2) 欠落フィルタアクティブ時: 未登録の主要属性を表示 */}
-      {showMissing && (() => {
-        const missing = missingAttributesOf(result)
-        if (missing.length === 0) return null
-        return (
-          <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-0.5">
-            ⚠️ {missing.map((k) => ATTRIBUTE_LABELS[k]).join('・')} 未登録
-          </p>
-        )
-      })()}
 
       {/* まちメモ帳（第2ピース）: 追加/削除トグルボタン（小さい・左寄せ）。
           メモ帳内では右上の✕で削除するため hideMemoToggle で出さない */}

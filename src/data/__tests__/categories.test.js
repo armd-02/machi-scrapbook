@@ -21,7 +21,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     expect(grouped.map((g) => g.group)).toEqual([
       '食べる', '買う', '遊ぶ', '暮らす', '病院・薬局', '役所・手続き', '学ぶ', 'その他', 'バリアフリー'
     ])
-    // クイック2グループは「暮らす」と意図的に重複するため、カテゴリ総数は24+4
+    // クイック2グループは「暮らす」と意図的に重複するため、カテゴリ総数は25+4
     const total = grouped.reduce((n, g) => n + g.categories.length, 0)
     expect(total).toBe(CATEGORIES.length + 4)
   })
@@ -126,7 +126,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     const eat = getCategoriesForPurpose('食べる')
     expect(eat.map((c) => c.id)).toEqual(['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'])
     const live = getCategoriesForPurpose('暮らす')
-    expect(live.map((c) => c.id)).toEqual(['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets'])
+    expect(live.map((c) => c.id)).toEqual(['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets', 'company_office'])
     const bf = getCategoriesForPurpose('バリアフリー')
     expect(bf.map((c) => c.id)).toEqual(['barrier_free'])
     expect(getCategoriesForPurpose('存在しない目的')).toBeNull()
@@ -175,7 +175,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
 
   it('getPurposeLabelList: グループ内カテゴリラベルを「・」区切りで返す', () => {
     expect(getPurposeLabelList('遊ぶ')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設')
-    expect(getPurposeLabelList('暮らす')).toBe('公共施設・病院・クリニック・薬局・ドラッグストア・銀行・ATM・トイレ')
+    expect(getPurposeLabelList('暮らす')).toBe('公共施設・病院・クリニック・薬局・ドラッグストア・銀行・ATM・トイレ・会社・事務所')
     expect(getPurposeLabelList('バリアフリー')).toBe('バリアフリー')
     expect(getPurposeLabelList('存在しない目的')).toBe('')
   })
@@ -239,5 +239,49 @@ describe('バリアフリーカテゴリ（#62）', () => {
   it('categoryToReadableTags: 空tagsで空文字列を返す（施設タグ風の表示にならない）', () => {
     const readable = categoryToReadableTags(getCategoryById('barrier_free'))
     expect(readable).toBe('')
+  })
+})
+
+describe('会社・事務所カテゴリ', () => {
+  it('CATEGORIESに存在し、getCategoryByIdで取得できる', () => {
+    const cat = getCategoryById('company_office')
+    expect(cat).toBeTruthy()
+    expect(cat.label).toBe('会社・事務所')
+    expect(cat.logic).toBe('or')
+    expect(cat.tags).toHaveLength(1)
+    expect(cat.tags[0].key).toBe('office')
+  })
+
+  it('office値は民間の会社・専門事務所・団体に限定される', () => {
+    const values = getCategoryById('company_office').tags[0].values
+    // 仕様が代表値として列挙する値がすべて含まれる
+    for (const v of ['company', 'coworking', 'lawyer', 'financial', 'it', 'research', 'accounting', 'marketing', 'telecommunication']) {
+      expect(values).toContain(v)
+    }
+    // 既存カテゴリが扱う値（役所系・教育系）は含まれない
+    for (const v of ['government', 'municipality', 'educational_institution']) {
+      expect(values).not.toContain(v)
+    }
+  })
+
+  it('categoryToQueryFilter: office の値列挙 regex フィルタ（OR）を返す', () => {
+    const f = categoryToQueryFilter(getCategoryById('company_office'))
+    expect(f.andFilters).toEqual([])
+    expect(f.unionFilters).toHaveLength(1)
+    expect(f.unionFilters[0]).toBe('office~"^(company|coworking|lawyer|financial|it|research|accounting|marketing|telecommunication|accountant|advertising_agency|airline|architect|association|broadcaster|charity|construction_company|consulting|courier|employment_agency|energy_supplier|engineer|estate_agent|event_management|financial_advisor|foundation|graphic_design|insurance|logistics|moving_company|newspaper|ngo|notary|publisher|property_management|security|surveyor|tax_advisor|transport|travel_agent|union|visa|water_utility|yes)$"')
+  })
+
+  it('「暮らす」目的グループに属する（基本7グループ内の単一グループ）', () => {
+    expect(getPurposeOfCategory('company_office')).toBe('暮らす')
+  })
+
+  it('categoryToReadableTags: office の値が表示される', () => {
+    const readable = categoryToReadableTags(getCategoryById('company_office'))
+    expect(readable).toContain('office')
+    expect(readable).toContain('company')
+  })
+
+  it('フード系カテゴリではない（料理フィルタに組み込まれない）', () => {
+    expect(isFoodCategory('company_office')).toBe(false)
   })
 })

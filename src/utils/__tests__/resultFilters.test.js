@@ -4,8 +4,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  applyResultFilters, hasActiveFilters, matchesPerspective, cuisineFacetValues,
+  applyResultFilters, hasActiveFilters, cuisineFacetValues,
   matchesKeyword, matchesWifi, matchesPower, matchesWheelchair, matchesRating,
+  normalizeWheelchair,
 } from '../resultFilters'
 
 const cafe = { type: 'node', id: 1, tags: { amenity: 'cafe' } }
@@ -55,230 +56,10 @@ describe('applyResultFilters: purposeFilter（目的スコープ）', () => {
   })
 })
 
-describe('applyResultFilters: missingFilter（B2: 主要属性の欠落で絞り込み）', () => {
-  const full = { type: 'node', id: 20, name: '完全カフェ', tags: { amenity: 'cafe', name: '完全カフェ', phone: '06-1111-1111', opening_hours: 'Mo-Fr 09:00-17:00', website: 'https://full.example', 'addr:street': '梅田1-1' } }
-  const noPhone = { type: 'node', id: 21, name: '電話なしカフェ', tags: { amenity: 'cafe', name: '電話なしカフェ', opening_hours: 'Mo-Fr 09:00-17:00', website: 'https://nophone.example', 'addr:street': '梅田2-2' } }
-  const noWeb = { type: 'node', id: 22, name: 'サイトなし公園', tags: { leisure: 'park', name: 'サイトなし公園', phone: '06-2222-2222', 'addr:city': '大阪市' } }
-  const M = [full, noPhone, noWeb]
-
-  it('特定属性: その属性が未登録の施設だけが残る', () => {
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'phone' }).map(r => r.id)).toEqual([21])
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'website' }).map(r => r.id)).toEqual([22])
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'opening_hours' }).map(r => r.id)).toEqual([22])
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'address' }).map(r => r.id)).toEqual([])
-  })
-
-  it('any: いずれかの主要属性が未登録なら残る', () => {
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'any' }).map(r => r.id)).toEqual([21, 22])
-  })
-
-  it('none（または未設定）なら全件維持', () => {
-    expect(applyResultFilters(M, { ...BASE, missingFilter: 'none' }).map(r => r.id)).toEqual([20, 21, 22])
-    expect(applyResultFilters(M, BASE).map(r => r.id)).toEqual([20, 21, 22])
-  })
-
-  it('nameFilterと組み合わせられる（名称検索のまま欠落絞り込み）', () => {
-    const out = applyResultFilters(M, { ...BASE, missingFilter: 'phone', nameFilter: '電話' })
-    expect(out.map(r => r.id)).toEqual([21])
-    // 名称一致しても電話があれば除外される
-    const out2 = applyResultFilters(M, { ...BASE, missingFilter: 'phone', nameFilter: '完全' })
-    expect(out2).toHaveLength(0)
-  })
-
-  it('空文字のopening_hoursも未登録扱い（has関数と同一のtruthiness判定）', () => {
-    const emptyHours = { type: 'node', id: 23, name: '空営業時間', tags: { amenity: 'cafe', name: '空営業時間', opening_hours: '' } }
-    expect(applyResultFilters([emptyHours], { ...BASE, missingFilter: 'opening_hours' })).toHaveLength(1)
-  })
-})
-
-// ===== 視点フィルタ（matchesPerspective） =====
-
-// 施設形状（tags）とバリアフリー形状（bf）のフィクチャ
-const wcFacility = { type: 'node', id: 60, tags: { amenity: 'cafe', wheelchair: 'yes' } }
-const wcDesignated = { type: 'node', id: 61, tags: { amenity: 'cafe', wheelchair: 'designated' } }
-const wcLimited = { type: 'node', id: 62, tags: { amenity: 'cafe', wheelchair: 'limited' } }
-const kerbLow = { type: 'node', id: 63, tags: { amenity: 'cafe', 'kerb:height': '0.02' } }
-const kerbHigh = { type: 'node', id: 64, tags: { amenity: 'cafe', 'kerb:height': '0.05' } }
-const kerbBad = { type: 'node', id: 65, tags: { amenity: 'cafe', 'kerb:height': 'abc' } }
-const bfKerbFlush = { type: 'node', id: 66, tags: {}, bf: { kind: 'node', kerb: 'flush' } }
-const bfKerbLowered = { type: 'node', id: 67, tags: {}, bf: { kind: 'node', kerb: 'lowered' } }
-const bfKerbHigh = { type: 'node', id: 68, tags: {}, bf: { kind: 'node', kerb: 'high' } }
-
-const tactileFacility = { type: 'node', id: 70, tags: { amenity: 'cafe', tactile_paving: 'yes' } }
-const tactileNoFacility = { type: 'node', id: 71, tags: { amenity: 'cafe', tactile_paving: 'no' } }
-const bfTactileYes = { type: 'way', id: 72, tags: { highway: 'footway' }, bf: { kind: 'way', tactile: 'yes' } }
-const bfTactileNo = { type: 'way', id: 73, tags: { highway: 'footway' }, bf: { kind: 'way', tactile: 'no' } }
-const bfSound = { type: 'node', id: 74, tags: {}, bf: { kind: 'node', hasSound: true, hasVibration: false } }
-const bfVibration = { type: 'node', id: 75, tags: {}, bf: { kind: 'node', hasSound: false, hasVibration: true } }
-
-const diaperYes = { type: 'node', id: 80, tags: { amenity: 'cafe', diaper: 'yes' } }
-const diaperNo = { type: 'node', id: 81, tags: { amenity: 'cafe', diaper: 'no' } }
-const diaperEmpty = { type: 'node', id: 82, tags: { amenity: 'cafe', diaper: '' } }
-const changingTable = { type: 'node', id: 83, tags: { amenity: 'cafe', changing_table: 'yes' } }
-const kidsArea = { type: 'node', id: 84, tags: { amenity: 'cafe', kids_area: 'yes' } }
-const highchair = { type: 'node', id: 85, tags: { amenity: 'cafe', highchair: 'yes' } }
-
-const rampYes = { type: 'node', id: 90, tags: { amenity: 'cafe', ramp: 'yes' } }
-const rampWheelchair = { type: 'node', id: 91, tags: { amenity: 'cafe', 'ramp:wheelchair': 'yes' } }
-const elevatorYes = { type: 'node', id: 92, tags: { amenity: 'cafe', elevator: 'yes' } }
-const elevatorNo = { type: 'node', id: 93, tags: { amenity: 'cafe', elevator: 'no' } }
-const plain = { type: 'node', id: 99, tags: { amenity: 'cafe' } }
-
-
-describe('matchesPerspective: wheelchair（車椅子）', () => {
-  it('tags.wheelchair が yes / designated の施設は該当する', () => {
-    expect(matchesPerspective(wcFacility, 'wheelchair')).toBe(true)
-    expect(matchesPerspective(wcDesignated, 'wheelchair')).toBe(true)
-  })
-
-  it('limited / no / 未登録は該当しない（「登録あり」のみ残す）', () => {
-    expect(matchesPerspective(wcLimited, 'wheelchair')).toBe(false)
-    expect(matchesPerspective(plain, 'wheelchair')).toBe(false)
-  })
-
-  it("tags['kerb:height'] が数値として解釈できて 0.03m 以下なら該当する", () => {
-    expect(matchesPerspective(kerbLow, 'wheelchair')).toBe(true)
-    const edge = { tags: { 'kerb:height': '0.03' } }
-    expect(matchesPerspective(edge, 'wheelchair')).toBe(true)
-  })
-
-  it('kerb:height が 0.03m 超・数値解釈不可・空文字なら該当しない', () => {
-    expect(matchesPerspective(kerbHigh, 'wheelchair')).toBe(false)
-    expect(matchesPerspective(kerbBad, 'wheelchair')).toBe(false)
-    expect(matchesPerspective(diaperEmpty, 'wheelchair')).toBe(false)
-  })
-
-  it('bf.kerb が flush / lowered のバリアフリー結果は該当する', () => {
-    expect(matchesPerspective(bfKerbFlush, 'wheelchair')).toBe(true)
-    expect(matchesPerspective(bfKerbLowered, 'wheelchair')).toBe(true)
-  })
-
-  it('bf.kerb が flush/lowered 以外（例: high）は該当しない', () => {
-    expect(matchesPerspective(bfKerbHigh, 'wheelchair')).toBe(false)
-  })
-})
-
-describe('matchesPerspective: vision（目の不自由な方）', () => {
-  it('tags.tactile_paving === yes は該当する、no / 未登録は該当しない', () => {
-    expect(matchesPerspective(tactileFacility, 'vision')).toBe(true)
-    expect(matchesPerspective(tactileNoFacility, 'vision')).toBe(false)
-    expect(matchesPerspective(plain, 'vision')).toBe(false)
-  })
-
-  it('bf.tactile === yes のバリアフリー結果は該当する（no は該当しない）', () => {
-    expect(matchesPerspective(bfTactileYes, 'vision')).toBe(true)
-    expect(matchesPerspective(bfTactileNo, 'vision')).toBe(false)
-  })
-
-  it('bf.hasSound / bf.hasVibration が true なら該当する', () => {
-    expect(matchesPerspective(bfSound, 'vision')).toBe(true)
-    expect(matchesPerspective(bfVibration, 'vision')).toBe(true)
-    expect(matchesPerspective({ bf: { hasSound: false, hasVibration: false } }, 'vision')).toBe(false)
-  })
-})
-
-describe('matchesPerspective: child（子ども連れ）', () => {
-  it('tags.diaper が存在し no でないなら該当する（yes）', () => {
-    expect(matchesPerspective(diaperYes, 'child')).toBe(true)
-  })
-
-  it('diaper が no / 空文字 / 未登録は該当しない', () => {
-    expect(matchesPerspective(diaperNo, 'child')).toBe(false)
-    expect(matchesPerspective(diaperEmpty, 'child')).toBe(false)
-    expect(matchesPerspective(plain, 'child')).toBe(false)
-  })
-
-  it('changing_table / kids_area / highchair が yes なら該当する', () => {
-    expect(matchesPerspective(changingTable, 'child')).toBe(true)
-    expect(matchesPerspective(kidsArea, 'child')).toBe(true)
-    expect(matchesPerspective(highchair, 'child')).toBe(true)
-  })
-
-  it('changing_table が no なら該当しない（yes のみ）', () => {
-    expect(matchesPerspective({ tags: { changing_table: 'no' } }, 'child')).toBe(false)
-  })
-})
-
-describe('matchesPerspective: elderly（お年寄り）', () => {
-  it('tags.wheelchair が yes / designated なら該当する', () => {
-    expect(matchesPerspective(wcFacility, 'elderly')).toBe(true)
-    expect(matchesPerspective(wcDesignated, 'elderly')).toBe(true)
-  })
-
-  it('ramp / ramp:wheelchair / elevator が yes なら該当する', () => {
-    expect(matchesPerspective(rampYes, 'elderly')).toBe(true)
-    expect(matchesPerspective(rampWheelchair, 'elderly')).toBe(true)
-    expect(matchesPerspective(elevatorYes, 'elderly')).toBe(true)
-  })
-
-  it('no / 未登録は該当しない', () => {
-    expect(matchesPerspective(elevatorNo, 'elderly')).toBe(false)
-    expect(matchesPerspective({ tags: { ramp: 'no' } }, 'elderly')).toBe(false)
-    expect(matchesPerspective(plain, 'elderly')).toBe(false)
-  })
-})
-
-describe('matchesPerspective: none / 不明な視点', () => {
-  it("'none' は全件該当する（フィルタしない）", () => {
-    expect(matchesPerspective(plain, 'none')).toBe(true)
-    expect(matchesPerspective(bfKerbFlush, 'none')).toBe(true)
-    expect(matchesPerspective(plain, undefined)).toBe(true)
-  })
-
-  it('不明な視点IDはフィルタしない（安全側）', () => {
-    expect(matchesPerspective(plain, 'unknown')).toBe(true)
-  })
-})
-
-describe('applyResultFilters: perspective（視点フィルタ）', () => {
-  it('wheelchair: 車椅子対応が登録済みの施設・バリアフリー要素だけが残る', () => {
-    const out = applyResultFilters(
-      [wcFacility, wcLimited, plain, bfKerbFlush],
-      { ...BASE, perspective: 'wheelchair' }
-    )
-    expect(out.map((r) => r.id).sort()).toEqual([60, 66])
-  })
-
-  it('vision: 点字ブロック・音声/振動案内が登録済みのものだけが残る', () => {
-    const out = applyResultFilters(
-      [tactileFacility, bfTactileYes, bfSound, plain],
-      { ...BASE, perspective: 'vision' }
-    )
-    expect(out.map((r) => r.id).sort()).toEqual([70, 72, 74])
-  })
-
-  it('child / elderly も同様に絞れる', () => {
-    expect(applyResultFilters([diaperYes, changingTable, plain], { ...BASE, perspective: 'child' }).map((r) => r.id).sort()).toEqual([80, 83])
-    expect(applyResultFilters([elevatorYes, elevatorNo, plain], { ...BASE, perspective: 'elderly' }).map((r) => r.id)).toEqual([92])
-  })
-
-  it("'none'（または未設定）なら全件維持", () => {
-    expect(applyResultFilters([wcFacility, plain], { ...BASE, perspective: 'none' })).toHaveLength(2)
-    expect(applyResultFilters([wcFacility, plain], BASE)).toHaveLength(2)
-  })
-
-  it('nameFilter と組み合わせられる（AND）', () => {
-    const a = { type: 'node', id: 100, name: '駅カフェ', tags: { amenity: 'cafe', name: '駅カフェ', wheelchair: 'yes' } }
-    const b = { type: 'node', id: 101, name: '山カフェ', tags: { amenity: 'cafe', name: '山カフェ', wheelchair: 'yes' } }
-    const out = applyResultFilters([a, b], { ...BASE, perspective: 'wheelchair', nameFilter: '駅' })
-    expect(out.map((r) => r.id)).toEqual([100])
-  })
-})
-
 describe('hasActiveFilters', () => {
   it('purposeFilterのみでもtrue', () => {
     expect(hasActiveFilters({ ...BASE, purposeFilter: '遊ぶ' })).toBe(true)
     expect(hasActiveFilters(BASE)).toBe(false)
-  })
-
-  it('perspective（視点フィルタ）が none 以外ならtrue', () => {
-    expect(hasActiveFilters({ ...BASE, perspective: 'wheelchair' })).toBe(true)
-    expect(hasActiveFilters({ ...BASE, perspective: 'none' })).toBe(false)
-  })
-
-  it('missingFilter（B2）がnone以外ならtrue', () => {
-    expect(hasActiveFilters({ ...BASE, missingFilter: 'any' })).toBe(true)
-    expect(hasActiveFilters({ ...BASE, missingFilter: 'none' })).toBe(false)
   })
 
   it('cuisine（料理ジャンル）が空以外ならtrue', () => {
@@ -597,6 +378,35 @@ describe('matchesPower（powerStatus の3状態判定・「あり」の絞り込
   })
 })
 
+describe('applyResultFilters: wheelchair（車椅子 複数選択）', () => {
+  const a = { type: 'node', id: 1, tags: { name: 'A', amenity: 'cafe', wheelchair: 'yes' } }
+  const b = { type: 'node', id: 2, tags: { name: 'B', amenity: 'cafe', wheelchair: 'limited' } }
+  const c = { type: 'node', id: 3, tags: { name: 'C', amenity: 'cafe', wheelchair: 'no' } }
+  const d = { type: 'node', id: 4, tags: { name: 'D', amenity: 'cafe' } }
+
+  const names = (out) => out.map((r) => r.tags.name)
+
+  it('空配列（何もチェックしていない）は絞り込みなし＝全件', () => {
+    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: [] }))).toEqual(['A', 'B', 'C', 'D'])
+  })
+
+  it("['yes'] は対応可（yes / designated）だけ", () => {
+    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes'] }))).toEqual(['A'])
+  })
+
+  it("['yes', 'no'] は対応可・対応なしだけ（OR、一部対応と未登録は除外）", () => {
+    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes', 'no'] }))).toEqual(['A', 'C'])
+  })
+
+  it("['partial'] は一部対応（limited）だけ", () => {
+    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['partial'] }))).toEqual(['B'])
+  })
+
+  it("['yes', 'partial', 'no'] は登録済みの全件（未登録は除外）", () => {
+    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes', 'partial', 'no'] }))).toEqual(['A', 'B', 'C'])
+  })
+})
+
 describe('matchesWheelchair（tags.wheelchair の値で判定）', () => {
   const withWc = (v) => mItem({ tags: { wheelchair: v } })
 
@@ -623,6 +433,29 @@ describe('matchesWheelchair（tags.wheelchair の値で判定）', () => {
     expect(matchesWheelchair(withWc('no'), 'no')).toBe(true)
     expect(matchesWheelchair(withWc('yes'), 'no')).toBe(false)
     expect(matchesWheelchair(mItem(), 'no')).toBe(false)
+  })
+
+  it('配列（複数選択）: チェックした状態のいずれかに一致すれば true（OR 判定）', () => {
+    // 対応可（yes）: yes / designated
+    expect(matchesWheelchair(withWc('yes'), ['yes'])).toBe(true)
+    expect(matchesWheelchair(withWc('yes'), ['yes', 'no'])).toBe(true)
+    expect(matchesWheelchair(withWc('yes'), ['no'])).toBe(false)
+    expect(matchesWheelchair(withWc('designated'), ['yes'])).toBe(true)
+    // 一部対応（partial）: limited
+    expect(matchesWheelchair(withWc('limited'), ['partial'])).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), ['yes', 'partial'])).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), ['yes', 'no'])).toBe(false)
+    // 対応なし（no）
+    expect(matchesWheelchair(withWc('no'), ['no'])).toBe(true)
+    expect(matchesWheelchair(withWc('no'), ['yes', 'no'])).toBe(true)
+    expect(matchesWheelchair(withWc('no'), ['yes'])).toBe(false)
+    // 空配列は絞り込みなし（全件一致）
+    expect(matchesWheelchair(withWc('yes'), [])).toBe(true)
+    expect(matchesWheelchair(withWc('no'), [])).toBe(true)
+    expect(matchesWheelchair(mItem(), [])).toBe(true)
+    // 未登録はどの状態にも一致しない
+    expect(matchesWheelchair(mItem(), ['yes'])).toBe(false)
+    expect(matchesWheelchair(mItem(), ['yes', 'partial', 'no'])).toBe(false)
   })
 })
 
@@ -660,7 +493,7 @@ describe('matchesRating（rating フィールド。0＝未評価）', () => {
 })
 
 describe('hasActiveFilters（共通キー拡張）', () => {
-  const base = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', rating: 'all', kerbHeight: 'any' }
+  const base = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], rating: 'all', kerbHeight: 'any' }
 
   it('初期値・空オブジェクトは false', () => {
     expect(hasActiveFilters(base)).toBe(false)
@@ -671,8 +504,6 @@ describe('hasActiveFilters（共通キー拡張）', () => {
   it('共通キーが初期値から外れると true', () => {
     expect(hasActiveFilters({ ...base, nameFilter: 'カフェ' })).toBe(true)
     expect(hasActiveFilters({ ...base, catFilter: 'cafe' })).toBe(true)
-    expect(hasActiveFilters({ ...base, missingFilter: 'phone' })).toBe(true)
-    expect(hasActiveFilters({ ...base, perspective: 'wheelchair' })).toBe(true)
     expect(hasActiveFilters({ ...base, cuisine: 'ramen' })).toBe(true)
     expect(hasActiveFilters({ ...base, wifi: 'yes' })).toBe(true)
     expect(hasActiveFilters({ ...base, wifi: 'no' })).toBe(true)
@@ -684,5 +515,35 @@ describe('hasActiveFilters（共通キー拡張）', () => {
 
   it('nameFilter が空白だけなら絞り込み中ではない', () => {
     expect(hasActiveFilters({ ...base, nameFilter: '   ' })).toBe(false)
+  })
+
+  it('wheelchair 配列（複数選択）: 1つ以上なら true、空配列は false', () => {
+    expect(hasActiveFilters({ ...base, wheelchair: ['yes'] })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: ['yes', 'no'] })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: [] })).toBe(false)
+  })
+})
+
+describe('normalizeWheelchair（後方互換: 古い単一値形式を配列に正規化）', () => {
+  it('配列はそのまま（無効値を除外）', () => {
+    expect(normalizeWheelchair(['yes', 'no'])).toEqual(['yes', 'no'])
+    expect(normalizeWheelchair(['yes', 'invalid'])).toEqual(['yes'])
+    expect(normalizeWheelchair([])).toEqual([])
+  })
+
+  it('単一文字列を配列に移行', () => {
+    expect(normalizeWheelchair('yes')).toEqual(['yes'])
+    expect(normalizeWheelchair('partial')).toEqual(['partial'])
+    expect(normalizeWheelchair('no')).toEqual(['no'])
+  })
+
+  it("'all' は初期値（空配列）に", () => {
+    expect(normalizeWheelchair('all')).toEqual([])
+  })
+
+  it('不明な値・undefined・null は初期値（空配列）に', () => {
+    expect(normalizeWheelchair('invalid')).toEqual([])
+    expect(normalizeWheelchair(undefined)).toEqual([])
+    expect(normalizeWheelchair(null)).toEqual([])
   })
 })

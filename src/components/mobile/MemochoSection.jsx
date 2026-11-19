@@ -8,8 +8,8 @@ import { linkifySegments } from '../../utils/linkify'
 import { cuisineFacetValues } from '../../utils/resultFilters'
 import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
 import {
-  FilterInput, FilterSelect, FilterChipRow, CategorySelect, PerspectiveChips, CuisineChips,
-  WheelchairChips, WIFI_OPTIONS, POWER_OPTIONS, RATING_OPTIONS, MISSING_OPTIONS, KEYWORD_LABEL
+  FilterInput, WifiPowerRow, WheelchairMultiRow, CategorySelect, CuisineChips,
+  RatingStarsRow, KEYWORD_LABEL
 } from '../ResultFilterBar'
 
 /**
@@ -43,8 +43,6 @@ import {
  *   すべて AND 結合:
  *   - キーワード（nameFilter）: 名前（name / name:ja）とメモ本文の対象にした部分一致
  *   - カテゴリ（catFilter）: 一覧と同じ categoryMatchesElement
- *   - 属性欠落（missingFilter）: 一覧と同じ missingAttributesOf ベース
- *   - 視点（perspective）: 一覧と同じ matchesPerspective
  *   - 料理の種別（cuisine）: アイテムの tags.cuisine を cuisineFacetValues で集計
  *   - WiFi（wifi）: internet_access タグの3状態判定（wifiStatus）。あり＝'yes'、
  *     なし＝'no'。未登録（unknown）はどちらにも含めない
@@ -52,9 +50,11 @@ import {
  *   - 車椅子対応（wheelchair）: tags.wheelchair の値で判定（yes/designated＝対応可、
  *     limited＝一部対応、no＝対応なし）。未登録はどの絞り込みにも一致しない
  *   - ★評価（rating）: rating フィールド（0＝未評価）ベース。★N以上＝rating >= N、
- *     ★5のみ＝rating === 5。未評価（0）は「すべて」にのみ該当
- *   - 絞り込み中は見出しの件数が「全n件中 m件を表示」になり、フィルタバー
- *     上部に全条件を一括解除する「フィルタをクリア」ボタンが出る
+ *     ★5のみ＝rating === 5。未評価（0）は「すべて」にのみ該当。UIは星ボタン5つ
+ *     （カードの★評価行と同じ見た目・操作: 星nを押すと★N以上、同じ星を再タップで解除）
+ *   - 絞り込み中は見出しの件数が「全n件中 m件を表示」になり、キーワード行の入力欄の
+ *     右側に全条件を一括解除するシンボル（✕・aria-label「フィルタをクリア」）が出る
+ *     （右側の固定幅スロットは常時確保されるため、表示・非表示でレイアウトがずれない）
  */
 
 // リンクタップ時のイベント伝播を止める（編集モードへの切替・詳細シート展開を防止）
@@ -190,60 +190,33 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
       {active.length > 0 && (
         <div className="px-3 pb-2">
           <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
-            {/* 絞り込み中は全条件を一括解除するクリアボタンが出る */}
-            {filtersActive && (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={resetMemoFilters}
-                  className="min-h-[44px] px-3 text-xs font-medium rounded-full border bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                >
-                  フィルタをクリア
-                </button>
-              </div>
-            )}
+            {/* キーワード行: 見出し文言「キーワード」は除去（プレースホルダで意味が
+                伝わるため）。右側はフィルタ全クリアシンボル（✕）の固定スロットを
+                常時確保し、絞り込み中はシンボルが出てクリックで全条件を一括解除
+                （表示・非表示でレイアウトがずれない） */}
             <FilterInput
               label={KEYWORD_LABEL}
               value={memoFilters.nameFilter}
               onChange={(e) => setMemoFilters((f) => ({ ...f, nameFilter: e.target.value }))}
               filter="keyword"
+              heading={null}
+              showClearAll={filtersActive}
+              onClearAll={resetMemoFilters}
             />
-            <FilterChipRow
-              label="WiFi有無で絞る"
-              options={WIFI_OPTIONS}
-              value={memoFilters.wifi}
-              onChange={(v) => setMemoFilters((f) => ({ ...f, wifi: v }))}
-              filter="wifi"
+            <WifiPowerRow
+              wifiValue={memoFilters.wifi}
+              onWifiChange={(v) => setMemoFilters((f) => ({ ...f, wifi: v }))}
+              powerValue={memoFilters.power}
+              onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
             />
-            <FilterChipRow
-              label="電源で絞り込む"
-              options={POWER_OPTIONS}
-              value={memoFilters.power}
-              onChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
-              filter="power"
-            />
-            <WheelchairChips
-              value={memoFilters.wheelchair}
-              onChange={(v) => setMemoFilters((f) => ({ ...f, wheelchair: v }))}
+            <WheelchairMultiRow
+              selected={memoFilters.wheelchair}
+              onChange={(arr) => setMemoFilters((f) => ({ ...f, wheelchair: arr }))}
             />
             <CategorySelect
               items={activeItems(items)}
               value={memoFilters.catFilter || ''}
               onChange={(e) => setMemoFilters((f) => ({ ...f, catFilter: e.target.value }))}
-            />
-            <FilterSelect
-              label="属性の欠落で絞る"
-              value={memoFilters.missingFilter || 'none'}
-              onChange={(e) => setMemoFilters((f) => ({ ...f, missingFilter: e.target.value }))}
-              filter="missing"
-            >
-              {MISSING_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </FilterSelect>
-            <PerspectiveChips
-              value={memoFilters.perspective || 'none'}
-              onChange={(v) => setMemoFilters((f) => ({ ...f, perspective: v }))}
             />
             {/* 料理の種別: アイテムに cuisine タグがあるときだけ行を表示（一覧タブと同じ
                 CuisineChips 共用・折りたたみ式） */}
@@ -252,12 +225,12 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
               value={memoFilters.cuisine || ''}
               onChange={(v) => setMemoFilters((prev) => ({ ...prev, cuisine: v }))}
             />
-            <FilterChipRow
-              label="評価で絞る"
-              options={RATING_OPTIONS}
+            {/* ★ 評価: 星ボタン5つ（カードの★評価行と同じインターフェイス）。
+                星nを押すと「★n以上」で絞り込み（★5は実質★5のみ）、
+                選択中にもう一度同じ星を押すと解除して「すべて」に戻る */}
+            <RatingStarsRow
               value={memoFilters.rating}
               onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
-              filter="rating"
             />
           </div>
         </div>

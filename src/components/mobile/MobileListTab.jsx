@@ -8,8 +8,8 @@ import MobileResultsMap from './MobileResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
 import {
-  FilterInput, FilterSelect, FilterChipRow, CategorySelect, PerspectiveChips, CuisineChips,
-  WheelchairChips, WIFI_OPTIONS, POWER_OPTIONS, MISSING_OPTIONS, KEYWORD_LABEL
+  FilterInput, FilterSelect, WifiPowerRow, WheelchairMultiRow, CategorySelect, CuisineChips,
+  KEYWORD_LABEL
 } from '../ResultFilterBar'
 import AttributeCompleteness from '../AttributeCompleteness'
 import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
@@ -75,7 +75,7 @@ export default function MobileListTab({ onOpenDetail }) {
   const resetFilters = () => {
     // 検索フォームのカテゴリ・目的選択も一緒に解除する（状態の整合性）
     dispatch({ type: searchFormType, payload: { category: '', purpose: '' } })
-    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', missingFilter: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' })
   }
 
   return (
@@ -111,29 +111,27 @@ export default function MobileListTab({ onOpenDetail }) {
             {/* (共通フィルタバー) コントロール・選択肢・CSSクラス構成は ResultFilterBar に集約
                 （まちメモ帳と共用。ロジックは utils/resultFilters.js） */}
             <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+              {/* キーワード行: 見出し文言「キーワード」は除去（プレースホルダで意味が
+                  伝わるため）。右側はフィルタ全クリアシンボル（✕）の固定スロットを
+                  常時確保し、表示・非表示でレイアウトがずれない */}
               <FilterInput
                 label={KEYWORD_LABEL}
                 value={nameFilter}
                 onChange={(e) => setFilters({ nameFilter: e.target.value })}
                 filter="keyword"
+                heading={null}
+                showClearAll={filtersActive}
+                onClearAll={resetFilters}
               />
-              <FilterChipRow
-                label="WiFi有無で絞る"
-                options={WIFI_OPTIONS}
-                value={resultFilters.wifi}
-                onChange={(v) => setFilters({ wifi: v })}
-                filter="wifi"
+              <WifiPowerRow
+                wifiValue={resultFilters.wifi}
+                onWifiChange={(v) => setFilters({ wifi: v })}
+                powerValue={resultFilters.power}
+                onPowerChange={(v) => setFilters({ power: v })}
               />
-              <FilterChipRow
-                label="電源で絞り込む"
-                options={POWER_OPTIONS}
-                value={resultFilters.power}
-                onChange={(v) => setFilters({ power: v })}
-                filter="power"
-              />
-              <WheelchairChips
-                value={resultFilters.wheelchair}
-                onChange={(v) => setFilters({ wheelchair: v })}
+              <WheelchairMultiRow
+                selected={resultFilters.wheelchair}
+                onChange={(arr) => setFilters({ wheelchair: arr })}
               />
               <div className="flex gap-2">
                 <CategorySelect
@@ -154,22 +152,6 @@ export default function MobileListTab({ onOpenDetail }) {
                   <option value="desc">名前逆順</option>
                 </FilterSelect>
               </div>
-              {/* (B2) 主要属性の欠落で絞り込む */}
-              <FilterSelect
-                label="属性の欠落で絞る"
-                value={resultFilters.missingFilter || 'none'}
-                onChange={(e) => setFilters({ missingFilter: e.target.value })}
-                filter="missing"
-              >
-                {MISSING_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </FilterSelect>
-              {/* 視点フィルタ: 「誰にとって使いやすいか」で絞る（単一選択チップ） */}
-              <PerspectiveChips
-                value={resultFilters.perspective || 'none'}
-                onChange={(v) => setFilters({ perspective: v })}
-              />
               {/* 料理ジャンル: 結果にcuisineタグがあるときだけチップ行を表示
                   （単一選択トグル。再クリックで解除） */}
               <CuisineChips
@@ -183,12 +165,7 @@ export default function MobileListTab({ onOpenDetail }) {
 
         {hasResults && filtered.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center space-y-2">
-            <p className="text-sm text-amber-800">
-              {/* (A4) 未登録絞り込みで0件は「失敗」ではなく「充実」の好機として伝える */}
-              {(resultFilters.missingFilter || 'none') !== 'none'
-                ? 'この地域では、該当する未登録施設はありません — 主要属性が充実しています。'
-                : '現在の絞り込み条件に一致する施設はありません。'}
-            </p>
+            <p className="text-sm text-amber-800">現在の絞り込み条件に一致する施設はありません。</p>
             <button
               type="button"
               onClick={resetFilters}
@@ -205,7 +182,6 @@ export default function MobileListTab({ onOpenDetail }) {
               key={`${r.type}/${r.id}`}
               result={r}
               onOpen={(res) => onOpenDetail && onOpenDetail(res, 'list')}
-              showMissing={(resultFilters.missingFilter || 'none') !== 'none'}
             />
           ))}
         </div>
@@ -277,19 +253,23 @@ function BarrierFreeMobileList() {
   const { state, dispatch } = useApp()
   const { results, status, resultFilters } = state
 
-  // バリアフリー要素には意味のないフィルタ（Webサイト・属性欠落・料理ジャンル・
+  // バリアフリー要素には意味のないフィルタ（料理ジャンル・
   // WiFi・電源・車椅子）は適用しない（旧POI検索の残値で全件が消えるのを防ぐ）
-  const bfFilters = { ...resultFilters, missingFilter: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all' }
+  const bfFilters = { ...resultFilters, cuisine: '', wifi: 'all', power: 'all', wheelchair: [] }
   const filtered = useMemo(
     () => applyResultFilters(results || [], bfFilters),
     [results, resultFilters]
   )
 
+  // キーワード行のクリアシンボル表示条件: この画面で resetFilters が解除できる絞り込み
+  // 条件のみ集計する（カテゴリ・目的は検索条件そのものなので集計しない）
+  const filtersActive = hasActiveFilters({ ...bfFilters, catFilter: '', purposeFilter: '' })
+
   const setFilters = (patch) => dispatch({ type: 'SET_RESULT_FILTERS', payload: patch })
   // バリアフリー検索ではフォームのカテゴリ（barrier_free）は検索条件そのものなので、
   // リセットは表示フィルタのみに限る
   const resetFilters = () => {
-    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', perspective: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' })
   }
 
   const hasResults = status === 'success' && (results || []).length > 0
@@ -332,11 +312,16 @@ function BarrierFreeMobileList() {
 
             {/* (共通フィルタバー) コントロールは ResultFilterBar 共用 */}
             <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+              {/* キーワード行: 見出し文言は除去し、右側はフィルタ全クリアシンボル（✕）の
+                  固定スロットを常時確保する（POI一覧と同様） */}
               <FilterInput
                 label={KEYWORD_LABEL}
                 value={resultFilters.nameFilter}
                 onChange={(e) => setFilters({ nameFilter: e.target.value })}
                 filter="keyword"
+                heading={null}
+                showClearAll={filtersActive}
+                onClearAll={resetFilters}
               />
               <div className="flex gap-2">
                 <FilterSelect
@@ -361,12 +346,6 @@ function BarrierFreeMobileList() {
               <p className="text-xs text-slate-400">
                 OpenStreetMapに登録済みのデータのみ。点字ブロックは登録情報（tactile_paving）を表示します。
               </p>
-              {/* 視点フィルタ: POI側と同じチップ行（bfFilters が resultFilters を展開するため
-                  perspective はそのまま流れ、applyResultFilters で bf フィールドも判定される） */}
-              <PerspectiveChips
-                value={resultFilters.perspective || 'none'}
-                onChange={(v) => setFilters({ perspective: v })}
-              />
               {/* 縁石の高さ（バリアフリー一覧専用）: bf を持つ結果のうち
                   kerbHeightClass が一致するものだけ残す */}
               <FilterSelect
