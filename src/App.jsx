@@ -71,11 +71,21 @@ function App() {
   // 戻る／進む（popstate）で画面が変わった場合はURLが既に正しい位置にある
   // ため、ここで push すると履歴が汚染される（forward が壊れる）。
   const lastScreenRef = useRef(null)
+  const firstRunRef = useRef(true)
   useEffect(() => {
+    // マウント時の初回実行は push しない。復元エフェクト（上方・先に実行される）が
+    // dispatch した画面への再レンダリングで state.screen が更新され、このエフェクトが
+    // 再実行される。初回に push すると復元前の古い state（'top'）をURLに書き戻し、
+    // 履歴に重複エントリが混入するため、初回は状態の記録だけで済ます。
+    if (firstRunRef.current) {
+      firstRunRef.current = false
+      lastScreenRef.current = state.screen
+      return
+    }
     const params = new URLSearchParams(window.location.search)
     const current = normalizeScreen(params.get('view')) || 'top'
-    // 初回（マウント時）は push しない（URL復元で来た画面をURLに書き戻さない）
-    // URLとstateが既に見合っていれば push しない（popstate 由来の変更）
+    // URLとstateが既に見合っていれば push しない（popstate 由来の変更では
+    // URLが既に正しい位置にあり、ここで push すると履歴が汚染される）
     if (lastScreenRef.current === state.screen || current === state.screen) {
       lastScreenRef.current = state.screen
       return
