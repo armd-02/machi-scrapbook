@@ -44,13 +44,50 @@ function extractAddress(addressdetails) {
 }
 
 /**
+ * 指定点を中心に ±padDeg 度の viewbox（BBOX）を作る。
+ * 「地名検索」（明示的なジオコード）で現在位置が取得できていれば、viewbox
+ * パラメータを付けて現在地に近い結果を優先する（仕様 §6）。bounded=1 は
+ * 付けない（viewbox は結果の優先付けのみで、範囲外の結果も返り得る）。
+ * @param {{ lat: number, lon: number }|null} center 現在位置（無い場合は null）
+ * @param {number} [padDeg=0.15] 中心からのオフセット（度）。仕様: ±0.15度程度
+ * @returns {{south, west, north, east}|null}
+ */
+export function viewboxAround(center, padDeg = 0.15) {
+  if (!center) return null
+  const { lat, lon } = center
+  if (![lat, lon].every((n) => typeof n === 'number' && Number.isFinite(n))) return null
+  return {
+    south: lat - padDeg,
+    west: lon - padDeg,
+    north: lat + padDeg,
+    east: lon + padDeg
+  }
+}
+
+/**
+ * viewbox（BBOX）を Nominatim の viewbox パラメータ文字列にする。
+ * 形式: min_lon,max_lat,max_lon,min_lat
+ * @returns {string|null} 無効なBBOXなら null
+ */
+function viewboxParam(bbox) {
+  if (!bbox) return null
+  const { south, west, north, east } = bbox
+  if (![south, west, north, east].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+    return null
+  }
+  return `${west},${north},${east},${south}`
+}
+
+/**
  * 地名をジオコードする（Nominatim）
  * @param {string} query - 地名（例: "大阪市北区"）
+ * @param {{ viewbox?: object|null }} [options] - viewbox（BBOX）。現在位置
+ *   付近を優先するために付ける（viewboxAround で生成）
  * @returns {Promise<object|null>} - { lat, lon, display_name, type, boundingbox }
  */
 let lastRequestTime = 0
 
-export async function geocode(query) {
+export async function geocode(query, { viewbox = null } = {}) {
   if (!query || query.trim() === '') return null
 
   // Nominatim利用規約: 最大1リクエスト/秒
@@ -66,6 +103,8 @@ export async function geocode(query) {
     limit: '1',
     countrycodes: 'jp'
   })
+  const vb = viewboxParam(viewbox)
+  if (vb) params.set('viewbox', vb)
 
   const url = `${NOMINATIM_URL}?${params.toString()}`
 
@@ -131,11 +170,16 @@ function nominatimKind(row) {
  * 守る（モジュール内の lastRequestTime を共有）。
  *
  * @param {string} query - 地名（例: "上本町"）
+ * @param {{ viewbox?: object|null, limit?: number }} [options]
+ *   viewbox: 現在位置付近を優先するBBOX（viewboxAround で生成）。
+ *   Nominatim の viewbox パラメータ（min_lon,max_lat,max_lon,min_lat）として
+ *   付く。bounded=1 は付けない。
+ *   limit: 取得件数（既定5）
  * @returns {Promise<Array>} - 候補の配列。各候補: { lat, lon, displayName,
  *   name, prefecture, city, type, boundingbox }
  *   （prefecture/city は addressdetails の state / city・town・village 等から抽出）
  */
-export async function geocodeCandidates(query) {
+export async function geocodeCandidates(query, { viewbox = null, limit = 5 } = {}) {
   if (!query || query.trim() === '') return []
 
   // Nominatim利用規約: 最大1リクエスト/秒（geocode() と共有）
@@ -148,10 +192,12 @@ export async function geocodeCandidates(query) {
   const params = new URLSearchParams({
     q: query.trim(),
     format: 'json',
-    limit: '5',
+    limit: String(limit),
     addressdetails: '1',
     countrycodes: 'jp'
   })
+  const vb = viewboxParam(viewbox)
+  if (vb) params.set('viewbox', vb)
 
   const url = `${NOMINATIM_URL}?${params.toString()}`
 
@@ -214,11 +260,21 @@ function displayNameLeadingPart(displayName) {
 }
 
 /**
- * ジオコード候補の表示ラベルを作る: 「名称（都道府県市区町村）」形式。
+ * 距離（km）を表示用に整形する。「約320m」「約1.2km」「約12km」
+ */
+function formatDistance(km) {
+  if (km < 1) return `約${Math.max(1, Math.round(km * 1000))}m`
+  if (km < 10) return `約${km.toFixed(1)}km`
+  return `約${Math.round(km)}km`
+}
+
+/**
+ * ジオコード候補の表示ラベルを作る: 「名称（種別・都道府県市区町村）」形式。
  * 例: 「上本町（鹿児島県鹿児島市）」「小倉（福岡県北九州市）」
  * - 市区町村が取れない場合は都道府県だけ: 「○○（鹿児島県）」
  * - 都道府県・市区町村のどちらも無い場合は displayName の先頭部分だけ
  * - 名称は name を採用。name が無い場合は displayName の先頭部分を使う
+ * - 距離を持つ候補（周辺候補・Overpass 由来）は距離も表示: 「○○（駅・約320m）」
  */
 export function geocodeCandidateLabel(candidate) {
   if (!candidate) return ''
@@ -230,6 +286,10 @@ export function geocodeCandidateLabel(candidate) {
   const kind = (candidate.kind || '').trim()
   const area = prefecture && city ? prefecture + city : (prefecture || city)
   const parts = [kind, area].filter(Boolean)
+  // 周辺候補（駅・地区・公園）は距離を表示する（仕様 §3）
+  if (typeof candidate.distanceKm === 'number' && candidate.distanceKm > 0) {
+    parts.push(formatDistance(candidate.distanceKm))
+  }
 
   if (!parts.length) return name
   return `${name}（${parts.join('・')}）`

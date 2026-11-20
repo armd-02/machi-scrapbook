@@ -16,19 +16,33 @@
  *   施設検索が実行される（成功でリストタブへ自動切替）。
  * - 「くわしく探す」: 従来の検索フォームへ（フォーム側には戻る導線がある）
  *
- * 「検索する」押下時の流れ（親の handleTopSearch で実行）:
- * ① 入力欄に地名があれば geocode して検索エリアを確定（成功で入力欄を緑に
- *    し「検索エリアに「○○」を設定しました」を表示）。入力が空で
- *    「都道府県から探す」などでエリアが設定済みならそれを使う。
- * ② 場所が決まらなければ（入力が空でエリア未設定、または geocode で
- *    見つからない）検索せず、案内・エラー表示を出す。
+ * 「地名検索」押下時の流れ（親の handleGeocodePlace で実行）:
+ * ① 入力した地名を Nominatim でジオコードする（1リクエスト/秒の制限）。
+ *    現在位置が取得できていれば viewbox（現在地中心 ±0.15度）を付けて
+ *    近傍の結果を優先する。bounded=1 は付けない。
+ * ② 結果が1件の場合は検索エリアを設定する（入力欄を緑にし
+ *    「検索エリアに「○○」を設定しました」を表示）。複数なら候補リストを
+ *    提示し、タップでエリアを設定する。
+ * ③ 0件の場合は「見つからなかった」趣旨の案内を出す。
+ *
+ * 「指定した場所と種別で検索」押下時の流れ（親の handleTopSearch で実行）:
+ * ① ジオコードは行わない。「設定済みの検索エリア＋選ばれたタイル」で
+ *    施設検索を実行するだけ。
+ * ② エリアが未設定なら検索せず、「先に場所を指定してください（「地名検索」
+ *    か「都道府県から探す」で）」趣旨の案内を出す。
  * ③ タイル（種別）が選ばれていなければ検索せず「種別を選んでください」
  *    趣旨の案内を出す。
  * ④ 場所と種別がそろえば、その範囲・種別で施設検索を実行する。
  *
- * 検索範囲は「設定済みの検索エリア」（state.bbox）。地名・駅名の geocode
- * （「検索する」押下時に実行）または「都道府県から探す」での自治体選択で
- * 設定される。トップ画面には地図を描画しない（#63）。地図は親（MobileSearchTab）
+ * 入力中のサジェストは Nominatim に問い合わせない（公開 Nominatim の利用
+ * ポリシーでオートコンプリートが禁止されているため）。代わりに:
+ * - 自治体候補（ローカルデータ）
+ * - 周辺キャッシュ（入力欄フォーカス時に現在位置から5km圏内の駅・地区・
+ *   大きな公園を Overpass で1回取得した結果）の名前部分一致
+ *
+ * 検索範囲は「設定済みの検索エリア」（state.bbox）。「地名検索」での
+ * geocode または「都道府県から探す」での自治体選択で設定される。
+ * トップ画面には地図を描画しない（#63）。地図は親（MobileSearchTab）
  * が常時マウントした単一インスタンスとして保持し、フォーム表示の地図モードで
  * のみ表示される（位置・範囲はトップ⇄フォーム切替時に引き継がれる）。
  *
@@ -71,14 +85,18 @@ export const BARRIER_FREE_TILE = { id: 'barrierFree', label: 'バリアフリー
 /**
  * トップ冒頭ブロック: 説明一行 ＋ 場所指定（地名・駅名入力）。
  *
- * 入力欄の右に「検索」ボタンは置かない（操作の流れ変更）。実際の検索は
- * 目的タイルの下にある「検索する」ボタン（または入力欄で Enter）で実行される。
+ * 入力欄の右に「地名検索」ボタンを置く（onGeocode を渡した場合）: 押下（または
+ * 入力欄で Enter）で Nominatim ジオコードを実行し、検索エリアを設定する。
+ * 施設検索は目的タイルの下にある「指定した場所と種別で検索」ボタンで行う。
  *
  * @param {string} placeQuery 場所入力値（親が管理: 切替時に状態を保持）
  * @param {(value: string) => void} onPlaceQueryChange
- * @param {(() => void) | null} onSearch 検索実行（親で geocode→施設検索→一覧切替）。
- *   入力欄で Enter を押したときにも呼ばれる（「検索する」ボタンと同じ動作）
- * @param {boolean} searching 地名検索実行中
+ * @param {(() => void) | null} onGeocode 「地名検索」実行（親で Nominatim
+ *   ジオコード→検索エリア設定）。入力欄で Enter を押したときにも呼ばれる
+ * @param {(() => void) | null} onFocus 地名入力欄のフォーカス時（親で周辺
+ *   候補の取得を起動）
+ * @param {boolean} [geocodeDisabled] 「地名検索」ボタンを無効化（ジオコード実行中等）
+ * @param {boolean} searching 施設検索実行中
  * @param {string | null} searchError 地名検索エラー
  * @param {string | null} areaName 設定した検索エリアの表示名（成功フィードバック）
  * @param {boolean} areaSet 検索エリアが設定済み（成功）か。true の場合、
@@ -97,7 +115,9 @@ export const BARRIER_FREE_TILE = { id: 'barrierFree', label: 'バリアフリー
 export function QuickTopIntro({
   placeQuery = '',
   onPlaceQueryChange = () => {},
-  onSearch = null,
+  onGeocode = null,
+  onFocus = null,
+  geocodeDisabled = false,
   searching = false,
   searchError = null,
   areaName = null,
@@ -108,11 +128,11 @@ export function QuickTopIntro({
   candidatesHeading = null,
   onCandidateSelect = null
 }) {
-  // 入力欄で Enter を押した場合は「検索する」ボタンと同じ動作
+  // 入力欄で Enter を押した場合は「地名検索」ボタンと同じ動作（ジオコード実行）
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && onSearch && !disabled && !searching) {
+    if (e.key === 'Enter' && onGeocode && !disabled && !geocodeDisabled) {
       e.preventDefault()
-      onSearch()
+      onGeocode()
     }
   }
   return (
@@ -121,8 +141,8 @@ export function QuickTopIntro({
         好きな場所で作る、わたしのまち
       </p>
 
-      {/* 場所指定: 地名・駅名を入力し、「検索する」を押すと
-          geocode → 検索エリア確定 → 施設検索 が実行される */}
+      {/* 場所指定: 地名・駅名を入力し、「地名検索」を押すと
+          geocode → 検索エリア確定 が実行される */}
       <section className="bg-white rounded-xl p-3 shadow-sm space-y-2" aria-label="どこで探すか">
         <label htmlFor="quick-place-input" className="block text-sm font-semibold text-slate-700">
           どこあたりの場所？
@@ -132,14 +152,18 @@ export function QuickTopIntro({
           value={placeQuery}
           onChange={onPlaceQueryChange}
           onKeyDown={handleKeyDown}
+          onFocus={onFocus}
+          onGeocode={onGeocode}
           placeholder="地名・駅名（例: 大阪駅）"
           disabled={disabled}
           geocoding={geocoding}
+          geocodeDisabled={geocodeDisabled}
           areaSet={areaSet}
         />
-        {/* 地名候補リスト（入力欄の下）。サジェスト（入力中の候補）と
-            「候補が複数あります」の提示で共通の GeocodeCandidateList を使う。
-            候補タップで検索エリアが設定され、リストは閉じる（親で制御） */}
+        {/* 地名候補リスト（入力欄の下）。サジェスト（入力中の候補: 自治体＋
+            Overpass 周辺キャッシュ）と「候補が複数あります」の提示で共通の
+            GeocodeCandidateList を使う。候補タップで検索エリアが設定され、
+            リストは閉じる（親で制御） */}
         {candidates && candidates.length > 0 && (
           <GeocodeCandidateList
             candidates={candidates}
@@ -168,9 +192,10 @@ export function QuickTopIntro({
  *
  * @param {(tile: object) => void} onTileTap タイルタップ（親で選択だけ行う）
  * @param {string | null} selectedTileId 選択中のタイルのid（ハイライト表示用）
- * @param {() => void} onSearch 「検索する」押下（親で geocode→施設検索→一覧切替）
+ * @param {() => void} onSearch 「指定した場所と種別で検索」押下（親で
+ *   設定済みエリア＋種別に絞った施設検索→一覧切替。ジオコードは行わない）
  * @param {() => void} onOpenDetailed 「くわしく探す」で従来フォームへ
- * @param {boolean} searching 地名検索実行中（「検索中…」表示・無効化）
+ * @param {boolean} searching 施設検索実行中（「検索中…」表示・無効化）
  * @param {boolean} disabled 検索中などでの無効化
  */
 export function QuickTopTiles({
@@ -210,7 +235,7 @@ export function QuickTopTiles({
 
         {/* バリアフリー: 場所の種類ではなく見方のモードなので、カテゴリタイルと
             同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離表示。
-            他のタイルと同じくタップで「選択」だけを行い、「検索する」で検索する */}
+            他のタイルと同じくタップで「選択」だけを行い、「指定した場所と種別で検索」で検索する */}
         <button
           type="button"
           onClick={() => onTileTap(BARRIER_FREE_TILE)}
@@ -228,15 +253,17 @@ export function QuickTopTiles({
           {BARRIER_FREE_TILE.label}
         </button>
 
-        {/* 「検索する」: 施設検索を実行する唯一のエントリ（場所geocode→検索→一覧切替）。
-            種別未選択のまま押下しても検索は実行されず、親が案内表示を出す */}
+        {/* 「指定した場所と種別で検索」: 施設検索を実行する唯一のエントリ
+            （設定済みエリア＋タイルで検索→一覧切替。ジオコードは行わない）。
+            エリア未設定・種別未選択のまま押下しても検索は実行されず、
+            親が案内表示を出す */}
         <button
           type="button"
           onClick={onSearch}
           disabled={disabled || searching}
           className="w-full min-h-[44px] text-sm font-medium bg-primary-600 text-white rounded-lg disabled:opacity-50"
         >
-          {searching ? '検索中…' : '検索する'}
+          {searching ? '検索中…' : '指定した場所と種別で検索'}
         </button>
       </section>
 

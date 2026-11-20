@@ -92,6 +92,15 @@ const BF_ELEMENTS_UMEDA = [
   { type: 'node', id: 3006, lat: 34.7, lon: 135.5, tags: { barrier: 'kerb' } },
 ]
 
+// 周辺地名候補（around:5000 クエリ）のレスポンス要素。
+// ローカルサジェスト（端末内照合）の検証用。座標は geolocation モックの
+// 固定現在位置（34.7, 135.5）と同じ領域に置く
+const NEARBY_ELEMENTS = [
+  { type: 'node', id: 2001, lat: 34.7, lon: 135.5, tags: { railway: 'station', name: '梅田駅' } },
+  { type: 'node', id: 2002, lat: 34.701, lon: 135.499, tags: { place: 'neighbourhood', name: '梅田' } },
+  { type: 'node', id: 2003, lat: 34.706, lon: 135.496, tags: { railway: 'station', name: '大阪駅' } },
+]
+
 // Nominatim応答行（geocode / geocodeCandidates 検証用）。
 // 既定では「梅田」の単一候補。複数候補の検証では nominatimRows を
 // 「上本町」（鹿児島市＋大阪市）の2行に切り替える。
@@ -126,6 +135,11 @@ let nominatimRows = [UEDA_ROW]
 // (place) Nominatim の fetch を「未解決」に保てる deferred（スピナー表示検証用）。
 // null のときは従来どおり nominatimRows を即返す（既存テストへの影響なし）
 let nominatimDeferred = null
+// (place) Nominatim 問い合わせ回数（入力中に Nominatim を問い合わせない検証用）
+let nominatimCalls = 0
+// (place) 周辺候補取得の Overpass fetch を「未解決」に保てる deferred
+// （通信中だった周辺結果が後から届いても候補リストが再表示されない検証用）
+let nearbyDeferred = null
 
 function createDeferred() {
   let resolveFn
@@ -171,6 +185,7 @@ function setupFetchMock() {
     // (#63) Nominatimジオコード（QuickTopIntroの「検索」・地名入力サジェスト・
     // 複数候補提示の検証用）。テスト側が nominatimRows を切り替えられる
     if (u.includes('nominatim')) {
+      nominatimCalls++
       if (nominatimDeferred) {
         // (place) リクエストを実際に Pending 状態に保ち、スピナー表示を検証する
         // （resolve するまで json() が解決しない）
@@ -192,6 +207,18 @@ function setupFetchMock() {
       const body = options.body || ''
       const q = new URLSearchParams(body).get('data') || body
       overpassCalls.push(q)
+      // 周辺候補取得クエリ（around:5000 を含む）と施設検索クエリで返す要素を変える
+      const isNearby = q.includes('around:5000')
+      if (isNearby && nearbyDeferred) {
+        // (place) リクエストを実際に Pending 状態に保つ（通信中だった周辺
+        // 結果が後から届いても候補リストが再表示されないことの検証用）
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: () => nearbyDeferred.promise,
+        }
+      }
       if (overpassStatus !== 200) {
         return { ok: false, status: overpassStatus, headers: new Map(), json: async () => ({}) }
       }
@@ -199,12 +226,27 @@ function setupFetchMock() {
         ok: true,
         status: 200,
         headers: new Map(),
-        json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: overpassElements }),
+        json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: isNearby ? NEARBY_ELEMENTS : overpassElements }),
       }
     }
     return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
   })
   vi.spyOn(globalThis, 'fetch').mockImplementation(mockFetch)
+}
+
+// Geolocation API のモック（jsdom には実装が無い）。現在位置は固定値
+// （34.7, 135.5）。周辺候補の取得と「地名検索」の viewbox 付けに使う
+function setupGeolocationMock() {
+  Object.defineProperty(navigator, 'geolocation', {
+    configurable: true,
+    value: {
+      getCurrentPosition: (ok) => {
+        setTimeout(() => ok({ coords: { latitude: 34.7, longitude: 135.5 } }), 0)
+      },
+      watchPosition: () => 0,
+      clearWatch: () => {},
+    },
+  })
 }
 
 function renderApp(query = '') {
@@ -286,25 +328,32 @@ async function switchToMapMode() {
 }
 
 // (#63) 「検索エリアが設定済み」状態をテスト上で再現する: 地名を入力して
-// タイル下の「検索する」を押す（fetchモックが「梅田」のNominatim結果を返す →
-// 検索エリアに設定される）。成功フィードバックの表示を待って返す。
-// この時点ではタイル未選択なので「種別を選んでください」の案内も同時に現れる。
-// 後続でタイル選択+「検索する」で実際に検索するテストがこれを利用する。
+// 「地名検索」を押す（fetchモックが「梅田」のNominatim結果を返す → 検索エリアに
+// 設定される）。成功フィードバックの表示を待って返す。
+// 後続でタイル選択+「指定した場所と種別で検索」で実際に検索するテストがこれを利用する。
 // （トップ画面には地図を描画しないため、旧「ユーザーが地図を動かした」の
-// 再現方法はなくなった。検索エリアはジオコードまたは自治体選択で設定される。）
+// 再現方法はなくなった。検索エリアは地名検索または自治体選択で設定される。）
 async function setAreaByGeocode() {
   fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
-  fireEvent.click(getTopSearchButton())
+  fireEvent.click(getGeocodeButton())
   await waitFor(() => {
     expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
   }, { timeout: 8000 })
 }
 
-// (#63) タイル下の「検索する」ボタン。「目的から探す」セクション内にスコープする:
-// 下部ナビの「検索」タブや「都道府県から探す」セクションの「検索する」と同名のため。
-// タイルタップは選択のみのため、施設検索はこのボタン（または場所入力でEnter）で実行される。
+// (#63) タイル下の「指定した場所と種別で検索」ボタン（施設検索の実行入口）。
+// 「目的から探す」セクション内にスコープする: 下部ナビの「検索」タブや
+// 「都道府県から探す」セクションの「検索する」との混同を防ぐため。
+// タイルタップは選択のみのため、施設検索はこのボタンで実行される。
 function getTopSearchButton() {
-  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '検索する' })
+  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '指定した場所と種別で検索' })
+}
+
+// (#63) 場所入力欄の右側の「地名検索」ボタン（ジオコードの入口）。
+// 「どこで探すか」セクション内にスコープする。押下（または入力欄でEnter）で
+// 入力テキストを Nominatim でジオコードし、検索エリアを設定する。
+function getGeocodeButton() {
+  return within(screen.getByRole('region', { name: 'どこで探すか' })).getByRole('button', { name: '地名検索' })
 }
 
 async function selectMunicipality(prefText, munText, prefLabel = '都道府県', munLabel = '市区町村') {
@@ -346,6 +395,8 @@ beforeEach(() => {
   overpassElements = OVERPASS_ELEMENTS
   nominatimRows = [UEDA_ROW]
   nominatimDeferred = null
+  nominatimCalls = 0
+  nearbyDeferred = null
   setupFetchMock()
   clearCache()
 })
@@ -1207,10 +1258,12 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     // 従来フォームへの「くわしく探す」導線
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
-    // タイル下の「検索する」ボタン（施設検索の実行入口）が表示される
+    // タイル下の「指定した場所と種別で検索」ボタン（施設検索の実行入口）が表示される
     expect(getTopSearchButton()).toBeTruthy()
-    // 場所入力欄の右にあった旧「検索」ボタンはなくなった（検索は「検索する」で実行）
-    expect(within(screen.getByRole('region', { name: 'どこで探すか' })).queryByRole('button')).toBeNull()
+    // 場所入力欄の右にあった旧「検索する」ボタン（ジオコード入口）は
+    // 「地名検索」ボタンに置き換わっている
+    expect(within(screen.getByRole('region', { name: 'どこで探すか' })).getByRole('button', { name: '地名検索' })).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'どこで探すか' })).queryByRole('button', { name: '検索する' })).toBeNull()
 
     // 従来フォーム固有の要素はトップでは表示されない
     expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
@@ -1253,7 +1306,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.queryByText(/検索範囲が設定されていません/)).toBeNull()
   }, IT_TIMEOUT)
 
-  it('検索エリアが大きすぎる場合: 国サイズのジオコード結果は検索段階で遮断され、検証エラーが表示される（「接続エラー」ラベルなし）', async () => {
+  it('検索エリアが大きすぎる場合: 国サイズのジオコード結果は地名検索段階で遮断され、検証エラーが表示される（「接続エラー」ラベルなし）', async () => {
     renderApp()
 
     // ジオコード結果のboundingboxが巨大（約230万km²、MAX_SEARCH_AREA_KM2 =
@@ -1261,6 +1314,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
       const u = String(url)
       if (u.includes('nominatim')) {
+        nominatimCalls++
         return {
           ok: true,
           status: 200,
@@ -1284,12 +1338,12 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
       return { ok: false, status: 404, headers: new Map(), json: async () => ({}) }
     })
 
-    // 地名を入力して「検索する」を押す。旧仕様では巨大bboxが検索エリアに設定
+    // 地名を入力して「地名検索」を押す。旧仕様では巨大bboxが検索エリアに設定
     // され、後段のcriteria検証（checkBboxSize）で弾かれたが、新仕様では
-    // BBOX面積ベースの「広すぎる」ガード（isBboxTooLarge: 1,000 km²以上）が
-    // ジオコード段階で遮断し、検索エリアは設定されない
+    // BBOX面積ベースの「広すぎる」ガード（isSearchAreaTooLarge: 1,000 km²以上）が
+    // 地名検索段階で遮断し、検索エリアは設定されない
     fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
     // 検証エラー（統一エラー文）が表示され、検索エリアは設定されない
     await waitFor(() => {
@@ -1431,12 +1485,14 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
   }, IT_TIMEOUT)
 })
 
-describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索する」の制御', () => {
-  it('開いた直後（検索エリア未設定）でタイル選択+「検索する」: 検索は実行されず（Overpass問い合わせなし）検証メッセージが表示される', async () => {
+describe('(place) 検索エリア未設定ガード（state.bbox）: 「指定した場所と種別で検索」の制御', () => {
+  it('開いた直後（検索エリア未設定）でタイル選択+「指定した場所と種別で検索」: 検索は実行されず（Overpass問い合わせなし）検証メッセージが表示される', async () => {
     renderApp()
 
-    // 検索エリアの設定（地名のgeocode・自治体選択）を何もしないまま
-    // タイルを選択して「検索する」を押す
+    // 検索エリアの設定（地名検索・自治体選択）を何もしないまま
+    // タイルを選択して「指定した場所と種別で検索」を押す
+    // （旧の「検索する」は地名入力で即ジオコード+検索していたが、今はジオコードを
+    // 行わないため、エリア未設定なら未設定ガードの案内が出る）
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
 
@@ -1455,7 +1511,7 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索�
     // 検証エラーであり通信エラーではない: 「接続エラー」ラベルが付かない
     expect(screen.queryByText(/接続エラー/)).toBeNull()
 
-    // ガイダンス文言（地名の「検索する」または自治体選択の案内）も表示される
+    // ガイダンス文言（地名の「地名検索」または自治体選択の案内）も表示される
     expect(screen.getByText(/「都道府県から探す」で自治体を選択してください/)).toBeTruthy()
 
     // (改行) 案内メッセージは文の区切りで改行され、3行で表示される。
@@ -1464,7 +1520,7 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索�
     const lines = banner.textContent.split('\n')
     expect(lines).toHaveLength(3)
     expect(lines[0]).toBe('⚠️ 場所がまだ設定されていません。')
-    expect(lines[1]).toBe('地名・駅名を入力して「検索する」を押すか、')
+    expect(lines[1]).toBe('地名・駅名を入力して「地名検索」を押すか、')
     expect(lines[2]).toBe('「都道府県から探す」で自治体を選択してください。')
     expect(banner.className).toContain('whitespace-pre-line')
   }, IT_TIMEOUT)
@@ -1522,21 +1578,20 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「検索�
     expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('地名入力で「検索する」（geocode）の後、タイル選択+「検索する」でその範囲で検索が実行される', async () => {
+  it('地名入力で「地名検索」（geocode）の後、タイル選択+「指定した場所と種別で検索」でその範囲で検索が実行される', async () => {
     overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
 
-    // 地名を入力して「検索する」を押す（fetchモックがNominatim結果を返す → 検索エリア設定）
-    // この時点ではタイル未選択なので「種別を選んでください」の案内も出る
+    // 地名を入力して「地名検索」を押す（fetchモックがNominatim結果を返す → 検索エリア設定）
     fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
     // 検索エリア設定の成功フィードバックが表示される
     await waitFor(() => {
       expect(screen.getByText(/検索エリアに「.*」を設定しました/)).toBeTruthy()
     }, { timeout: 8000 })
 
-    // タイルを選択してから「検索する」を押す
+    // タイルを選択してから「指定した場所と種別で検索」を押す
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
 
@@ -1572,7 +1627,7 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('成功後に場所入力欄を編集すると: 緑が解除され検索エリアは未設定に戻り、「検索する」で未設定ガード（案内メッセージ）が出る', async () => {
+  it('成功後に場所入力欄を編集すると: 緑が解除され検索エリアは未設定に戻り、「指定した場所と種別で検索」で未設定ガード（案内メッセージ）が出る', async () => {
     renderApp()
     await setAreaByGeocode()
 
@@ -1589,7 +1644,7 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     // 入力を空に戻す（= 入力が空で検索エリアも未設定）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '' } })
 
-    // 検索エリアが未設定に戻った: タイル選択+「検索する」で未設定ガードが再び働く
+    // 検索エリアが未設定に戻った: タイル選択+「指定した場所と種別で検索」で未設定ガードが再び働く
     fireEvent.click(within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     await waitFor(() => {
@@ -1607,6 +1662,7 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
       const u = String(url)
       if (u.includes('nominatim')) {
+        nominatimCalls++
         return { ok: true, status: 200, headers: new Map(), json: async () => [] }
       }
       if (u.includes('interpreter') || u.includes('sakura') || u.includes('overpass')) {
@@ -1624,8 +1680,9 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     })
     renderApp()
 
+    // 場所が見つからない地名で「地名検索」
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: 'zzz見つからない' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
     // エラーが表示される
     await waitFor(() => {
@@ -1638,14 +1695,15 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     expect(input.className).not.toContain('bg-green-50')
     // 成功フィードバックは出ない
     expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
-    // 検索エリアも設定されていない: タイル選択+「検索する」で検索は実行されず、
-    // geocodeエラー（場所が見つかりませんでした）が表示され続ける
+    // 検索エリアも設定されていない: タイル選択+「指定した場所と種別で検索」で
+    // 未設定ガードの案内が出る（ジオコードのエラーメッセージはそのまま残る）
     fireEvent.click(within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     await waitFor(() => {
-      expect(screen.getByText(/場所が見つかりませんでした/)).toBeTruthy()
+      expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
     }, { timeout: 8000 })
-    expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+    // ジオコードのエラーメッセージもそのまま残る（両方表示）
+    expect(screen.getByText(/場所が見つかりませんでした/)).toBeTruthy()
     expect(overpassCalls).toHaveLength(0)
   }, IT_TIMEOUT)
 
@@ -1699,7 +1757,7 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
 //    案内付きで候補リストを表示し、施設検索は実行されない
 //  - 候補を選んでから「検索する」を再度押すと、その候補の範囲で検索される
 //    （同じ地名の geocode が再実行されず、提示がループしない）
-describe('(place) 地名入力のサジェストと複数候補の提示', () => {
+describe('(place) 地名入力のローカルサジェスト（自治体＋周辺Overpassキャッシュ）と複数候補の提示', () => {
   // サジェストリスト（role=listbox）内の指定ラベルの候補を待って返す
   async function waitForSuggestOption(optionName, { timeout = 8000 } = {}) {
     return waitFor(() => {
@@ -1710,61 +1768,90 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     }, { timeout })
   }
 
-  it('2文字以上の入力でデバウンス後にサジェスト候補が表示される（ラベルは「名称（都道府県市区町村）」）', async () => {
+  // フォーカス（周辺候補の Overpass 取得を起動）＋ 入力
+  function typeWithFocus(input, value) {
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value } })
+  }
+
+  it('2文字以上の入力で周辺候補が端末内照合で表示される（ラベルは「名称（種別・距離）」）+ 入力中にNominatim問い合わせなし', async () => {
+    setupGeolocationMock()
     renderApp()
     const input = screen.getByPlaceholderText(PLACE_INPUT)
 
-    // 1文字: サジェストなし（2文字以上が必要）
-    fireEvent.change(input, { target: { value: '上' } })
+    // 1文字: 候補なし（2文字以上が必要）。周辺取得はフォーカスで開始済み
+    typeWithFocus(input, '梅')
     await new Promise((r) => setTimeout(r, 600))
     expect(screen.queryByRole('listbox')).toBeNull()
 
-    // 2文字以上: デバウンス（400ms）+ リクエスト後にリストが表示される
+    // 2文字以上: 端末内のローカル照合（デバウンスもネットワーク問い合わせもなし）。
+    // 周辺候補の Overpass 応答が到着していれば即座に、でなければ応答到着後に
+    // 表示される
     fireEvent.change(input, { target: { value: '梅田' } })
-    // デバウンスが切れる前は出ない
-    expect(screen.queryByRole('listbox')).toBeNull()
-    const opt = await waitForSuggestOption('梅田（大阪府大阪市）')
-    expect(opt).toBeTruthy()
+    await waitForSuggestOption(/梅田駅/)
+
+    // ラベル形式: 名称（種別・距離）。距離が0mなら距離表記はない
+    expect(screen.getByRole('option', { name: /梅田駅（駅）/ })).toBeTruthy()
+    // 地区候補（距離表記付き: 約100〜199m 程度）
+    expect(screen.getByRole('option', { name: /梅田（地区・約1\d\d?m）/ })).toBeTruthy()
+
+    // 入力中に Nominatim への問い合わせは一切ない（公開 Nominatim 利用規約では
+    // オートコンプリート用途の連続問い合わせが禁止のため）
+    expect(nominatimCalls).toBe(0)
   }, IT_TIMEOUT)
 
   it('サジェスト候補タップで検索エリアが設定される（入力欄が緑＋フィードバック、施設検索は実行されない）', async () => {
+    setupGeolocationMock()
     renderApp()
-    fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '梅田' } })
-    await waitForSuggestOption('梅田（大阪府大阪市）')
-    fireEvent.click(screen.getByRole('option', { name: '梅田（大阪府大阪市）' }))
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    typeWithFocus(input, '梅田')
+    await waitForSuggestOption(/梅田駅/)
+    fireEvent.click(screen.getByRole('option', { name: /梅田駅/ }))
 
-    // エリア設定: 入力欄が緑＋成功フィードバック（「地名が見つかった」ときと同じ流れ）
+    // エリア設定: 入力欄が緑＋成功フィードバック（「地名検索」で場所が見つかったときと同じ流れ）。
+    // 駅（点）→ 駅を中心とする1km四方の範囲が検索エリアになる
     await waitFor(() => {
       const input = screen.getByPlaceholderText(PLACE_INPUT)
       expect(input.className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    expect(screen.getByText('検索エリアに「梅田駅」を設定しました')).toBeTruthy()
     // リストは閉じる
     expect(screen.queryByRole('listbox')).toBeNull()
-    // 施設検索はまだ実行されていない
-    expect(overpassCalls).toHaveLength(0)
+    // 施設検索はまだ実行されていない（around:5000 の周辺取得クエリは別物）
+    expect(overpassCalls.filter((q) => !q.includes('around:5000'))).toHaveLength(0)
     expect(tabIsCurrent('一覧')).toBe(false)
 
-    // タイル選択+「検索する」→ 設定済み範囲で検索が実行される
+    // タイル選択+「指定した場所と種別で検索」→ 設定済み範囲で検索が実行される
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
-    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
-    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
+    const facilityCall = overpassCalls.find((q) => !q.includes('around:5000'))
+    // 梅田駅（34.7/135.5）中心の1km四方
+    expect(facilityCall).toContain('34.695503,135.494531,34.704497,135.505469')
+    expect(facilityCall).toContain('amenity=cafe')
+    expect(facilityCall).toContain('amenity=restaurant')
+
+    // クライアント側の bbox フィルタで1km四方内のみが残る:
+    // ラーメン屋（34.7/135.5）だけ。珈琲店（34.695/135.495）・書店（34.705/135.505）は外
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('1件の結果を取得しました')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /ラーメン屋テスト/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /テスト珈琲店/ })).toBeNull()
   }, IT_TIMEOUT)
 
-  it('候補が複数（2件以上）だと「検索する」は候補リスト＋「候補が複数あります。選んでください。」を表示し、施設検索は実行されない', async () => {
+  it('「地名検索」で候補が複数（2件以上）だと候補リスト＋「候補が複数あります。選んでください。」を表示し、施設検索は実行されない', async () => {
     nominatimRows = [KAGOSHI_UEMACHI_ROW, OSAKA_UEMACHI_ROW]
     renderApp()
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '上本町' } })
 
-    // サジェストで両候補が表示される
-    await waitFor(() => {
-      expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(2)
-    }, { timeout: 8000 })
+    // 入力中に Nominatim 問い合わせはなく、ローカル候補も出ない（「上本町」は
+    // 自治体・周辺候補のどちらにも一致しない）
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(nominatimCalls).toBe(0)
 
-    // 「検索する」: 1件目を勝手に選ばず、複数候補の提示にする
-    fireEvent.click(getTopSearchButton())
+    // 「地名検索」: 1件目を勝手に選ばず、複数候補の提示にする
+    fireEvent.click(getGeocodeButton())
     await waitFor(() => {
       expect(screen.getByText(/候補が複数あります/)).toBeTruthy()
     }, { timeout: 8000 })
@@ -1777,18 +1864,18 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     expect(input.className).not.toContain('border-green-500')
     expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
     // 施設検索は実行されていない（トップ画面のまま）
-    expect(overpassCalls).toHaveLength(0)
+    expect(overpassCalls.filter((q) => !q.includes('around:5000'))).toHaveLength(0)
     expect(tabIsCurrent('一覧')).toBe(false)
     expect(tabIsCurrent('検索')).toBe(true)
   }, IT_TIMEOUT)
 
-  it('複数候補から候補を選ぶとエリアが設定され、再度「検索する」でその範囲の検索が実行される', async () => {
+  it('複数候補から候補を選ぶとエリアが設定され、「指定した場所と種別で検索」でその範囲の検索が実行される', async () => {
     nominatimRows = [KAGOSHI_UEMACHI_ROW, OSAKA_UEMACHI_ROW]
     renderApp()
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '上本町' } })
 
-    // 「検索する」→ 複数候補の提示 → 鹿児島市側の候補をタップ
-    fireEvent.click(getTopSearchButton())
+    // 「地名検索」→ 複数候補の提示 → 鹿児島市側の候補をタップ
+    fireEvent.click(getGeocodeButton())
     await waitFor(() => {
       expect(screen.getByText(/候補が複数あります/)).toBeTruthy()
     }, { timeout: 8000 })
@@ -1798,30 +1885,30 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     await waitFor(() => {
       expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
     }, { timeout: 8000 })
-    expect(overpassCalls).toHaveLength(0)
+    expect(overpassCalls.filter((q) => !q.includes('around:5000'))).toHaveLength(0)
     // リストは閉じる
     expect(screen.queryByRole('listbox')).toBeNull()
 
-    // タイル選択+「検索する」→ 選んだ候補の範囲で検索が実行される
+    // タイル選択+「指定した場所と種別で検索」→ 選んだ候補の範囲で検索が実行される
     // （同じ地名の geocode が再実行されず、複数候補の提示がループしない）
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
-    await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
-    expect(overpassCalls[0]).toContain('31.580000,130.680000,31.600000,130.710000')
+    const facilityCall = overpassCalls.find((q) => !q.includes('around:5000'))
+    expect(facilityCall).toContain('31.580000,130.680000,31.600000,130.710000')
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
   }, IT_TIMEOUT)
 
-  it('ジオコーディング問い合わせ中に入力欄右端にスピナーが表示され、完了で消える（入力は無効化されない）', async () => {
+  it('「地名検索」の問い合わせ中に入力欄右端にスピナーが表示され、完了で消える（入力は無効化されない）', async () => {
     renderApp()
     // Nominatim の fetch を未解決に保つ（リクエストを実際に Pending 状態にする）
     nominatimDeferred = createDeferred()
 
     const input = screen.getByPlaceholderText(PLACE_INPUT)
-    // 2文字以上入力 → デバウンス（400ms）後に geocodeCandidates が走り、
-    // リクエスト開始でスピナーが表示される
+    // 地名を入力して「地名検索」を押す → Nominatim リクエスト開始でスピナー表示
     fireEvent.change(input, { target: { value: '梅田' } })
+    fireEvent.click(getGeocodeButton())
 
-    // スピナーが現れるまで待つ（デバウンス＋率制限待ちを含む）
+    // スピナーが現れるまで待つ
     await waitFor(() => {
       expect(screen.queryByTestId('place-input-spinner')).toBeTruthy()
     }, { timeout: 8000 })
@@ -1831,32 +1918,32 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     expect(inputDuring.disabled).toBe(false)
     // 右パディングが広がっている（スピナーのスペース確保: pr-9）
     expect(inputDuring.className).toContain('pr-9')
+    // 「地名検索」ボタン自体は問い合わせ中なので無効化される
+    expect(getGeocodeButton().disabled).toBe(true)
 
-    // リクエスト完了（候補返却）→ スピナー消滅 ＋ 候補リスト表示
+    // リクエスト完了（1件返却）→ スピナー消滅 ＋ 検索エリア設定
     nominatimDeferred.resolve([UEDA_ROW])
     await waitFor(() => {
       expect(screen.queryByTestId('place-input-spinner')).toBeNull()
     }, { timeout: 8000 })
-    // 候補リストが表示される（同じ React 更新で現れる）
-    await waitForSuggestOption('梅田（大阪府大阪市）')
+    // 検索エリアが設定される（成功フィードバック表示）
+    await waitFor(() => {
+      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    }, { timeout: 8000 })
   }, IT_TIMEOUT)
 
-  it('候補を選んだ後に通信中だったサジェスト結果が届いても、候補リストは再表示されない', async () => {
+  it('候補を選んだ後に通信中だった周辺候補の結果が届いても、候補リストは再表示されない', async () => {
+    setupGeolocationMock()
+    // 周辺候補取得の Overpass fetch を未解決に保つ（リクエスト中を再現）
+    nearbyDeferred = createDeferred()
     renderApp()
-    // Nominatim の fetch を未解決に保つ（サジェストのリクエスト中を再現）
-    nominatimDeferred = createDeferred()
 
     const input = screen.getByPlaceholderText(PLACE_INPUT)
-    // 「大阪」: 自治体候補（ローカル計算）は即座に出る。Nominatim サジェストは
-    // デバウンス後に発行され、応答待ちのままになる
-    fireEvent.change(input, { target: { value: '大阪' } })
+    // 「大阪」: 自治体候補（ローカル計算）は即座に出る。周辺候補の
+    // Overpass リクエストはフォーカスで発行され、応答待ちのままになる
+    typeWithFocus(input, '大阪')
     await waitFor(() => {
       expect(getSuggestOptions().length).toBeGreaterThan(0)
-    }, { timeout: 8000 })
-    // Nominatim リクエストが開始されたこと（スピナー表示）を確認する。
-    // この時点でリクエストは応答待ち（in-flight）
-    await waitFor(() => {
-      expect(screen.queryByTestId('place-input-spinner')).toBeTruthy()
     }, { timeout: 8000 })
 
     // 自治体候補をタップ → エリアが設定され、リストは閉じる
@@ -1866,11 +1953,9 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     }, { timeout: 8000 })
     expect(screen.queryByRole('listbox')).toBeNull()
 
-    // 通信中だった Nominatim の応答が後から届いても、候補リストは再表示されない
-    nominatimDeferred.resolve([UEDA_ROW])
-    await waitFor(() => {
-      expect(screen.queryByTestId('place-input-spinner')).toBeNull()
-    }, { timeout: 8000 })
+    // 通信中だった Overpass の応答（大阪駅など・「大阪」に一致する要素を含む）が
+    // 後から届いても、候補リストは再表示されない
+    nearbyDeferred.resolve({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: NEARBY_ELEMENTS })
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByRole('listbox')).toBeNull()
   }, IT_TIMEOUT)

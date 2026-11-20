@@ -9,14 +9,14 @@ import { clearCache } from '../../../utils/overpass'
  * (#68) 一般向けトップの地名入力サジェストに自治体データを組み込んだ検証
  *
  * - 「宇治」と入力すると、自治体候補「宇治市（自治体・京都府）」が候補の先頭に
- *   出る（ローカル計算なので Nominatim の応答を待たず即座に表示。
- *   Nominatim 候補が届いたらその後に追加される）
- * - 候補を選ぶと自治体の bbox が検索エリアになる（既存の handleCandidateSelect
- *   の流れ: 入力欄が緑＋「検索エリアに「○○」を設定しました」。施設検索は実行されない）
- * - 「宇治市」で「検索する」と、自治体の完全一致で範囲が確定し、Nominatim を
- *   経由せずに自治体の範囲で施設検索が進む
- * - 同名自治体（伊達市×2）の完全一致が2件 → 自治体候補だけを複数候補として
- *   提示し、施設検索は実行されない（Nominatim も呼ばない）
+ *   出る（ローカル計算なので即座に表示。公開 Nominatim の利用ポリシーにより
+ *   入力中のジオコード問い合わせは行わない → Nominatim 候補は混ざらない）
+ * - 候補を選ぶと自治体の bbox が検索エリアになる（handleCandidateSelect の流れ:
+ *   入力欄が緑＋「検索エリアに「○○」を設定しました」。施設検索は実行されない）
+ * - 「宇治市」で「地名検索」と、自治体の完全一致で範囲が確定し、Nominatim を
+ *   経由せずに自治体の範囲で施設検索（「指定した場所と種別で検索」）が進む
+ * - 同名自治体（伊達市×2）の「地名検索」→ 自治体候補だけを複数候補として
+ *   提示し、施設検索も Nominatim も実行されない
  *
  * MapLibre GL は WebGL が必要で jsdom では初期化できないためモジュール全体を
  * モックする（mobileLayout.test.jsx と同じ方式）。
@@ -129,10 +129,17 @@ function tabIsCurrent(label) {
   return navButtons().getByRole('button', { name: label }).getAttribute('aria-current') === 'page'
 }
 
-// タイル下の「検索する」ボタン（「目的から探す」セクション内にスコープ:
-// 下部ナビの「検索」タブや「都道府県から探す」セクションの同名ボタンと区別する）
+// タイル下の「指定した場所と種別で検索」ボタン（「目的から探す」セクション内に
+// スコープ: 下部ナビの「検索」タブや「都道府県から探す」セクションのボタンと区別する）。
+// 施設検索のみ実行する（地名のジオコードはしない）
 function getTopSearchButton() {
-  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '検索する' })
+  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '指定した場所と種別で検索' })
+}
+
+// 地名入力欄の右の「地名検索」ボタン（「どこで探すか」セクション内にスコープ）。
+// Nominatim ジオコードを実行し、結果を検索エリアに設定する
+function getGeocodeButton() {
+  return within(screen.getByRole('region', { name: 'どこで探すか' })).getByRole('button', { name: '地名検索' })
 }
 
 // 自治体データ（loadMunicipalities）の読み込み完了を待つ。
@@ -170,14 +177,14 @@ afterEach(() => {
 })
 
 describe('(#68) トップの地名入力サジェストに自治体候補を組み込む', () => {
-  it('「宇治」と入力すると「宇治市（自治体・京都府）」が候補の先頭に即座に出る（Nominatimを待たない）。Nominatim候補が届いたらその後に追加される', async () => {
-    // Nominatim応答を遅らせる（600ms）: 入力直後の候補がNominatim由来でない
-    // こと（ローカル計算の自治体候補であること）を同期で確認できる
+  it('「宇治」と入力すると「宇治市（自治体・京都府）」が候補の先頭に即座に出る（ローカル計算）。入力中は Nominatim を叩かない', async () => {
+    // Nominatim応答を遅らせる（600ms）: 仮に問い合わせが出ても応答が間に合わず、
+    // 候補がローカル計算由来であることが確認できる
     nominatimDelayMs = 600
     renderApp()
     await waitForMuniDataLoaded()
 
-    // 「宇治」と入力した直後（デバウンス・Nominatim応答を待たずに）
+    // 「宇治」と入力した直後（デバウンスなし・同期で）候補が出る
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '宇治' } })
 
     // 同期で候補リストが存在し、先頭が自治体候補「宇治市（自治体・京都府）」
@@ -186,20 +193,13 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     expect(opts).toHaveLength(2)
     expect(opts[0].textContent).toBe('宇治市（自治体・京都府）')
     expect(opts[1].textContent).toBe('宇治田原町（自治体・京都府）')
-    // Nominatimはまだ応答していない（600ms遅延）
+    // 入力中は Nominatim への問い合わせが一切無い（公開ポリシー遵守）
     expect(nominatimCalls).toBe(0)
 
-    // Nominatim候補（デバウンス400ms＋応答600ms後）が届いたら、自治体候補の
-    // 後ろに追加される
-    await waitFor(() => {
-      expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(3)
-    }, { timeout: 8000 })
-    const finalOpts = within(screen.getByRole('listbox')).getAllByRole('option')
-    expect(finalOpts.map((o) => o.textContent)).toEqual([
-      '宇治市（自治体・京都府）',
-      '宇治田原町（自治体・京都府）',
-      '宇治駅（駅・京都府宇治市）',
-    ])
+    // 待っても Nominatim 問い合わせは発生せず、候補は自治体2件のまま
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    expect(nominatimCalls).toBe(0)
+    expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(2)
   }, IT_TIMEOUT)
 
   it('サジェストで自治体候補を選ぶと、自治体のbboxが検索エリアになる（緑＋フィードバック、施設検索は実行されない）', async () => {
@@ -225,7 +225,7 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     expect(overpassCalls).toHaveLength(0)
     expect(tabIsCurrent('一覧')).toBe(false)
 
-    // タイル選択+「検索する」→ 自治体のbbox範囲で検索が実行される
+    // タイル選択+「指定した場所と種別で検索」→ 自治体のbbox範囲で検索が実行される
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
@@ -235,15 +235,14 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     expect(screen.getByText('2件の結果を取得しました')).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('「宇治市」で「検索する」→ 自治体の完全一致で範囲が確定し、Nominatimを経由せずに自治体の範囲で施設検索が進む', async () => {
+  it('「宇治市」で「地名検索」→ 自治体の完全一致で範囲が確定し、Nominatimを経由せずに自治体の範囲で施設検索が進む', async () => {
     renderApp()
     await waitForMuniDataLoaded()
 
-    // タイル選択 → 地名入力 → 「検索する」（すべて同期: デバウンス前の操作で
-    // 保留中のサジェストリクエストもキャンセルされる）
+    // タイル選択 → 地名入力 → 「地名検索」（完全一致の自治体はローカル解決される）
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '宇治市' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
     // エリアが自治体のbboxで確定（緑＋フィードバック）
     await waitFor(() => {
@@ -251,7 +250,8 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     }, { timeout: 8000 })
     expect(screen.getByText(/検索エリアに「宇治市」を設定しました/)).toBeTruthy()
 
-    // 施設検索が自治体の範囲で実行された
+    // 「指定した場所と種別で検索」→ 施設検索が自治体の範囲で実行された
+    fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     expect(overpassCalls[0]).toContain('34.857930,135.759650,34.957090,135.879920')
     expect(overpassCalls[0]).toContain('amenity=cafe')
@@ -262,8 +262,8 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     expect(nominatimCalls).toBe(0)
   }, IT_TIMEOUT)
 
-  it('同名自治体（伊達市×2）の「検索する」→ 自治体候補だけを複数候補として提示し、施設検索もNominatimも実行されない', async () => {
-    // 完全一致が2件以上: Nominatim候補は混ざらず、自治体候補だけが表示される
+  it('同名自治体（伊達市×2）の「地名検索」→ 自治体候補だけを複数候補として提示し、施設検索もNominatimも実行されない', async () => {
+    // 完全一致が2件以上: Nominatimは叩かず、自治体候補だけが複数候補として提示される
     nominatimRows = [UJI_STATION_ROW]
     renderApp()
     await waitForMuniDataLoaded()
@@ -276,9 +276,9 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
       '伊達市（自治体・福島県）',
     ])
 
-    // 「検索する」: 1件目を勝手に選ばず、自治体候補だけを複数候補として提示。
-    // 施設検索は実行されない
-    fireEvent.click(getTopSearchButton())
+    // 「地名検索」: 1件目を勝手に選ばず、自治体候補だけを複数候補として提示。
+    // 施設検索も実行されない
+    fireEvent.click(getGeocodeButton())
     expect(screen.getByText(/候補が複数あります/)).toBeTruthy()
     opts = within(screen.getByRole('listbox')).getAllByRole('option')
     expect(opts.map((o) => o.textContent)).toEqual([
@@ -296,7 +296,7 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     }, { timeout: 8000 })
     expect(overpassCalls).toHaveLength(0)
 
-    // タイル選択+「検索する」→ 選んだ自治体（北海道伊達市）の範囲で検索される
+    // 「指定した場所と種別で検索」→ 選んだ自治体（北海道伊達市）の範囲で検索される
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })

@@ -15,13 +15,12 @@ import { calculateBboxAreaKm2, MAX_SEARCH_AREA_KM2 } from '../../../utils/geo'
  * 以上で「広すぎる」とし、国・外国の州・都道府県などの広すぎる範囲を
  * すべてこの判定でカバーする。
  *
- * - 都道府県サイズの候補（大阪府・約25,800 km²）: サジェストで選ぶ・
- *   「検索する」を押す、いずれの経路でもエラー表示され、検索エリアは
- *   設定されず Overpass へのリクエストが行かない
- * - 国サイズの候補（日本・約263万 km²）: 「検索する」で同様にエラー表示、
+ * - 都道府県サイズの候補（大阪府・約25,800 km²）: 「地名検索」でエラー表示され、
+ *   検索エリアは設定されず Overpass へのリクエストが行かない
+ * - 国サイズの候補（日本・約263万 km²）: 「地名検索」で同様にエラー表示、
  *   Overpass へのリクエストなし
- * - 市サイズの候補（約225 km²）: 検索エリアが通常どおり設定され、
- *   施設検索が実行される
+ * - 市サイズの候補（約225 km²）: 「地名検索」で検索エリアが通常どおり設定され、
+ *   「指定した場所と種別で検索」で施設検索が実行される
  *
  * 市区町村の例外: 市区町村レベルの行政区域は大きさによらずガードの対象外
  * （大きな市（例: 高山市・約2,178 km²）は最小の県（香川県・約1,876 km²）より
@@ -192,10 +191,16 @@ function tabIsCurrent(label) {
   return navButtons().getByRole('button', { name: label }).getAttribute('aria-current') === 'page'
 }
 
-// タイル下の「検索する」ボタン（「目的から探す」セクション内にスコープ:
-// 下部ナビの「検索」タブや「都道府県から探す」セクションの同名ボタンと区別する）
+// タイル下の「指定した場所と種別で検索」ボタン（「目的から探す」セクション内に
+// スコープ: 下部ナビの「検索」タブや「都道府県から探す」セクションのボタンと区別する）。
+// 施設検索のみ実行する（地名のジオコードはしない）
 function getTopSearchButton() {
-  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '検索する' })
+  return within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '指定した場所と種別で検索' })
+}
+
+// 地名入力欄の右の「地名検索」ボタン（「どこで探すか」セクション内にスコープ）
+function getGeocodeButton() {
+  return within(screen.getByRole('region', { name: 'どこで探すか' })).getByRole('button', { name: '地名検索' })
 }
 
 // 自治体データ（loadMunicipalities）の読み込み完了を待つ
@@ -242,24 +247,15 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(calculateBboxAreaKm2(CITY_BBOX)).toBeLessThan(MAX_SEARCH_AREA_KM2)
   })
 
-  it('都道府県サイズの候補（大阪府）をサジェストで選ぶとエラーが表示され、検索エリアが設定されず Overpass へリクエストが行かない', async () => {
+  it('都道府県サイズの候補（大阪府）で「地名検索」を押すとエラーが表示され、検索エリアが設定されず Overpass へリクエストが行かない', async () => {
     renderApp()
     await waitForMuniDataLoaded()
 
-    // 「大阪府」と入力 → デバウンス（400ms）後に Nominatim 候補が表示される
+    // 「大阪府」と入力 → 「地名検索」（Nominatim ジオコード）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '大阪府' } })
-    const opt = await waitFor(() => {
-      const o = within(screen.getByRole('listbox')).queryByRole('option', { name: /大阪府/ })
-      expect(o).toBeTruthy()
-      return o
-    }, { timeout: 8000 })
-    // 候補ラベルは「大阪府（大阪府）」（名称＋都道府県。市区町村はない）
-    expect(opt.textContent).toBe('大阪府（大阪府）')
+    fireEvent.click(getGeocodeButton())
 
-    // 候補をタップ
-    fireEvent.click(opt)
-
-    // 場所入力欄の下にエラー表示（searchError: role=alert）
+    // 単一候補でも広すぎる: 場所入力欄の下にエラー表示（searchError: role=alert）
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe(TOO_LARGE_ERROR('大阪府'))
     }, { timeout: 8000 })
@@ -267,7 +263,7 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     // 検索エリアは設定されていない（緑にならない・成功フィードバックなし）
     expect(screen.getByPlaceholderText(PLACE_INPUT).className).not.toContain('border-green-500')
     expect(screen.queryByText(/検索エリアに「大阪府」を設定しました/)).toBeNull()
-    // 候補リストは閉じる
+    // サジェストリストは出ない（入力中はローカル照合のみ。大阪府に一致する候補なし）
     expect(screen.queryByRole('listbox')).toBeNull()
 
     // Overpass へリクエストは行っていない
@@ -276,17 +272,16 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(tabIsCurrent('検索')).toBe(true)
   }, IT_TIMEOUT)
 
-  it('都道府県サイズの候補（大阪府）で「検索する」を押しても施設検索のクエリは発行されず、バリデーションエラーになる', async () => {
+  it('都道府県サイズの候補（大阪府）で「地名検索」すると「広すぎる」エラーになり、続けて「指定した場所と種別で検索」を押しても施設検索のクエリは発行されない', async () => {
     renderApp()
     await waitForMuniDataLoaded()
 
-    // タイル選択 → 地名入力 → 「検索する」（入力直後の押下: 保留中の
-    // サジェストリクエストは検索開始時にキャンセルされる）
+    // タイル選択 → 地名入力 → 「地名検索」
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '大阪府' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
-    // StatusBanner にバリデーションエラー
+    // 「広すぎる」エラー（searchError）
     await waitFor(() => {
       expect(screen.getByText(/『大阪府』の範囲が広すぎるため検索できません/)).toBeTruthy()
     }, { timeout: 8000 })
@@ -298,18 +293,25 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(screen.queryByText(/検索エリアに「大阪府」を設定しました/)).toBeNull()
     // 一覧タブには切替されていない
     expect(tabIsCurrent('検索')).toBe(true)
+
+    // そのまま「指定した場所と種別で検索」→ エリア未設定の案内（施設検索は実行されない）
+    fireEvent.click(getTopSearchButton())
+    await waitFor(() => {
+      expect(screen.getByText(/場所がまだ設定されていません/)).toBeTruthy()
+    }, { timeout: 8000 })
+    expect(overpassCalls).toHaveLength(0)
   }, IT_TIMEOUT)
 
-  it('国サイズの候補（日本）で「検索する」を押しても施設検索のクエリは発行されず、バリデーションエラーになる', async () => {
+  it('国サイズの候補（日本）で「地名検索」を押しても施設検索のクエリは発行されず、「広すぎる」エラーになる', async () => {
     nominatimRows = [JAPAN_ROW]
     renderApp()
     await waitForMuniDataLoaded()
 
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '日本' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
-    // StatusBanner にバリデーションエラー
+    // 「広すぎる」エラー（searchError）
     await waitFor(() => {
       expect(screen.getByText(/『日本』の範囲が広すぎるため検索できません/)).toBeTruthy()
     }, { timeout: 8000 })
@@ -323,26 +325,20 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(tabIsCurrent('検索')).toBe(true)
   }, IT_TIMEOUT)
 
-  it('市区町村の例外: 大きな市（高山市相当・面積1,000 km²超）のNominatim候補をサジェストで選ぶとエラーにならず検索エリアが設定され、施設検索のクエリが発行される', async () => {
+  it('市区町村の例外: 大きな市（高山市相当・面積1,000 km²超）で「地名検索」するとエラーにならず検索エリアが設定され、施設検索のクエリが発行される', async () => {
     nominatimRows = [TAKAYAMA_CITY_ROW]
     // 高山市のBBOX内にある検索結果要素（filterByBbox で範囲内のみ表示される）
     overpassElements = [{ type: 'node', id: 6001, lat: 36.15, lon: 137.2, tags: { name: '高山市珈琲店', amenity: 'cafe' } }]
     renderApp()
     await waitForMuniDataLoaded()
 
-    // タイル選択 → 「高山市」と入力 → デバウンス後にNominatim候補が表示される
+    // タイル選択 → 「高山市」と入力 → 「地名検索」
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '高山市' } })
-    const opt = await waitFor(() => {
-      const o = within(screen.getByRole('listbox')).queryByRole('option', { name: '高山市' })
-      expect(o).toBeTruthy()
-      return o
-    }, { timeout: 8000 })
+    fireEvent.click(getGeocodeButton())
 
-    // 候補をタップ。addresstype='city' のためガードの例外: エラーにならず
+    // addresstype='city' のためガードの例外: エラーにならず
     // 通常どおり検索エリアが設定される
-    fireEvent.click(opt)
-
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
@@ -351,7 +347,7 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     // エラー表示は出ない
     expect(screen.queryByText(/広すぎるため検索できません/)).toBeNull()
 
-    // 「検索する」で施設検索のクエリが発行される
+    // 「指定した場所と種別で検索」で施設検索のクエリが発行される
     fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     // 高山市の元のBBOXがそのまま検索エリアになる（面積が1km²以上）
@@ -363,20 +359,17 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(screen.getByText('1件の結果を取得しました')).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('市区町村の例外: 大きな市（高山市相当・面積1,000 km²超）で「検索する」を押してもエラーにならず施設検索のクエリが発行される', async () => {
+  it('市区町村の例外: 大きな市（高山市相当・面積1,000 km²超）で「地名検索」を押してもエラーにならず施設検索のクエリが発行される', async () => {
     nominatimRows = [TAKAYAMA_CITY_ROW]
     // 高山市のBBOX内にある検索結果要素（filterByBbox で範囲内のみ表示される）
     overpassElements = [{ type: 'node', id: 6001, lat: 36.15, lon: 137.2, tags: { name: '高山市珈琲店', amenity: 'cafe' } }]
     renderApp()
     await waitForMuniDataLoaded()
 
-    // タイル選択 → 地名入力 → 「検索する」（入力直後の押下）
+    // タイル選択 → 地名入力 → 「地名検索」
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '高山市' } })
-    fireEvent.click(getTopSearchButton())
-
-    // 「広すぎる」エラーは出ない（市区町村レベルの行政区域はガードの対象外）
-    expect(screen.queryByText(/『高山市』の範囲が広すぎるため検索できません/)).toBeNull()
+    fireEvent.click(getGeocodeButton())
 
     // 検索エリアが設定される（緑＋フィードバック。displayNameで表示される）
     await waitFor(() => {
@@ -384,7 +377,12 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     }, { timeout: 8000 })
     expect(screen.getByText(/検索エリアに「高山市, 岐阜県, 日本」を設定しました/)).toBeTruthy()
 
-    // 施設検索のクエリが発行される（高山市の元のBBOXがそのまま検索エリアに）
+    // 「広すぎる」エラーは出ない（市区町村レベルの行政区域はガードの対象外）
+    expect(screen.queryByText(/『高山市』の範囲が広すぎるため検索できません/)).toBeNull()
+
+    // 「指定した場所と種別で検索」で施設検索のクエリが発行される
+    // （高山市の元のBBOXがそのまま検索エリアに）
+    fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     const bboxStr = ['35.897489', '136.753967', '36.392996', '137.653054'].join(',')
     expect(overpassCalls[0]).toContain(bboxStr)
@@ -393,33 +391,35 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     expect(screen.getByText('1件の結果を取得しました')).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('市区町村の例外: 複数候補のうち大きな市（高山市相当）を選んでもエラーにならず検索エリアが設定される', async () => {
+  it('市区町村の例外: 「地名検索」の複数候補のうち大きな市（高山市相当）を選んでもエラーにならず検索エリアが設定される', async () => {
     // 高山市と大阪府の2候補。大阪府はガードの対象（province）、
     // 高山市はガードの例外（city）
     nominatimRows = [TAKAYAMA_CITY_ROW, OSAKA_PREFECTURE_ROW]
     renderApp()
     await waitForMuniDataLoaded()
 
+    // 「高山市」と入力 → 「地名検索」: 2候補 → リストを提示（1件目を勝手に選ばない）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '高山市' } })
+    fireEvent.click(getGeocodeButton())
 
-    // サジェストに2件（高山市・大阪府）の候補が表示される
+    // 「候補が複数あります」の提示で高山市・大阪府の2件が表示される
     const listbox = await waitFor(() => {
       const lb = screen.queryByRole('listbox')
-      if (lb && within(lb).queryByRole('option', { name: '高山市' })) return lb
+      if (lb && within(lb).queryByRole('option', { name: /高山市/ })) return lb
       throw new Error('候補リストが表示されない')
     }, { timeout: 8000 })
 
     // 高山市の候補を選ぶ → ガードの例外として通常どおりエリアが設定される
-    fireEvent.click(within(listbox).getByRole('option', { name: '高山市' }))
+    fireEvent.click(within(listbox).getByRole('option', { name: /高山市/ }))
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
     expect(screen.getByText(/検索エリアに「高山市, 岐阜県, 日本」を設定しました/)).toBeTruthy()
     expect(screen.queryByText(/広すぎるため検索できません/)).toBeNull()
-    // 候補選択だけでは施設検索は実行されない（「検索する」で実行）
+    // 候補選択だけでは施設検索は実行されない（「指定した場所と種別で検索」で実行）
     expect(overpassCalls).toHaveLength(0)
 
-    // タイルを選択して「検索する」→ クエリが発行される
+    // タイルを選択して「指定した場所と種別で検索」→ クエリが発行される
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
@@ -432,10 +432,10 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     renderApp()
     await waitForMuniDataLoaded()
 
-    // タイル選択 → 地名入力 → 「検索する」（入力直後の押下）
+    // タイル選択 → 地名入力 → 「地名検索」
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: 'テスト市' } })
-    fireEvent.click(getTopSearchButton())
+    fireEvent.click(getGeocodeButton())
 
     // 検索エリアが設定される（緑＋フィードバック）
     await waitFor(() => {
@@ -443,7 +443,8 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     }, { timeout: 8000 })
     expect(screen.getByText(/検索エリアに「テスト市」を設定しました/)).toBeTruthy()
 
-    // 市サイズの範囲（元のBBOXがそのまま検索エリアになる）で施設検索が実行された
+    // 「指定した場所と種別で検索」で、市サイズの範囲（元のBBOXがそのまま検索エリアになる）で施設検索が実行された
+    fireEvent.click(getTopSearchButton())
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     const bboxStr = [CITY_BBOX.south, CITY_BBOX.west, CITY_BBOX.north, CITY_BBOX.east]
       .map((n) => n.toFixed(6)).join(',')

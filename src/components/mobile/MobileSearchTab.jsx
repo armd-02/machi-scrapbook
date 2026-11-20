@@ -4,7 +4,9 @@ import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode } from '../../utils/geo'
+import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, viewboxAround } from '../../utils/geo'
+import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
+import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
 import SimpleSearch from '../SimpleSearch'
 import MunicipalitySearch from '../MunicipalitySearch'
@@ -33,19 +35,24 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   マウントは維持）。フォーム表示（view='form'）では地図ブロックは常に表示される
  *   （フォームは常に地図モード＝「地図から探す」のみのため）。タイル検索は「地図の表示範囲」ではなく「設定済みの
  *   検索エリア」（state.bbox）で行う。検索エリアは次の2つの方法で設定される:
- *     ① 「検索する」押下時の geocode（地名・駅名の結果の範囲を検索エリアに設定。
- *        駅など小さな範囲は約1km正方形に拡大）
+ *     ① 場所入力欄の「地名検索」ボタン（または Enter）での geocode（地名・駅名の
+ *        結果の範囲を検索エリアに設定。駅など小さな範囲は約1km正方形に拡大）
  *     ② 「都道府県から探す」セクションで自治体を選択（そのbboxをエリアに設定）
- *   操作の流れ（#63 のタイル即検索は「選択→検索する」に分割）:
- *     ① 地名・駅名を入力（または「都道府県から探す」で自治体を選ぶ）
+ *   操作の流れ:
+ *     ① 地名・駅名を入力して「地名検索」を押す（または Enter。geocode で検索
+ *        エリアを確定。成功で入力欄が緑・「検索エリアに「○○」を設定しました」
+ *        表示）。または「都道府県から探す」で自治体を選ぶ。
  *     ② 目的タイルを1つ選択（タップは選択だけ。選択中はハイライト表示。
  *        別のタイルを押すと選択が移る）
- *     ③ タイル下の「検索する」ボタン（または場所入力欄で Enter）で検索実行。
- *        入力に地名があれば geocode → 検索エリア確定（成功で入力欄が緑・
- *        「検索エリアに「○○」を設定しました」表示）。入力が空で自治体などで
- *        エリアが設定済みならそれを使う。場所が決まらなければ検索せず
- *        案内・エラー表示、タイル（種別）が未選択なら検索せず
- *        「種別を選んでください」趣旨の案内を表示する。
+ *     ③ タイル下の「指定した場所と種別で検索」ボタンで検索実行。
+ *        ジオコードは行わず、設定済みのエリア＋タイル（種別）で施設検索する。
+ *        エリアが未設定なら検索せず「先に場所を指定してください」趣旨の案内、
+ *        タイル（種別）が未選択なら検索せず「種別を選んでください」趣旨の
+ *        案内を表示する。
+ *   入力中のサジェストは Nominatim に問い合わせない（公開 Nominatim の利用
+ *   ポリシーでオートコンプリートが禁止されているため）: 自治体候補（ローカル
+ *   データ）＋周辺 Overpass キャッシュ（駅・地区・大きな公園。入力欄フォーカス
+ *   時に1回取得してキャッシュ）の名前部分一致で端末内照合する。
  *   場所と種別がそろえばその範囲・種別で施設検索を実行し、成功で一覧タブへ
  *   自動切替される（MobileShell 側の既存挙動）。
  *   詳細フォーム側（form 表示は常に地図モード）と結果画面の動作は変更しない。
@@ -61,9 +68,10 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   応用: 更新後の状態スナップショット → buildSearchCriteria → search()）。検索成功時の
  *   一覧タブ自動切替は既存の挙動のまま。
  * - (#xx) フォーム表示の地図モードでは「どの街・エリアで探す？」セクションに場所入力欄を
- *   置く（トップの QuickTopIntro「どのあたりの場所？」と同様の挙動を共有する）。
- *   地名・駅名の入力でサジェスト（自治体ローカル計算＋Nominatim）が出る。候補タップ・
- *   Enter（確定）で geocode → 確定場所を検索エリア（state.bbox）に設定し、入力欄が
+ *   置く（トップの QuickTopIntro「どこで探すか？」と同様の挙動を共有する）。
+ *   地名・駅名の入力でサジェスト（自治体ローカル計算＋Overpass 周辺キャッシュ）が
+ *   出る。候補タップまたは「地名検索」ボタン（または Enter）で geocode →
+ *   確定場所を検索エリア（state.bbox）に設定し、入力欄が
  *   緑になり「検索エリアに「○○」を設定しました」が出る。確定時（bboxSource:
  *   geocode/municipality）は MapView が fitBounds で確定場所にfitし、地図上に検索範囲の
  *   青（#2563eb）矩形を描画する（BBOXオーバーレイ）。検索は確定した範囲で実行される
@@ -76,8 +84,8 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  */
 
 // 「広すぎる」ガード（BBOX面積ベース: geo.js の isBboxTooLarge）で統一する
-// エラー文。候補選択時（handleCandidateSelect）と「検索する」押下時
-// （handleTopSearch の geocode 分岐）で共通にする
+// エラー文。候補選択時（handleCandidateSelect）と「地名検索」時
+// （handleGeocodePlace）で共通にする
 const tooLargeSearchError = (name) =>
   `『${(name || '').trim()}』の範囲が広すぎるため検索できません。市区町村や駅・地名を指定してください。`
 
@@ -105,14 +113,13 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // (top) 「都道府県から探す」折りたたみセクションの開閉（既定は閉じた状態）
   const [muniSectionOpen, setMuniSectionOpen] = useState(false)
 
-  // (top) 地名入力のサジェスト: 入力欄の下に表示する候補（geocodeCandidates の結果）
+  // (top) 地名入力のサジェスト: 入力欄の下に表示する候補（自治体候補＋
+  // Overpass 周辺キャッシュの端末内照合。入力中の Nominatim 問い合わせは行わない）
   const [suggestCandidates, setSuggestCandidates] = useState([])
-  // (top) ジオコーディング問い合わせ中カウント（サジェスト用）。リクエスト開始で増え、
-  // 完了（候補返却／エラー）で減る。地名入力欄右端のスピナー表示に使う
-  const [geocodePending, setGeocodePending] = useState(0)
-  // 地名入力のジオコーディング問い合わせ中（サジェスト or 検索確定のいずれか）。
-  // 地名入力欄右端のスピナー表示に使う（入力欄自体は無効化しない）
-  const geocoding = searching || geocodePending > 0
+  // 「地名検索」実行中（明示的な Nominatim ジオコード）。地名入力欄右端の
+  // スピナー表示に使う（入力欄自体は無効化しない）。「地名検索」ボタンの
+  // 無効化・Enter のガードにも使う
+  const [geocoding, setGeocoding] = useState(false)
   // (top) 自治体サジェスト候補（municipalities.json からローカル計算）。Nominatim の
   // 順位に左右されず、自治体名を確実に選べるようにするため Nominatim 候補より
   // 前に表示する（ローカル計算なので即座に出る）。QuickTopIntro 渡しの候補は
@@ -120,6 +127,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   const [muniSuggest, setMuniSuggest] = useState([])
   // (top) 自治体データ（municipalities.json）。トップ表示時に読み込む
   const [municipalities, setMunicipalities] = useState([])
+
+  // 周辺地名候補（駅・地区・大きな公園）。地名入力欄のフォーカス時に現在位置
+  // から5km圏内を Overpass で1回取得してキャッシュし、入力中の端末内照合に
+  // 使う。位置情報が拒否された場合は空配列（自治体候補のみで動作）
+  const nearby = useNearbyPlaceCandidates()
 
   // (top) トップ表示時に自治体データを読み込む（モジュールキャッシュで二重取得しない。
   // loadMunicipalities は失敗時も空配列を返すため catch は不要）
@@ -141,156 +153,62 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       ? matchMunicipalities(municipalities, q).map(municipalityToCandidate)
       : [])
   }, [municipalities, view])
-  // (top) 「検索する」押下で候補が複数（2件以上）だったときの選択待ち候補。
+
+  // (top) 周辺キャッシュが取得完了（フォーカス→Overpass取得→完了）したとき
+  // に、現在の入力値で周辺候補を再導出する（取得中にすでに文字が入力されて
+  // いたケースに対応）
+  useEffect(() => {
+    const q = placeQuery.trim()
+    if (q.length < 2) return
+    // 検索エリアが設定済みなら再導出しない（候補選択の瞬間に通信中だった
+    // 周辺候補の結果が後から届いても、候補リストを再表示させない）。入力が
+    // 編集されると placeAreaSet がクリアされるので、その後はリストが再表示
+    // される
+    if (placeAreaSet) return
+    setSuggestCandidates(matchNearbyCandidates(nearby.candidates, q))
+  }, [nearby.candidates, placeQuery, placeAreaSet])
+
+  // (top) 「地名検索」で候補が複数（2件以上）だったときの選択待ち候補。
   // 入力欄の下に「候補が複数あります。選んでください。」の案内付きで表示され、
   // 候補タップで検索エリアが設定される。施設検索は実行されない
   const [pendingCandidates, setPendingCandidates] = useState(null)
   // (top) 検索エリアが設定された地名（trim 済み入力値）。同じ名前で
-  // 「検索する」を再度押したときは、geocode せず設定済みエリアを再利用する
-  // （複数候補の提示→選択→再度「検索する」の流れで、提示がループしないように）
+  // 「地名検索」を再度押したときは、geocode せず設定済みエリアを再利用する
+  // （複数候補の提示→選択→再度「地名検索」の流れで、提示がループしないように）
   const [areaSetQuery, setAreaSetQuery] = useState(null)
-  // (top) サジェストのデバウンス（約400ms）タイマーとリクエスト順序番号
-  // （入力が変わった古いリクエストの結果は無視するために使う）
-  const suggestTimerRef = useRef(null)
-  const suggestSeqRef = useRef(0)
 
   // (top) 目的タイル → 検索条件（handleTopSearch と自治体セクションへの引き継ぎで共用）
   const tileConditions = (tile) => (tile.purpose
     ? { category: '', cuisine: '', keyword: '', purpose: tile.purpose }
     : { category: tile.category, cuisine: '', keyword: '', purpose: '' })
 
-  // (top) 「検索する」ボタン・場所入力欄 Enter で実行する統一検索フロー。
-  // ① 場所の確定: 入力欄に地名・駅名があれば geocodeCandidates して検索エリアを設定。
-  //   候補が1件の場合は従来どおり進む（成功で入力欄を緑にし
-  //   「検索エリアに「○○」を設定しました」を表示）。候補が2件以上の場合は
-  //   1件目を勝手に選ばず、候補リストを「候補が複数あります。選んでください。」
-  //   という案内とともに提示し、施設検索は実行しない。候補をタップすると
-  //   エリアが設定され（handleCandidateSelect）、あらためて「検索する」を
-  //   押すと検索が実行される。同じ地名のエリアが既に設定済みなら、
-  //   geocode をせず設定済みエリアを再利用する。
-  //   入力が空なら既存の検索エリア（「都道府県から探す」の自治体選択などで
-  //   設定済みの state.bbox）を使う。地図を移動しない: 駅など小さな範囲
-  //   （面積が1km²未満）の結果は searchAreaFromGeocode が約1km正方形に拡大する。
-  // ② 場所が決まらなければ（入力が空でエリア未設定、または geocode で
-  //   見つからない）検索せず、従来の案内・エラー表示を出す。
-  // ③ タイル（種別）が未選択なら検索せず「種別を選んでください」案内。
-  // ④ 場所と種別がそろえば、その範囲・種別で施設検索を実行
+  // (top) タイル下の「指定した場所と種別で検索」ボタンで実行する施設検索。
+  // ジオコードは一切行わない: 「設定済みの検索エリア＋選ばれたタイル（種別）」
+  // のみで施設検索を実行する（明示的な1回の操作で Nominatim に問い合わせる
+  // 「地名検索」と役割を分ける）。
+  // ① エリアが未設定なら検索せず、「先に場所を指定してください」趣旨の案内。
+  // ② タイル（種別）が未選択なら検索せず「種別を選んでください」案内。
+  // ③ 場所と種別がそろえば、その範囲・種別で施設検索を実行
   //   （成功で MobileShell が一覧タブへ自動切替）。
-  const handleTopSearch = async () => {
+  const handleTopSearch = () => {
     if (state.status === 'loading' || searching) return
 
-    // ① 場所の確定
-    const q = placeQuery.trim()
-    let areaBbox = state.bbox
-    // 検索エリアの由来（スナップショットの bboxSource 用）。既存エリアの再利用時は
-    // 現在の source を維持し、geocode・自治体で新規設定した場合は geocode/municipality
-    let areaSource = state.bboxSource
-    if (q) {
-      // 実行中のサジェスト（デバウンス待ち・リクエスト中）を無効化する
-      // （検索実行中は候補リストを表示しない）
-      if (suggestTimerRef.current) {
-        clearTimeout(suggestTimerRef.current)
-        suggestTimerRef.current = null
-      }
-      suggestSeqRef.current += 1
-      setSuggestCandidates([])
-      setMuniSuggest([])
-
-      if (placeAreaSet && q === areaSetQuery && areaBbox && isValidBbox(areaBbox)) {
-        // 同じ地名の検索エリアが既に設定済み（geocode または候補選択による）。
-        // geocode をせず設定済みエリアをそのまま再利用する（複数候補の提示が
-        // ループするのを防ぐ）
-      } else {
-        setSearching(true)
-        setSearchError(null)
-        setAreaName(null)
-        // 検索中は緑を解除。成功時のみ再度設定される（見つからなかった場合は緑にならない）
-        setPlaceAreaSet(false)
-        setAreaSetQuery(null)
-        setPendingCandidates(null)
-        try {
-          // 自治体の完全一致をNominatimより先に調べる（静的データでローカル解決）。
-          // Nominatim の順位に左右されず、自治体名は確実にその自治体で解決される
-          const exact = exactMatchMunicipalities(municipalities, q)
-          if (exact.length === 1) {
-            // 完全一致が1件: その自治体の範囲を検索エリアにして、従来の「地名が
-            // 見つかった」流れで進める（Nominatim は呼ばない）
-            const result = municipalityToCandidate(exact[0])
-            areaBbox = searchAreaFromGeocode(result)
-            areaSource = 'municipality'
-            dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: areaSource } })
-            setAreaName(result.displayName)
-            setPlaceAreaSet(true)
-            setAreaSetQuery(q)
-          } else if (exact.length >= 2) {
-            // 完全一致が2件以上（同名自治体）: その自治体候補だけを候補リストとして
-            // 提示し、施設検索は実行しない（既存の複数候補提示の流れに合わせる）。
-            // Nominatim は呼ばない
-            setPendingCandidates(exact.map(municipalityToCandidate))
-          } else {
-            // 完全一致なし: 従来どおり Nominatim の流れ
-            const cands = await geocodeCandidates(q)
-            if (cands.length === 0) {
-              setSearchError('場所が見つかりませんでした。別の表記で試してください。')
-              return
-            }
-            if (cands.length >= 2) {
-              // 候補が複数: 1件目を勝手に選ばない。候補リストを提示し、
-              // 利用者に選ばせる。施設検索は実行しない（候補をタップすると
-              // エリアが設定され、あらためて「検索する」で検索が実行される）。
-              setPendingCandidates(cands)
-              return
-            }
-            // 候補が1件: 従来どおり進む
-            const result = cands[0]
-            // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアに
-            // 設定せず、施設検索のクエリも発行しない（広範囲全域の巨大クエリを防ぐ）。
-            // 既存のバリデーションエラーと同じ流儀（SET_STATUS 'error' + SET_ERROR）で
-            // エラーを返す。市区町村レベルの行政区域（isMunicipalityCandidate）は
-            // ガードの対象外: 大きな市（例: 高山市・約2,178 km²）は最小の県より大きく、
-            // 面積だけでは市区町村と都道府県を区別できないため
-            if (!isMunicipalityCandidate(result) && isBboxTooLarge(result.boundingbox)) {
-              dispatch({ type: 'SET_STATUS', payload: 'error' })
-              dispatch({
-                type: 'SET_ERROR',
-                payload: tooLargeSearchError(result.name),
-                errorType: 'validation'
-              })
-              return
-            }
-            // (#63) ジオコード結果の範囲を検索エリア（state.bbox）として設定する。
-            // トップ画面には地図を描画しないため、地図の表示範囲は使わない。
-            areaBbox = searchAreaFromGeocode(result)
-            areaSource = 'geocode'
-            dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: areaSource } })
-            setAreaName(result.displayName)
-            // 入力値は残して緑で表示（場所が決まったことが入力欄の見た目で分かる）。
-            // 編集されたら handlePlaceQueryChange が緑と検索エリアを解除する。
-            setPlaceAreaSet(true)
-            setAreaSetQuery(q)
-          }
-        } catch (error) {
-          setSearchError(error.message || '地名検索に失敗しました')
-          return
-        } finally {
-          setSearching(false)
-        }
-      }
-    }
-
-    // ② 場所が未設定（入力が空でエリア未設定、または geocode で見つからない）
+    // ① 検索エリアの確認（geocode は行わない）。エリアは「地名検索」または
+    //   「都道府県から探す」の自治体選択で設定済みの state.bbox
+    const areaBbox = state.bbox
+    const areaSource = state.bboxSource
     if (!areaBbox || !isValidBbox(areaBbox)) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
         type: 'SET_ERROR',
         // 文の区切りで改行（\n）。表示側は StatusBanner が whitespace-pre-line で改行を保持する
-        payload: '場所がまだ設定されていません。\n地名・駅名を入力して「検索する」を押すか、\n「都道府県から探す」で自治体を選択してください。',
+        payload: '場所がまだ設定されていません。\n地名・駅名を入力して「地名検索」を押すか、\n「都道府県から探す」で自治体を選択してください。',
         errorType: 'validation'
       })
       return
     }
 
-    // ③ 種別（目的タイル）が未選択
+    // ② 種別（目的タイル）が未選択
     if (!selectedTile) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
@@ -301,7 +219,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       return
     }
 
-    // ④ 施設検索（旧タイル即検索と同じ方式: 更新後の状態スナップショット
+    // ③ 施設検索（旧タイル即検索と同じ方式: 更新後の状態スナップショット
     //    → buildSearchCriteria → search）
     const conditions = tileConditions(selectedTile)
 
@@ -313,14 +231,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     dispatch({ type: 'SET_SIMPLE_SEARCH', payload: conditions })
 
     // stale-state競合を避けるため、更新後の状態からスナップショットを構築 (#47)。
-    // 検索は確定した検索エリア（areaBbox）の範囲で実行する。トップ画面には
+    // 検索は設定済みの検索エリア（state.bbox）の範囲で実行する。トップ画面には
     // 地図を描画しないため、地図の表示範囲（mapBounds）は使わない。
-    // 直前に geocode した場合、dispatch は非同期で state.bbox にはまだ反映
-    // されていないため、スナップショットに新しいエリアを直接含める。
     const next = {
       ...state,
-      bbox: areaBbox,
-      bboxSource: areaSource,
       searchSource: 'map',
       simpleSearch: { ...state.simpleSearch, ...conditions }
     }
@@ -338,7 +252,95 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       })
       return
     }
+    setSearching(true)
     search(criteria)
+  }
+
+  // (top) 地名入力欄の「地名検索」ボタン（または Enter）で実行する
+  // ジオコードフロー。Nominatim で地名を確定し、結果を検索エリアに設定する
+  // （施設検索は実行しない。施設検索は「指定した場所と種別で検索」で行う）。
+  // - 入力が空ならエラー案内
+  // - 同じ地名のエリアが既に設定済みなら何もしない（再geocodeしない。
+  //   Nominatim のレート制限・候補提示ループの防止）
+  // - 自治体の完全一致が1件: その自治体の範囲をエリアに設定（Nominatim 呼ばない）
+  // - 完全一致が2件以上: 自治体候補だけ複数提示（Nominatim 呼ばない）
+  // - それ以外: Nominatim で geocode（1リクエスト/秒の制限）。現在位置が
+  //   取得できていれば viewbox（現在地中心 ±0.15度）を付けて近傍の結果を
+  //   優先する（bounded=1 は付けない）
+  //   ・候補1件: エリア設定（成功で入力欄が緑＋フィードバック）
+  //   ・候補複数: 候補リストを提示（タップでエリア設定）
+  //   ・0件・広すぎる: 入力欄の下にエラー表示
+  const handleGeocodePlace = async () => {
+    const q = placeQuery.trim()
+    if (!q) {
+      setSearchError('先に地名・駅名を入力してください。')
+      return
+    }
+    if (state.status === 'loading' || geocoding) return
+
+    // 同じ地名のエリアが既に設定済みなら何もしない（再geocodeしない）
+    if (placeAreaSet && q === areaSetQuery && bbox && isValidBbox(bbox)) return
+
+    // 端末内のローカルサジェスト（自治体・周辺キャッシュ）をクリアする。
+    // ジオコードの結果（単一候補でのエリア設定、または複数候補の提示）が
+    // 代わりに表示されるため
+    setSuggestCandidates([])
+    setMuniSuggest([])
+    setGeocoding(true)
+    setSearchError(null)
+    setAreaName(null)
+    // 実行中は緑を解除。成功時のみ再度設定される（見つからなかった場合は緑にならない）
+    setPlaceAreaSet(false)
+    setAreaSetQuery(null)
+    setPendingCandidates(null)
+    try {
+      // 自治体の完全一致をNominatimより先に調べる（静的データでローカル解決）。
+      // Nominatim の順位に左右されず、自治体名は確実にその自治体で解決される
+      const exact = exactMatchMunicipalities(municipalities, q)
+      if (exact.length === 1) {
+        const result = municipalityToCandidate(exact[0])
+        const areaBbox = searchAreaFromGeocode(result)
+        dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'municipality' } })
+        setAreaName(result.displayName)
+        setPlaceAreaSet(true)
+        setAreaSetQuery(q)
+        return
+      }
+      if (exact.length >= 2) {
+        setPendingCandidates(exact.map(municipalityToCandidate))
+        return
+      }
+      // 完全一致なし: Nominatim の流れ。現在位置が取得できていれば viewbox を
+      // 付けて近傍の結果を優先する
+      const cands = await geocodeCandidates(q, { viewbox: viewboxAround(nearby.center) })
+      if (cands.length === 0) {
+        setSearchError('場所が見つかりませんでした。別の表記で試してください。')
+        return
+      }
+      if (cands.length >= 2) {
+        setPendingCandidates(cands)
+        return
+      }
+      // 候補が1件: その範囲を検索エリアに設定
+      const result = cands[0]
+      // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアに
+      // 設定せず、場所入力欄の下でエラー表示（広範囲全域の巨大クエリを防ぐ）。
+      // 市区町村レベルの行政区域（isMunicipalityCandidate）はガードの対象外
+      // （大きな市（例: 高山市）を地名入力から検索できる仕様）
+      if (!isMunicipalityCandidate(result) && isBboxTooLarge(result.boundingbox)) {
+        setSearchError(tooLargeSearchError(result.name))
+        return
+      }
+      const areaBbox = searchAreaFromGeocode(result)
+      dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'geocode' } })
+      setAreaName(result.displayName)
+      setPlaceAreaSet(true)
+      setAreaSetQuery(q)
+    } catch (error) {
+      setSearchError(error.message || '地名検索に失敗しました')
+    } finally {
+      setGeocoding(false)
+    }
   }
 
   // (top) 目的タイル: タップは「選択」だけ（検索は実行しない）。
@@ -375,8 +377,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     search(criteria)
   }
   // 場所入力の内容が編集されたら、緑のスタイルと検索エリアを未設定に戻す。
-  // 入力内容と検索エリアが食い違う状態を作らないため（「検索する」の未設定ガードが
-  // 再び働く）。エラー表示・成功フィードバックも一緒に消す。
+  // 入力内容と検索エリアが食い違う状態を作らないため（「指定した場所と種別で
+  // 検索」の未設定ガードが再び働く）。エラー表示・成功フィードバックも一緒に消す。
+  // サジェストは即座に再計算する: 自治体候補（ローカルデータ）＋周辺 Overpass
+  // キャッシュの端末内照合（matchNearbyCandidates）。入力中のネットワーク
+  // 問い合わせは行わない（公開 Nominatim の利用ポリシー）。
   const handlePlaceQueryChange = (value) => {
     setPlaceQuery(value)
     setPlaceAreaSet(false)
@@ -384,57 +389,30 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     setSearchError(null)
     setAreaSetQuery(null)
     dispatch({ type: 'SET_BBOX', payload: null })
-    // サジェスト・選択待ち候補をリセットする（古いリストを残さない）
-    if (suggestTimerRef.current) {
-      clearTimeout(suggestTimerRef.current)
-      suggestTimerRef.current = null
-    }
-    suggestSeqRef.current += 1 // 実行中のサジェストリクエストの結果を無効化する
-    setSuggestCandidates([])
+    // 選択待ち候補をリセットする（古いリストを残さない）
     setPendingCandidates(null)
 
     const q = value.trim()
-    // (top) 自治体候補: 静的データでローカル計算するため、デバウンス・Nominatim
-    // 待ちをせず即座に表示する（Nominatim 候補より前に表示される）
+    // 自治体候補: 静的データでローカル計算するため即座に表示する
     setMuniSuggest(q.length >= 2
       ? matchMunicipalities(municipalities, q).map(municipalityToCandidate)
       : [])
-
-    // (top) サジェスト: 2文字以上の入力で約400msのデバウンス後に
-    // geocodeCandidates を呼び、候補リストを入力欄の下に表示する
-    if (q.length >= 2) {
-      const seq = suggestSeqRef.current
-      suggestTimerRef.current = setTimeout(() => {
-        suggestTimerRef.current = null
-        setGeocodePending((c) => c + 1) // リクエスト開始 → スピナー表示
-        geocodeCandidates(q)
-          .then((cands) => {
-            setGeocodePending((c) => c - 1) // リクエスト完了 → スピナー解除
-            // その間に入力が変わっていたら（seq が進行していたら）古い結果は無視
-            if (seq === suggestSeqRef.current) setSuggestCandidates(cands)
-          })
-          .catch(() => {
-            setGeocodePending((c) => c - 1) // リクエスト完了（エラー）→ スピナー解除
-            if (seq === suggestSeqRef.current) setSuggestCandidates([])
-          })
-      }, 400)
-    }
+    // 周辺候補（駅・地区・公園）: キャッシュされた Overpass 結果と端末内で照合
+    setSuggestCandidates(q.length >= 2
+      ? matchNearbyCandidates(nearby.candidates, q)
+      : [])
   }
 
   // (top) 候補をタップしたら、その候補で検索エリアを設定する（既存の
   // 「地名が見つかった」ときと全く同じ流れ: bbox → state.bbox、入力欄が緑に
   // なり「検索エリアに「○○」を設定しました」が出る）。リストは閉じる。
-  // 施設検索はまだ実行しない（従来どおり「検索する」ボタンで実行）。
-  // サジェストの候補と「候補が複数あります」の候補で共通。
+  // 施設検索はまだ実行しない（「指定した場所と種別で検索」ボタンで実行）。
+  // サジェストの候補（自治体・周辺 Overpass キャッシュ）と「候補が複数あります」
+  // の候補（Nominatim）で共通。
+  // エリアの範囲: 駅・地区（点）は searchAreaFromGeocode が約1km正方形にする。
+  // 公園は取得した bounds（out bb）を使うが、小さい場合は拡大する
+  // （公園の bbox 面積が0.01km²未満なら約1km正方形に）。
   const handleCandidateSelect = (candidate) => {
-    // 実行中のサジェストをキャンセル
-    if (suggestTimerRef.current) {
-      clearTimeout(suggestTimerRef.current)
-      suggestTimerRef.current = null
-    }
-    // リクエスト中のサジェスト結果も無効化する（選択した直後に通信が返って
-    // 候補リストが再表示されることがあったため。handleTopSearch と同じ扱い）
-    suggestSeqRef.current += 1
     // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアを設定
     // せず（広範囲全域の巨大クエリを防ぐ）、場所入力欄の下でエラー表示
     // （searchError）で知らせる。通常候補（駅・地名など）は従来どおり
@@ -453,9 +431,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       setPendingCandidates(null)
       return
     }
-    const areaBbox = searchAreaFromGeocode(candidate)
+    const areaBbox = searchAreaFromGeocode(
+      candidate,
+      candidate.kind === '公園' ? { thresholdKm2: 0.01 } : {}
+    )
     // 候補の由来: 自治体（静的データ由来 kind='自治体'・市区町村レベルのaddresstype）→
-    // 'municipality'、それ以外（Nominatim由来）→ 'geocode'
+    // 'municipality'、それ以外（Nominatim・周辺Overpassキャッシュ由来）→ 'geocode'
     dispatch({
       type: 'SET_BBOX',
       payload: {
@@ -471,93 +452,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     setPendingCandidates(null)
   }
 
-  // (#xx) フォームの地図モードの場所入力欄で Enter（確定）したときの処理。
-  // トップの QuickTopIntro と同じ geocode フローだが、施設検索は実行しない
-  // （タイル・種別の確認もなし）。確定した場所を検索エリアに設定し、緑＋
-  // 「検索エリアに「○○」を設定しました」を表示する（MapView 側で fitBounds＋
-  // 矩形描画が行われる）。
-  // - 候補1件: エリア設定（成功）
-  // - 候補複数: 候補リストを提示（選択でエリア設定）
-  // - 見つからない・広すぎる: 入力欄の下にエラー表示
-  const handlePlaceConfirm = async () => {
-    const q = placeQuery.trim()
-    if (!q || state.status === 'loading' || searching) return
-
-    // 同じ地名のエリアが既に設定済みなら何もしない（再geocodeしない。
-    // Nominatim のレート制限・候補提示ループの防止）
-    if (placeAreaSet && q === areaSetQuery && bbox && isValidBbox(bbox)) return
-
-    // 実行中のサジェスト（デバウンス待ち・リクエスト中）を無効化する
-    if (suggestTimerRef.current) {
-      clearTimeout(suggestTimerRef.current)
-      suggestTimerRef.current = null
-    }
-    suggestSeqRef.current += 1
-    setSuggestCandidates([])
-    setMuniSuggest([])
-    setPendingCandidates(null)
-    setSearching(true)
-    setSearchError(null)
-    setAreaName(null)
-    setPlaceAreaSet(false)
-    setAreaSetQuery(null)
-    try {
-      // 自治体の完全一致をNominatimより先に調べる（静的データでローカル解決）
-      const exact = exactMatchMunicipalities(municipalities, q)
-      if (exact.length === 1) {
-        const result = municipalityToCandidate(exact[0])
-        const areaBbox = searchAreaFromGeocode(result)
-        dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'municipality' } })
-        setAreaName(result.displayName)
-        setPlaceAreaSet(true)
-        setAreaSetQuery(q)
-        return
-      }
-      if (exact.length >= 2) {
-        setPendingCandidates(exact.map(municipalityToCandidate))
-        return
-      }
-      const cands = await geocodeCandidates(q)
-      if (cands.length === 0) {
-        setSearchError('場所が見つかりませんでした。別の表記で試してください。')
-        return
-      }
-      if (cands.length >= 2) {
-        setPendingCandidates(cands)
-        return
-      }
-      const result = cands[0]
-      if (!isMunicipalityCandidate(result) && isBboxTooLarge(result.boundingbox)) {
-        setSearchError(tooLargeSearchError(result.name))
-        return
-      }
-      const areaBbox = searchAreaFromGeocode(result)
-      dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'geocode' } })
-      setAreaName(result.displayName)
-      setPlaceAreaSet(true)
-      setAreaSetQuery(q)
-    } catch (error) {
-      setSearchError(error.message || '地名検索に失敗しました')
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  // (#xx) 場所入力欄のキー操作: Enter で確定（geocode→エリア設定）、
-  // Escape で入力と検索エリアをクリア（矩形も消える）
+  // (#xx) 場所入力欄のキー操作: Enter で「地名検索」実行（geocode→エリア設定）、
+  // Escape で入力と検索エリアをクリア（矩形も消える）。
+  // トップの QuickTopIntro とフォームの地図モードで共有する。
   const handleMapPlaceKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      handlePlaceConfirm()
+      handleGeocodePlace()
     } else if (e.key === 'Escape') {
       handlePlaceQueryChange('')
     }
   }
-
-  // アンマウント時に保留中のサジェストタイマーをキャンセル
-  useEffect(() => () => {
-    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current)
-  }, [])
 
   // 地図上のマーカータップで選択されたPOI（説明枠の表示用）
   const [tappedPoi, setTappedPoi] = useState(null)
@@ -612,11 +517,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       setAreaName(null)
       setAreaSetQuery(null)
       // 地名入力のサジェスト・選択待ち候補も古いものになるためクリアする
-      if (suggestTimerRef.current) {
-        clearTimeout(suggestTimerRef.current)
-        suggestTimerRef.current = null
-      }
-      suggestSeqRef.current += 1
       setSuggestCandidates([])
       setMuniSuggest([])
       setPendingCandidates(null)
@@ -675,7 +575,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   })()
 
   // (#xx) 地図モードの場所入力用候補（トップの QuickTopIntro と同じ組み立て: 自治体
-  // サジェスト→Nominatimサジェスト。選択待ちなら pendingCandidates を表示）
+  // サジェスト→周辺キャッシュの端末内照合候補。選択待ちなら pendingCandidates を表示）
   const mapCandidates = pendingCandidates
     ? pendingCandidates
     : [...muniSuggest, ...suggestCandidates]
@@ -751,18 +651,21 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       <section className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2" aria-label="検索範囲">
         <h2 className="text-[11px] font-medium text-slate-500">どの街・エリアで探す？</h2>
 
-        {/* (#xx) 場所入力: トップの QuickTopIntro と同じ挙動（サジェスト→確定→緑＋
-            フィードバック）。確定場所は検索エリア（state.bbox）になり、地図がその
-            範囲にfitし青い矩形が描画される。入力をクリアすると矩形が消え、地図の
-            表示範囲で検索する（AreaCard が「地図の現在表示範囲」を表示） */}
+        {/* (#xx) 場所入力: トップの QuickTopIntro と同じ挙動（サジェスト→「地名検索」
+            で確定→緑＋フィードバック）。確定場所は検索エリア（state.bbox）になり、
+            地図がその範囲にfitし青い矩形が描画される。入力をクリアすると矩形が消え、
+            地図の表示範囲で検索する（AreaCard が「地図の現在表示範囲」を表示） */}
         <div className="space-y-2">
           <PlaceNameInput
             value={placeQuery}
             onChange={handlePlaceQueryChange}
             onKeyDown={handleMapPlaceKeyDown}
+            onFocus={nearby.request}
+            onGeocode={handleGeocodePlace}
             placeholder="地名・駅名（例: 大阪駅）"
             disabled={state.status === 'loading'}
             geocoding={geocoding}
+            geocodeDisabled={geocoding}
             areaSet={placeAreaSet}
           />
           {/* 候補リスト（サジェスト＋複数候補提示は共通の GeocodeCandidateList） */}
@@ -811,12 +714,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             <QuickTopIntro
               placeQuery={placeQuery}
               onPlaceQueryChange={handlePlaceQueryChange}
+              onGeocode={handleGeocodePlace}
+              onFocus={nearby.request}
+              geocodeDisabled={geocoding}
               searching={searching}
               searchError={searchError}
               areaName={areaName}
               areaSet={placeAreaSet}
               geocoding={geocoding}
-              onSearch={handleTopSearch}
               disabled={state.status === 'loading'}
               candidates={pendingCandidates
                 ? pendingCandidates

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * 回帰テスト: 一般向けトップで「食べる」などの目的タイルを選んでから
- * 「都道府県から探す」で自治体を選ぶと、タイル下の「検索する」では種別が
- * 効くのに、セクション内の「検索する」では種別が引き継がれず全件検索に
+ * 「都道府県から探す」で自治体を選ぶと、タイル下の「指定した場所と種別で検索」では
+ * 種別が効くのに、セクション内の「検索する」では種別が引き継がれず全件検索に
  * なっていた（ユーザー報告 2026-11-16）。
  *
  * 修正: 自治体選択時／タイルタップ時に、タイルの種別を自治体モードの
@@ -115,8 +115,8 @@ describe('再現: タイル選択 → 都道府県・市区町村選択', () => 
     // 5. タイルの選択が維持されているか
     expect(within(tilesRegion()).getByRole('button', { name: /食べる/ }).getAttribute('aria-pressed')).toBe('true')
 
-    // 6. タイル下の「検索する」で検索が実行される（種別エラーにならない）
-    const topSearch = within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '検索する' })
+    // 6. タイル下の「指定した場所と種別で検索」で検索が実行される（種別エラーにならない）
+    const topSearch = within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '指定した場所と種別で検索' })
     fireEvent.click(topSearch)
     await waitFor(() => {
       expect(overpassCalls.length).toBeGreaterThan(0)
