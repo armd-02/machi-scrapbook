@@ -38,6 +38,39 @@ export default function MobileShell() {
   // 戻ったとき直前の文脈（トップ⇄フォーム）を引き継ぐ
   const [searchView, setSearchView] = useState('top')
 
+  // (#80) 画面 ↔ state.screen 同期（ブックマーク・URL連動）
+  // ローカル（tab, searchView）の射影と state.screen を一致させる。
+  // 双方向を別々の effect で行うと、片方の変更が相手に届く前の古い値で
+  // 逆向きの同期が走り、値が往復して無限ループになる（screenUrl テストの
+  // ハングで判明）。単一の effect で「直前に一致していた値」
+  // （lastScreenRef）と比べ、変わった側に合わせて片方向だけ同期する。
+  const lastScreenRef = useRef(state.screen)
+  useEffect(() => {
+    const s = tab === 'search' ? (searchView === 'form' ? 'form' : 'top')
+      : tab === 'list' ? 'list'
+      : tab === 'memo' ? 'memo'
+      : 'other'
+    if (s === state.screen) {
+      lastScreenRef.current = s
+      return
+    }
+    if (state.screen !== lastScreenRef.current) {
+      // 外部の画面変更（URL復元・戻る／進む）→ ローカルへ反映
+      lastScreenRef.current = state.screen
+      if (state.screen === 'top' || state.screen === 'form') {
+        if (tab !== 'search') setTab('search')
+        if (searchView !== state.screen) setSearchView(state.screen)
+      } else if (tab !== state.screen) {
+        // 'list' | 'memo' | 'other' はタブIDと同名
+        setTab(state.screen)
+      }
+    } else {
+      // ローカルの画面変更 → state.screen へ反映
+      lastScreenRef.current = s
+      dispatch({ type: 'SET_SCREEN', payload: s })
+    }
+  }, [tab, searchView, state.screen, dispatch])
+
   // 検索完了（loading → success/error）でタブを自動切替。
   // 検索の種類によらず、成功時は常に「一覧」タブ、エラー時は「検索」タブへ。
   const prevStatusRef = useRef(state.status)

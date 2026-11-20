@@ -155,12 +155,12 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
           onClick={() => tapPurpose(BARRIER_FREE_GROUP.name)}
           aria-expanded={openPurpose === BARRIER_FREE_GROUP.name}
           aria-pressed={!!(selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name)}
-          className={`w-full mt-1.5 min-h-[48px] rounded-xl border-2 flex flex-row items-center justify-center gap-1.5 px-2 text-sm font-medium transition-colors ${
+          className={`w-full mt-1.5 min-h-[48px] rounded-xl border flex flex-row items-center justify-center gap-1.5 px-2 text-sm font-medium transition-colors ${
             selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name
               ? 'bg-primary-50 border-primary-400 text-primary-700'
               : openPurpose === BARRIER_FREE_GROUP.name
-                ? 'bg-primary-50 border-dashed border-primary-300'
-                : 'bg-white border-dashed border-slate-300 text-slate-600 active:bg-slate-50'
+                ? 'bg-primary-50 border-primary-300'
+                : 'bg-white border-slate-200 text-slate-600 active:bg-slate-50'
           }`}
         >
           <span className="text-lg leading-none" aria-hidden="true">{BARRIER_FREE_GROUP.icon}</span>

@@ -17,8 +17,8 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 施設カードの「🔎詳細」ボタン → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
-// - (#66) 初期検索ソースがmunicipalityになったため、地図モード検証テストは
-//   フォームビューで「地図から探す」へ明示切替してから操作する
+// - (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）。地図モード検証
+//   テストはフォームビューでフォーム要素の描画を待ってから操作する
 // - エラー時: バannerがタブ切替をまたいで表示される
 //
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする。
@@ -277,10 +277,9 @@ function openFormView() {
   fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
 }
 
-// (#66) 初期検索ソースが自治体（municipality）になったため、地図モードの挙動を
-// 検証するテストではフォームビューで「地図から探す」へ明示切替してから操作する。
+// (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）。フォームビューで
+// フォーム要素の描画を確認してから操作する。
 async function switchToMapMode() {
-  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
   await waitFor(() => {
     expect(screen.getByRole('button', { name: '＋ 条件を追加（詳細検索）' })).toBeTruthy()
   }, { timeout: 3000 })
@@ -511,7 +510,8 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
 
     // トップ → 従来フォーム
     openFormView()
-    expect(screen.getByRole('tab', { name: '自治体から探す' })).toBeTruthy()
+    // (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）
+    expect(screen.getByRole('button', { name: /トップへ戻る/ })).toBeTruthy()
     expect(screen.queryByText('好きな場所で作る、わたしのまち')).toBeNull()
 
     // ヘッダーのタイトルボタンを押す
@@ -916,21 +916,19 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
 })
 
 describe('(#59) 自治体モード検索', () => {
-  it('「自治体から探す」→市区町村選択→検索: 自治体BBOXのPOIクエリが送出される', async () => {
+  it('トップ「都道府県から探す」セクション→市区町村選択→検索: 自治体BBOXのPOIクエリが送出される', async () => {
     overpassElements = OVERPASS_ELEMENTS_UMEDA
     renderApp()
 
-    // (#63) ソース切替タブは従来フォーム側。まずフォームへ
-    openFormView()
-
-    // ソース切替（検索タブ内のタブボタン）
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    // (#xx) 自治体検索はトップ画面の「都道府県から探す」セクションから
+    fireEvent.click(screen.getByRole('button', { name: /都道府県から探す/ }))
+    const sec = screen.getByRole('region', { name: '都道府県から探す' })
 
     // 大阪府→大阪市（都府県レベル）を選択（モバイルラベル）
     await selectMunicipality('大阪府', '大阪市（都府県）', 'どの県で探す？', 'どの市区町村で探す？')
 
-    // 検索（カテゴリ未選択=POI検索）
-    fireEvent.click(screen.getByRole('button', { name: '検索する' }))
+    // 検索（カテゴリ未選択=POI検索）。トップ画面には同名ボタンが複数あるためセクション内に限定
+    fireEvent.click(within(sec).getByRole('button', { name: '検索する' }))
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     const q = overpassCalls[0]
@@ -1130,16 +1128,14 @@ describe('バリアフリー検索: 成功時は一覧タブへ自動切替（�
     renderApp()
     overpassElements = BF_ELEMENTS_HIGASHIOSAKA
 
-    // (#63) 初期表示は一般向けトップ。ソース切替タブは従来フォーム側
-    openFormView()
-
-    // 「自治体から探す」へ切替（searchSource='municipality'）
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    // (#xx) 自治体検索はトップ画面の「都道府県から探す」セクションから
+    fireEvent.click(screen.getByRole('button', { name: /都道府県から探す/ }))
+    const sec = screen.getByRole('region', { name: '都道府県から探す' })
     await selectMunicipality('大阪府', '東大阪市', 'どの県で探す？', 'どの市区町村で探す？')
 
-    // 目的チップ「バリアフリー」でバリアフリー検索に
-    fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))
-    fireEvent.click(screen.getByRole('button', { name: '検索する' }))
+    // 目的チップ「バリアフリー」でバリアフリー検索に（セクション内に限定）
+    fireEvent.click(within(sec).getByRole('button', { name: 'バリアフリー' }))
+    fireEvent.click(within(sec).getByRole('button', { name: '検索する' }))
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
     expect(overpassCalls[0]).toContain('footway')
@@ -1160,12 +1156,14 @@ describe('バリアフリー検索: 成功時は一覧タブへ自動切替（�
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
     expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
 
-    // 検索タブに戻ってもソースは「自治体から探す」のまま（searchSourceが地図へ変遷しない）
+    // (#xx) セクション検索後に検索タブへ戻り、フォームを開くと、フォームは常に
+    // 地図モード（ソースが自治体でも地図モードへ自動切替）。フッターは地図モードラベル
     clickTab('検索')
     expect(tabIsCurrent('検索')).toBe(true)
-    expect(screen.getByRole('tab', { name: '自治体から探す' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+    }, { timeout: 5000 })
   }, IT_TIMEOUT)
 
   it('バリアフリー検索エラー → 「検索」タブへ自動切替される', async () => {
@@ -1412,11 +1410,9 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
 
     // トップ → 従来フォーム
     fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
-    // (#66) 初期ソースが自治体のため、地図モードのフォーム要素を検証するには切替が必要
+    // (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）
     await switchToMapMode()
-    // フォーム要素が表示される（ソース切替・エリアカード・キーワード入力・フッターの検索ボタン）
-    expect(screen.getByRole('tab', { name: '地図から探す' })).toBeTruthy()
-    expect(screen.getByRole('tab', { name: '自治体から探す' })).toBeTruthy()
+    // フォーム要素が表示される（エリアカード・キーワード入力・フッターの地図モード検索ボタン）
     expect(screen.getByText('どの街・エリアで探す？')).toBeTruthy()
     expect(screen.getByPlaceholderText('例: 珈琲、ラーメン')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
@@ -1843,6 +1839,40 @@ describe('(place) 地名入力のサジェストと複数候補の提示', () =>
     }, { timeout: 8000 })
     // 候補リストが表示される（同じ React 更新で現れる）
     await waitForSuggestOption('梅田（大阪府大阪市）')
+  }, IT_TIMEOUT)
+
+  it('候補を選んだ後に通信中だったサジェスト結果が届いても、候補リストは再表示されない', async () => {
+    renderApp()
+    // Nominatim の fetch を未解決に保つ（サジェストのリクエスト中を再現）
+    nominatimDeferred = createDeferred()
+
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    // 「大阪」: 自治体候補（ローカル計算）は即座に出る。Nominatim サジェストは
+    // デバウンス後に発行され、応答待ちのままになる
+    fireEvent.change(input, { target: { value: '大阪' } })
+    await waitFor(() => {
+      expect(getSuggestOptions().length).toBeGreaterThan(0)
+    }, { timeout: 8000 })
+    // Nominatim リクエストが開始されたこと（スピナー表示）を確認する。
+    // この時点でリクエストは応答待ち（in-flight）
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // 自治体候補をタップ → エリアが設定され、リストは閉じる
+    fireEvent.click(getSuggestOptions()[0])
+    await waitFor(() => {
+      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    }, { timeout: 8000 })
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    // 通信中だった Nominatim の応答が後から届いても、候補リストは再表示されない
+    nominatimDeferred.resolve([UEDA_ROW])
+    await waitFor(() => {
+      expect(screen.queryByTestId('place-input-spinner')).toBeNull()
+    }, { timeout: 8000 })
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByRole('listbox')).toBeNull()
   }, IT_TIMEOUT)
 })
 

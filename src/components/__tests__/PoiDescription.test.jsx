@@ -6,17 +6,17 @@ import PoiDescription from '../PoiDescription'
 
 afterEach(() => { cleanup() })
 
-// ===== 未選択時の案内文 =====
+// ===== 未選択時は何も表示しない（案内文は出さない） =====
 
 describe('PoiDescription — 未選択時', () => {
-  it('tappedPoi が null のとき案内文を表示する', () => {
-    render(<PoiDescription tappedPoi={null} />)
-    expect(screen.getByText('地図のPOIをタップすると、ここに説明が表示されます')).toBeTruthy()
+  it('tappedPoi が null のとき何も表示しない', () => {
+    const { container } = render(<PoiDescription tappedPoi={null} />)
+    expect(container.firstChild).toBeNull()
   })
 
-  it('tappedPoi が undefined のとき案内文を表示する', () => {
-    render(<PoiDescription />)
-    expect(screen.getByText('地図のPOIをタップすると、ここに説明が表示されます')).toBeTruthy()
+  it('tappedPoi が undefined のとき何も表示しない', () => {
+    const { container } = render(<PoiDescription />)
+    expect(container.firstChild).toBeNull()
   })
 })
 
@@ -183,12 +183,12 @@ describe('PoiDescription — タップで更新', () => {
     expect(screen.getByText(/Webサイト/)).toBeTruthy()
   })
 
-  it('tappedPoi が null に戻ると案内文に戻る', () => {
-    const { rerender } = render(<PoiDescription tappedPoi={poiA} />)
+  it('tappedPoi が null に戻ると何も表示されなくなる', () => {
+    const { rerender, container } = render(<PoiDescription tappedPoi={poiA} />)
     expect(screen.getByText('カフェA')).toBeTruthy()
 
     rerender(<PoiDescription tappedPoi={null} />)
     expect(screen.queryByText('カフェA')).toBeNull()
-    expect(screen.getByText('地図のPOIをタップすると、ここに説明が表示されます')).toBeTruthy()
+    expect(container.firstChild).toBeNull()
   })
 })

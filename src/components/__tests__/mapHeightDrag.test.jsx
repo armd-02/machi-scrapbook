@@ -14,8 +14,9 @@
  *     上書きされる（既定クラスは維持）
  *   - 初期状態からコンテナのインラインstyleに明示的なpx（既定高さ240px）が入る
  *     （既定クラス h-[240px] とdefaultHeightが一致しているため初期表示は不変）
- * - 地図の表示/非表示は view・searchSource で制御される（モバイルと同一タイミング）:
- *   トップ表示では非表示、フォーム＋地図モードのみ表示、自治体モードでは非表示
+ * - 地図の表示/非表示は view で制御される（トップ表示では非表示、フォームでは表示）:
+ *   (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）のため、
+ *   searchSource が municipality のままでもフォームでは地図は表示される
  *   （いずれもマウントは維持され、hidden 属性で切替）
  */
 import React from 'react'
@@ -136,7 +137,7 @@ describe('PC幅（>=1024px・matches=false）: 共通コンポーネントの地
     expect(map._calls.some((c) => c.name === 'resize')).toBe(true)
   })
 
-  it('地図の表示タイミングはモバイルと同一（トップ・自治体モードではhidden、フォーム＋地図モードのみ表示）', () => {
+  it('(#xx) 地図の表示タイミング: トップではhidden、フォームでは常に表示（フォームは常に地図モード）', () => {
     // トップ表示: 地図ブロックは hidden（マウントは維持）
     const view = renderInContext(
       <MobileSearchTab view="top" onViewResults={vi.fn()} />,
@@ -156,7 +157,10 @@ describe('PC幅（>=1024px・matches=false）: 共通コンポーネントの地
     expect(mapBlockOf(view).hasAttribute('hidden')).toBe(false)
     expect(view.container.querySelector('[role="separator"]')).toBeTruthy()
 
-    // フォーム＋自治体モード: 地図は hidden で非表示（マウントは維持）
+    // (#xx) フォーム＋自治体ソース（旧URL復元などでsearchSourceがmunicipalityのまま
+    // フォームを開いた場合）: フォームは常に地図モードのため地図は表示される。
+    // （コンポーネント側のuseEffectが実際には地図モードへ自動切替する。ここでは
+    //  dispatchがno-opモックなのでstateは変えない）
     act(() => {
       view.rerender(
         <AppContext.Provider value={{ state: { ...mapState(), searchSource: 'municipality' }, dispatch: vi.fn() }}>
@@ -164,7 +168,7 @@ describe('PC幅（>=1024px・matches=false）: 共通コンポーネントの地
         </AppContext.Provider>
       )
     })
-    expect(mapBlockOf(view).hasAttribute('hidden')).toBe(true)
+    expect(mapBlockOf(view).hasAttribute('hidden')).toBe(false)
   })
 
   it('共通の 160px〜480px の範囲にクランプされる', () => {

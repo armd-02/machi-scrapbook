@@ -22,7 +22,7 @@ const PARAM_KEYS = {
   and: 'and',        // AND/OR: 1/0
   advKw: 'ak',       // advanced keyword
   tab: 'tab',        // right panel tab
-  src: 'src',        // (#44) search source: m(unicipality) / m(ap)
+  src: 'src',        // (#44) search source: m(unicipality) / m(ap)。#xx: 旧自治体モードURL
   mun: 'mun',        // (#44) municipality code
   cuisine: 'cu',     // (#54) cuisine value (cuisine filter, food categories only)
   purpose: 'p',      // (#44) purpose scope (食べる・遊ぶなど、カテゴリ未選択時の絞り込み)
@@ -32,11 +32,27 @@ const PARAM_KEYS = {
   // URLにエンコードしても再検索時にフォーム値で上書きされるため対象外。
   nameFilter: 'nf',  // 施設名の部分一致
   typeFilter: 'tf',  // OSM要素種別 (node/way/relation)
-  sortDir: 'sd'      // 施設名並び替え (asc/desc)
+  sortDir: 'sd',     // 施設名並び替え (asc/desc)
+  view: 'view'       // (#80) 表示中の画面: top / form / list / memo / other
 }
 
 // (A2) 復元時に許可する値
 const VALID_TYPES = ['node', 'way', 'relation']
+
+/**
+ * (#80) ブックマーク可能な画面（トップ / くわしく探す / 一覧 / メモ帳 / その他）
+ *
+ * URLの view パラメータとしてエンコードする。'top'（一般トップ）が既定値
+ * なので、'top' は URL に書き込まない（パラメータ省略＝トップ）。
+ */
+export const SCREENS = ['top', 'form', 'list', 'memo', 'other']
+
+/**
+ * (#80) view パラメータ値の正規化。有効な画面名を返し、それ以外は null。
+ */
+export function normalizeScreen(v) {
+  return SCREENS.includes(v) ? v : null
+}
 
 /**
  * (A2) 一覧フィルタをURLパラメータにエンコード
@@ -88,10 +104,9 @@ export function encodeStateToURL(state) {
     params.set(PARAM_KEYS.src, 'm')
     if (state.selectedMunicipality) {
       params.set(PARAM_KEYS.mun, state.selectedMunicipality.code)
-      // (#47) 自治体モードのカテゴリ・キーワードはmunicipalitySearchから
+      // (#47) 自治体モードのカテゴリ等はmunicipalitySearchから
       const ms = state.municipalitySearch || state.simpleSearch
       if (ms.category) params.set(PARAM_KEYS.cat, ms.category)
-      if (ms.keyword) params.set(PARAM_KEYS.kw, ms.keyword)
       if (ms.cuisine) params.set(PARAM_KEYS.cuisine, ms.cuisine)
       if (ms.purpose) params.set(PARAM_KEYS.purpose, ms.purpose)
     }
@@ -126,7 +141,12 @@ export function encodeStateToURL(state) {
     const b = state.bbox
     params.set(PARAM_KEYS.bbox, [b.south, b.west, b.north, b.east].map(n => n.toFixed(6)).join(','))
   }
-  
+
+  // (#80) 画面（'top' は既定値のため省略）
+  if (state.screen && state.screen !== 'top') {
+    params.set(PARAM_KEYS.view, state.screen)
+  }
+
   return params.toString()
 }
 
@@ -141,22 +161,39 @@ export function decodeURLToState(searchParams) {
   const state = {}
   let hasData = false
 
+  // (#80) 画面。検索条件が何もなくても view のみで画面を復元できるように、
+  // 有効な値があれば hasData を立てる。
+  const view = normalizeScreen(params.get(PARAM_KEYS.view))
+  if (view) {
+    state.screen = view
+    hasData = true
+  }
+
   // (#44) Search source: municipality or map
   const src = params.get(PARAM_KEYS.src)
   const munCode = params.get(PARAM_KEYS.mun)
 
   if (src === 'm' && munCode) {
-    // Municipality mode
-    state.searchSource = 'municipality'
+    // (#xx) 旧「自治体モード」の共有URL。フォームは常に地図モードになったため、
+    // 検索ソースは地図モードとして復元し、条件（カテゴリ・料理・目的）は
+    // 地図モード側（simpleSearch）にも自治体側（municipalitySearch）にも反映する。
+    // 選択した自治体は state に保持され、「都道府県から探す」セクションから
+    // 引き続き自治体検索に使える（graceful degradation）。
+    state.searchSource = 'map'
     state.selectedMunicipality = { code: munCode, name: '', bbox: null }
     state.searchMode = 'simple'
-    // (#47) 自治体モード用のカテゴリ・キーワード
+    // (#47) 自治体モード用のカテゴリ等
     // (#54) cuisine + 旧 c=ramen の自動マッピング
     const resolved = resolveCategoryAndCuisine(params.get(PARAM_KEYS.cat), params.get(PARAM_KEYS.cuisine))
     const munPurpose = params.get(PARAM_KEYS.purpose) || ''
+    state.simpleSearch = {
+      category: resolved.category,
+      keyword: '',
+      cuisine: resolved.cuisine,
+      purpose: munPurpose
+    }
     state.municipalitySearch = {
       category: resolved.category,
-      keyword: params.get(PARAM_KEYS.kw) || '',
       cuisine: resolved.cuisine,
       purpose: munPurpose
     }
@@ -328,6 +365,10 @@ export function applyStateFromURL(state, dispatch) {
   }
   if (urlState.municipalitySearch) {
     dispatch({ type: 'SET_MUNICIPALITY_SEARCH', payload: urlState.municipalitySearch })
+  }
+  // (#80) 画面
+  if (urlState.screen) {
+    dispatch({ type: 'SET_SCREEN', payload: urlState.screen })
   }
   if (urlState.searchMode) {
     dispatch({ type: 'SET_SEARCH_MODE', payload: urlState.searchMode })

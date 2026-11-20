@@ -1,32 +1,32 @@
 // @vitest-environment jsdom
 /**
- * (#47 追跡) 自治体モード E2E 統合テスト
+ * (#xx) 自治体検索 E2E 統合テスト — トップ画面「都道府県から探す」セクション
  *
- * ユーザー報告: 「カテゴリが全く変わってない」— 自治体モードでカテゴリを変更しても
- * 検索クエリに反映されない、という報告に対する検証・回帰防止テスト。
+ * 背景: 「くわしく探す」フォームは常に地図モード（「地図から探す」）となり、
+ * 「自治体から探す」タブとフォーム内蔵 MunicipalitySearch は廃止された。
+ * 自治体検索はトップ画面の折りたたみセクション「都道府県から探す」から
+ * 実行する単一導線になった。本テストはセクション経由のフローを検証する。
  *
- * (#68) PCレイアウトの統一により、PCはモバイルと同じシェル（MobileShell）を
- * 中央寄せmax-widthコンテナ内で表示する（旧PCの並列レイアウトは廃止）。
- * そのため本テストの操作経路はモバイルと同じになる:
- * 初期表示（一般向けトップ）→「くわしく探す」で従来フォーム→ソース切替タブ。
- * 都道府県・市区町村のラベルもモバイル版（「どの県で探す？」等）になる。
+ * (#47 追跡) ユーザー報告: 「カテゴリが全く変わってない」— 自治体検索でカテゴリ
+ * を変更しても検索クエリに反映されない、という報告に対する回帰防止検証を
+ * セクションフローで継続する。
  *
  * 検証内容:
- * 1. 市区町村選択 → カテゴリ変更 → 検索 → クエリに新カテゴリが反映される
- * 2. 検索後、カテゴリをさらに変更 → 再検索 → クエリが更新カテゴリで再発行される
- * 3. 旧バグの回帰確認: カテゴリ変更のdispatchと検索が同一クリック内でも
- *    buildSearchCriteriaのスナップショットで最新値が使える（dispatch競合なし）
- * 4. URL復元: 共有URL（src=m&mun=..&c=..&b=..）を開いたとき、
- *    市区町村select・カテゴリselectが正しく復元される（stale closure対策の確認）
- * 5. モード切替: 地図モードで選んだカテゴリが自治体モードに引き継がれる
+ * 1. 市区町村選択 → カテゴリ変更 → 検索: 選択カテゴリがクエリに反映される
+ * 2. 検索後のカテゴリ変更 → 再検索: クエリが更新カテゴリで再発行される
+ * 3. ディスパッチ競合: カテゴリ変更dispatchと検索クリックが連続しても
+ *    buildSearchCriteriaのスナップショットで最新値が使える（#47）
+ * 4. URL復元: 旧自治体モード共有URL（src=m&mun=..&c=..&b=..）は地図モードとして
+ *    復元され、都道府県セクション・フォームの双方で地域と条件が使えて検索できる
+ * 5. ハンドオフ: 都道府県セクション検索後にフォームを開くと、セクションの条件
+ *    （カテゴリ+料理）が地図モードへ引き継がれ、フォームから検索できる（#49）
+ * 6. 地図モードURL（src=map&c=..）のカテゴリ復元とフォーム検索
+ * 7. 目的のみ選択（カテゴリ未選択）→ 検索: クエリは該当目的の施設種別で
+ *    限定される（#44）
  *
- * 旧実装（#48以前）のバグ機構:
- *   MunicipalitySearch.handleSearch() が
- *     dispatch(SET_SIMPLE_SEARCH {category}) → search(bbox) を同一ハンドラ内で実行し、
- *     search() が未反映のstate（dispatch前の値）でクエリを生成していた。
- *   → ユーザーが選んだカテゴリが永遠にクエリに使われない「カテゴリが変わらない」状態。
- *   新実装はクリック時点で buildSearchCriteria() がstateスナップショット+クエリ文字列を
- *   生成し、search(criteria) がそのクエリをそのまま実行するため構造的に回避される。
+ * 補足: トップ画面では「何する？」クイックタイルとセクションが同居し、同名の
+ * ボタンが複数存在する（例: 「食べる」タイルと「食べる」目的チップ）。
+ * セクション内のチップ・ボタン操作はセクションを scope に指定する。
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -111,6 +111,8 @@ afterEach(() => {
   window.history.replaceState(null, '', '/')
 })
 
+// ---- ヘルパー ----------------------------------------------------------
+
 // ラベルベースのselect取得（ResultsPanel等のselectと混同しない）
 const getSelectByLabel = (label) => {
   const el = screen.getByText(label)
@@ -143,24 +145,29 @@ function clickTab(label) {
 /**
  * (#44) 目的チップ→カテゴリチップ でカテゴリを選択する
  * 例: selectCategoryChip('カフェ') → 「食べる」をタップ → 「カフェ」をタップ
+ *
+ * scope を渡すとセクション内に限定する（トップ画面のクイックタイルに同名ボタン
+ * が存在するため、セクションフローでは必須）。
  */
-function selectCategoryChip(catLabel) {
+function selectCategoryChip(catLabel, scope = null) {
+  const q = scope ? within(scope) : screen
   for (const g of CATEGORY_GROUPS) {
     const cats = getCategoriesForPurpose(g.name) || []
     const cat = cats.find((c) => c.label === catLabel)
     if (!cat) continue
-    fireEvent.click(screen.getByRole('button', { name: g.name }))
-    fireEvent.click(screen.getByRole('button', { name: catLabel }))
+    fireEvent.click(q.getByRole('button', { name: g.name }))
+    fireEvent.click(q.getByRole('button', { name: catLabel }))
     return true
   }
   throw new Error(`カテゴリチップが見つからない: ${catLabel}`)
 }
 
 // 選択中カテゴリが表示される（「解除」ボタン出現）ことを待つ
-async function expectCategorySelected() {
+async function expectCategorySelected(scope = null, timeout = 3000) {
+  const q = scope ? within(scope) : screen
   await waitFor(() => {
-    expect(screen.getByText('解除')).toBeTruthy()
-  }, { timeout: 3000 })
+    expect(q.getByText('解除')).toBeTruthy()
+  }, { timeout })
 }
 
 /**
@@ -168,9 +175,10 @@ async function expectCategorySelected() {
  * 「解除」ボタンの隣接spanで確認する（getByText(/ラベル/)は結果パネルの
  * フィルタselect内のoptionと衝突するため使用しない）。
  */
-async function expectCategoryLabel(label, timeout = 3000) {
+async function expectCategoryLabel(label, scope = null, timeout = 3000) {
+  const q = scope ? within(scope) : screen
   await waitFor(() => {
-    const btn = screen.queryByText('解除')
+    const btn = q.queryByText('解除')
     expect(btn).toBeTruthy()
     expect(btn.parentElement.textContent).toContain(label)
   }, { timeout })
@@ -182,18 +190,29 @@ function renderApp(query = '') {
   render(<App />)
 }
 
-// (#63) 初期表示は一般向けトップ。ソース切替タブ・フォーム要素は従来フォーム側にある
+// (#63) 初期表示は一般向けトップ。フォーム要素は「くわしく探す」で表示される
 function openFormView() {
   fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
 }
+
+// (#xx) トップ画面の「都道府県から探す」セクションを開く（既定は閉じた状態）
+function openMuniSection() {
+  fireEvent.click(screen.getByRole('button', { name: /都道府県から探す/ }))
+}
+
+// 「都道府県から探す」セクション要素（scope 用）
+const muniSection = () => screen.getByRole('region', { name: '都道府県から探す' })
+
+// セクション内の「検索する」ボタン（トップ画面には同名ボタンが複数あるため必ずscope指定）
+const sectionSearchBtn = (scope) => within(scope).getByRole('button', { name: '検索する' })
 
 const IT_TIMEOUT = 15000 // waitFor(5000ms)に余裕を持たせる
 
 // 都道府県→市区町村を選択（テキスト入力＋サジェスト）
 async function selectMunicipality(prefText, munText) {
-  // (#68) PCはモバイルと同じシェル（MunicipalitySearch variant="mobile"）を使うため、
-  // モバイル版ラベルで取得する。都道府県はタイルグリッド＋sr-only select で、
-  // select への変更も同一の更新処理（handlePrefChange）に通る。
+  // MunicipalitySearch（variant="mobile"）のラベルで取得する。都道府県は
+  // タイルグリッド＋sr-only select で、select への変更も同一の更新処理
+  // （handlePrefChange）に通る。
   await waitFor(() => {
     expect(screen.getByText('どの県で探す？')).toBeTruthy()
   }, { timeout: 3000 })
@@ -221,28 +240,28 @@ async function selectMunicipality(prefText, munText) {
   fireEvent.click(munOpt)
 }
 
-describe('自治体モード E2E（カテゴリ反映の検証）', () => {
+describe('自治体検索 E2E（トップ画面「都道府県から探す」セクション）', () => {
   it('市区町村選択→カテゴリ変更→検索: クエリに選択カテゴリが反映される', async () => {
     renderApp()
 
-    // (#63) ソース切替タブは従来フォーム側。まずフォームへ
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    // (#xx) 自治体検索はトップ画面のセクションから（タブ・フォーム内蔵は廃止）
+    openMuniSection()
+    const sec = muniSection()
 
     // 大阪府 → 高槻市 を選択
     await selectMunicipality('大阪府', '高槻市')
 
     // 初期状態: カテゴリ未選択（「解除」ボタンなし）
     await waitFor(() => {
-      expect(screen.queryByText('解除')).toBeNull()
+      expect(within(sec).queryByText('解除')).toBeNull()
     }, { timeout: 3000 })
 
-    // カテゴリを「カフェ」に変更（目的チップ→カテゴリチップ）
-    expect(selectCategoryChip('カフェ')).toBe(true)
-    await expectCategorySelected()
+    // カテゴリを「カフェ」に変更（目的チップ→カテゴリチップ、セクション内に限定）
+    expect(selectCategoryChip('カフェ', sec)).toBe(true)
+    await expectCategorySelected(sec)
 
-    // 検索クリック
-    fireEvent.click(screen.getByText('検索する'))
+    // セクション内の「検索する」をクリック
+    fireEvent.click(sectionSearchBtn(sec))
 
     // Overpassクエリが amenity=cafe を含むことを確認
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
@@ -254,31 +273,31 @@ describe('自治体モード E2E（カテゴリ反映の検証）', () => {
 
   it('検索後のカテゴリ変更→再検索: クエリが更新カテゴリで再発行される', async () => {
     renderApp()
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    openMuniSection()
+    const sec = muniSection()
     await selectMunicipality('大阪府', '高槻市')
 
     // 1回目: カフェで検索（目的チップ→カテゴリチップ）
-    expect(selectCategoryChip('カフェ')).toBe(true)
-    await expectCategorySelected()
-    fireEvent.click(screen.getByText('検索する'))
+    expect(selectCategoryChip('カフェ', sec)).toBe(true)
+    await expectCategorySelected(sec)
+    fireEvent.click(sectionSearchBtn(sec))
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     expect(overpassCalls[0]).toContain('amenity=cafe')
 
-    // カテゴリを「レストラン」に変更
+    // 検索完了（ボタンが再有効化）を待つ
     await waitFor(() => {
-      // 検索完了（ボタンが「検索する」に復帰）を待つ
-      expect(screen.getByText('検索する')).toBeTruthy()
+      expect(sectionSearchBtn(sec).disabled).toBe(false)
     }, { timeout: 5000 })
-    // (#68) 検索成功で「一覧」タブへ自動切替されるため、フォームに戻ってカテゴリを変更
+    // 検索成功で「一覧」タブへ自動切替されるため、検索タブに戻ってカテゴリを変更
     clickTab('検索')
-    selectCategoryChip('レストラン')
-    await expectCategorySelected()
 
-    // 2回目: レストランで再検索
-    fireEvent.click(screen.getByText('検索する'))
+    // 2回目: カテゴリを「レストラン」に変えて再検索
+    const sec2 = muniSection()
+    expect(selectCategoryChip('レストラン', sec2)).toBe(true)
+    await expectCategorySelected(sec2)
+    fireEvent.click(sectionSearchBtn(sec2))
+
     await waitFor(() => expect(overpassCalls.length).toBe(2), { timeout: 5000 })
-
     // 2番目のクエリは restaurant を含み、cafe を含まない
     expect(overpassCalls[1]).toContain('amenity=restaurant')
     expect(overpassCalls[1]).not.toContain('amenity=cafe')
@@ -286,102 +305,99 @@ describe('自治体モード E2E（カテゴリ反映の検証）', () => {
 
   it('カテゴリ変更のdispatchと検索クリックが連続しても最新カテゴリが使える（dispatch競合の回帰テスト）', async () => {
     renderApp()
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    openMuniSection()
+    const sec = muniSection()
     await selectMunicipality('大阪府', '高槻市')
 
     // 旧バグのシナリオ: カテゴリ変更のdispatchが未commitの状態で検索が呼ばれる
     // （React 18のbatching下で、同一タスク内のカテゴリチップタップ+検索クリック）
-    expect(selectCategoryChip('薬局・ドラッグストア')).toBe(true)
-    // 再レンダを待たずに即座に検索クリック
-    fireEvent.click(screen.getByText('検索する'))
+    expect(selectCategoryChip('薬局・ドラッグストア', sec)).toBe(true)
+    // 再レンダリングを待たずに即座に検索クリック
+    fireEvent.click(sectionSearchBtn(sec))
 
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     // 最新カテゴリ(pharmacy)がクエリに使われていなければ旧バグの回帰
     expect(overpassCalls[0]).toContain('amenity=pharmacy')
   }, IT_TIMEOUT)
 
-  it('URL復元: 共有URLから市区町村・カテゴリがselectに復元される', async () => {
-    // 高槻市のbbox + カテゴリ=cafe をエンコードした共有URL
+  it('URL復元: 旧自治体モード共有URLは地図モードとして復元され、セクション・フォーム双方で地域と条件が使えて検索できる', async () => {
+    // 高槻市のbbox + カテゴリ=cafe をエンコードした旧自治体モード共有URL
     renderApp('src=m&mun=272078&c=cafe&b=34.780510,135.557190,34.976670,135.672640')
 
-    // (#63) 初期表示はトップ。ソース切替タブ・フォーム要素は従来フォーム側
-    openFormView()
+    // (#xx) 旧自治体モードURLは地図モード（searchSource=map）として復元される。
+    // 地域・条件はセクション（都道府県から探す）でもフォーム（地図モード）でも使える。
+    openMuniSection()
+    const sec = muniSection()
 
-    // 自治体モードタブが有効
-    const munTab = screen.getByRole('tab', { name: '自治体から探す' })
-    expect(munTab.className).toContain('bg-white')
-
-    // 市区町村入力欄が「高槻市」に復元される（stale closure対策の確認）
+    // 市区町村・県がセクションの入力欄に復元される（stale closure対策の確認）
     await waitFor(() => {
-      const prefSelect = getSelectByLabel('どの県で探す？')
-      expect(prefSelect.value).toBe('27')
-      const input = getInputByLabel('どの市区町村で探す？')
-      expect(input).toBeTruthy()
-      expect(input.value).toBe('高槻市')
+      expect(getSelectByLabel('どの県で探す？').value).toBe('27')
+      expect(getInputByLabel('どの市区町村で探す？').value).toBe('高槻市')
     }, { timeout: 5000 })
 
-    // カテゴリが「カフェ」に復元される（選択中ボックス表示）
-    await expectCategoryLabel('カフェ', 5000)
+    // カテゴリ「カフェ」がセクションのカテゴリピッカーに復元される
+    await expectCategoryLabel('カフェ', sec, 5000)
 
-    // 検索ボタンのBBOX表示に自治体BBOX（URLのb=）が反映される
-    expect(screen.getByText(/高槻市とその周辺/)).toBeTruthy()
-
-    // その状態で検索 → cafeクエリが発行される
-    fireEvent.click(screen.getByText('検索する'))
+    // セクションで検索 → cafeクエリ（高槻市BBOX）が発行される
+    fireEvent.click(sectionSearchBtn(sec))
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('34.78051')
+
+    // 地図モード（フォーム）にも条件が復元される
+    await waitFor(() => {
+      expect(sectionSearchBtn(sec).disabled).toBe(false)
+    }, { timeout: 5000 })
+    clickTab('検索')
+    openFormView()
+    await expectCategoryLabel('カフェ', null, 5000)
   }, IT_TIMEOUT)
 
-  it('モード切替: 地図モードのカテゴリが自治体モードに引き継がれる（last-wins）', async () => {
+  it('ハンドオフ: 都道府県セクション検索後にフォームを開くと、セクションの条件（カテゴリ+料理）が地図モードへ引き継がれる（#49）', async () => {
     renderApp()
+    openMuniSection()
+    const sec = muniSection()
+    await selectMunicipality('大阪府', '高槻市')
 
-    // (#66) 初期検索ソースがmunicipalityになったため、地図モードから検証を始める
+    // セクションで カフェ+寿司 を設定して検索
+    expect(selectCategoryChip('カフェ', sec)).toBe(true)
+    await expectCategorySelected(sec)
+    const cuisineSelect = await waitFor(() => {
+      const s = getSelectByLabel('料理（任意）')
+      expect(s).toBeTruthy()
+      return s
+    }, { timeout: 3000 })
+    fireEvent.change(cuisineSelect, { target: { value: 'sushi' } })
+    await waitFor(() => expect(cuisineSelect.value).toBe('sushi'))
+
+    fireEvent.click(sectionSearchBtn(sec))
+    await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
+    expect(overpassCalls[0]).toContain('amenity=cafe')
+    expect(overpassCalls[0]).toContain('cuisine=sushi')
+
+    // 検索完了を待ち、検索タブに戻ってフォームを開く
+    await waitFor(() => {
+      expect(sectionSearchBtn(sec).disabled).toBe(false)
+    }, { timeout: 5000 })
+    clickTab('検索')
     openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
 
-    // 地図モードでカテゴリ「カフェ」を選択（目的チップ→カテゴリチップ）
-    expect(selectCategoryChip('カフェ')).toBe(true)
-    await expectCategorySelected()
+    // (#xx) フォームは常に地図モード。開いた時点でソースが自治体の場合は
+    // 地図モードへ自動切替され、セクションの条件がフォームへ引き継がれる
+    await expectCategoryLabel('カフェ', null, 5000)
+    const formCuisine = await waitFor(() => {
+      const s = getSelectByLabel('料理（任意）')
+      expect(s).toBeTruthy()
+      expect(s.value).toBe('sushi')
+      return s
+    }, { timeout: 5000 })
+    expect(formCuisine).toBeTruthy()
 
-    // 「自治体から探す」タブへ切替
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
-
-    // 大阪府 → 高槻市 を選択
-    await selectMunicipality('大阪府', '高槻市')
-
-    // 自治体モードでもカテゴリが「カフェ」に引き継がれている
-    await expectCategorySelected()
-    await expectCategoryLabel('カフェ', 5000)
-  }, IT_TIMEOUT)
-
-  it('カテゴリ変更はlast-wins: 切替後に变更した値が元モードに戻っても優先される（#49改訂）', async () => {
-    renderApp()
-
-    // 1. 自治体モードで高槻市選択 + カテゴリ=レストラン
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
-    await selectMunicipality('大阪府', '高槻市')
-    expect(selectCategoryChip('レストラン')).toBe(true)
-    await expectCategorySelected()
-
-    // 2. 地図モードへ切替: 地図側のカテゴリもレストランになる
-    //    （この際、#47設計により選択済み自治体はクリアされる）
-    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
-    await expectCategorySelected()
-    await expectCategoryLabel('レストラン', 3000)
-
-    // 3. 地図モードでカフェに変更
-    selectCategoryChip('カフェ')
-    await expectCategorySelected()
-    await expectCategoryLabel('カフェ', 3000)
-
-    // 4. 自治体モードへ戻り高槻市を再選択: カテゴリは最新値（カフェ）
-    //    （旧実装「切り先が空の場合のみ」ではここでレストランに逆戻りする）
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
-    await selectMunicipality('大阪府', '高槻市')
-    await expectCategorySelected()
-    await expectCategoryLabel('カフェ', 5000)
+    // フォーム（地図モード）で検索 → cafe+sushi クエリが発行される
+    fireEvent.click(screen.getByText('この表示範囲で検索'))
+    await waitFor(() => expect(overpassCalls.length).toBe(2), { timeout: 5000 })
+    expect(overpassCalls[1]).toContain('amenity=cafe')
+    expect(overpassCalls[1]).toContain('cuisine=sushi')
   }, IT_TIMEOUT)
 
   it('地図モードURL（src=map&c=cafe）からカテゴリが復元され検索に使える（dispatch順序）', async () => {
@@ -393,7 +409,7 @@ describe('自治体モード E2E（カテゴリ反映の検証）', () => {
     // 地図モードでカテゴリチップが「カフェ」に復元される（選択中ボックス表示）
     // （SET_SEARCH_SOURCE が SET_SIMPLE_SEARCH より後にdispatchされると、
     //   last-wins引き継ぎがURLのカテゴリを空で上書きする → 順序が重要）
-    await expectCategoryLabel('カフェ', 5000)
+    await expectCategoryLabel('カフェ', null, 5000)
 
     // 検索してクエリがcafeになる（地図モード: ラベルは「この表示範囲で検索」）
     fireEvent.click(screen.getByText('この表示範囲で検索'))
@@ -403,14 +419,14 @@ describe('自治体モード E2E（カテゴリ反映の検証）', () => {
 
   it('目的のみ選択（カテゴリ未選択）→検索: クエリがその目的の施設種類に限定される (#44)', async () => {
     renderApp()
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    openMuniSection()
+    const sec = muniSection()
     await selectMunicipality('大阪府', '高槻市')
 
-    // 「遊ぶ」目的チップのみタップ（カテゴリチップは押さない）
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
+    // 「遊ぶ」目的チップのみタップ（カテゴリチップは押さない。セクション内に限定）
+    fireEvent.click(within(sec).getByRole('button', { name: '遊ぶ' }))
 
-    fireEvent.click(screen.getByText('検索する'))
+    fireEvent.click(sectionSearchBtn(sec))
 
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     const q = overpassCalls[0]
@@ -457,7 +473,7 @@ describe('#54 料理（cuisine）フィルタ E2E', () => {
     openFormView()
 
     // カテゴリチップが「レストラン」、料理selectが「ラーメン」に復元される
-    await expectCategoryLabel('レストラン', 3000)
+    await expectCategoryLabel('レストラン', null, 3000)
     const cuisineSelect = await waitFor(() => {
       const s = getSelectByLabel('料理（任意）')
       expect(s).toBeTruthy()
@@ -501,15 +517,15 @@ describe('#54 料理（cuisine）フィルタ E2E', () => {
     expect(overpassCalls[0]).not.toContain('cuisine')
   }, IT_TIMEOUT)
 
-  it('自治体モード: 飲食店+寿司 → 各unionブランチに[cuisine=sushi]が連結される', async () => {
+  it('セクション: 飲食店+寿司 → 各unionブランチに[cuisine=sushi]が連結される', async () => {
     renderApp()
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+    openMuniSection()
+    const sec = muniSection()
     await selectMunicipality('大阪府', '高槻市')
 
     // 飲食店（すべて）を選択 → 料理selectが出現
-    expect(selectCategoryChip('飲食店（すべて）')).toBe(true)
-    await expectCategorySelected()
+    expect(selectCategoryChip('飲食店（すべて）', sec)).toBe(true)
+    await expectCategorySelected(sec)
     const cuisineSelect = await waitFor(() => {
       const s = getSelectByLabel('料理（任意）')
       expect(s).toBeTruthy()
@@ -519,47 +535,9 @@ describe('#54 料理（cuisine）フィルタ E2E', () => {
     await waitFor(() => expect(cuisineSelect.value).toBe('sushi'))
 
     // 検索 → 8値unionの各ブランチにcuisineがAND連結
-    fireEvent.click(screen.getByText('検索する'))
+    fireEvent.click(sectionSearchBtn(sec))
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     expect(overpassCalls[0]).toContain('[cuisine=sushi]')
     expect(overpassCalls[0]).toContain('amenity~"^(cafe|restaurant|fast_food|bar|pub|izakaya|sushi|food_court)$"')
-  }, IT_TIMEOUT)
-
-  it('モード切替: 料理フィルタも引き継がれる（last-wins）', async () => {
-    renderApp()
-
-    // (#66) 初期検索ソースがmunicipalityになったため、地図モードから検証を始める
-    openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
-
-    // 地図モードで レストラン+ラーメン
-    expect(selectCategoryChip('レストラン')).toBe(true)
-    await expectCategorySelected()
-    const cuisineSelect = await waitFor(() => {
-      const s = getSelectByLabel('料理（任意）')
-      expect(s).toBeTruthy()
-      return s
-    }, { timeout: 3000 })
-    fireEvent.change(cuisineSelect, { target: { value: 'ramen' } })
-    await waitFor(() => expect(cuisineSelect.value).toBe('ramen'))
-
-    // 自治体モードへ切替 → 高槻市選択
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
-    await selectMunicipality('大阪府', '高槻市')
-
-    // カテゴリ・料理ともに引き継がれている
-    await expectCategorySelected()
-    await expectCategoryLabel('レストラン', 5000)
-    const munCuisine = await waitFor(() => {
-      const s = getSelectByLabel('料理（任意）')
-      expect(s).toBeTruthy()
-      expect(s.value).toBe('ramen')
-      return s
-    }, { timeout: 5000 })
-
-    // 検索 → restaurant+ramen のクエリ
-    fireEvent.click(screen.getByText('検索する'))
-    await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
-    expect(overpassCalls[0]).toContain('[amenity=restaurant][cuisine=ramen]')
   }, IT_TIMEOUT)
 })

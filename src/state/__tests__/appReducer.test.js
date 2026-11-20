@@ -18,10 +18,10 @@ function withResults(state, results = RESULTS) {
   return appReducer(state, { type: 'SET_RESULTS', payload: results })
 }
 
-// (#66) 既定の searchSource が 'municipality' になったため、
-// mapモードのフォーム挙動を検証するテストでは明示的にmapへ切替する。
+// (#xx) 既定の searchSource は 'map'（くわしく探すフォームは常に地図モード）。
+// mapモードの状態が必要なテストでは初期状態のまま使える。
 function mapState() {
-  return appReducer(createInitialState(), { type: 'SET_SEARCH_SOURCE', payload: 'map' })
+  return createInitialState()
 }
 
 describe('createInitialState', () => {
@@ -36,6 +36,14 @@ describe('createInitialState', () => {
     const rf = createInitialState().resultFilters
     expect(rf.cuisine).toBe('')
     expect(rf.kerbHeight).toBe('any')
+  })
+
+  it('#xx: 初期の searchSource は map（フォームは常に地図モード）', () => {
+    expect(createInitialState().searchSource).toBe('map')
+  })
+
+  it('(#80) 初期の screen は top', () => {
+    expect(createInitialState().screen).toBe('top')
   })
 
 })
@@ -233,5 +241,31 @@ describe('SET_RESULT_KIND (#62)', () => {
     s = appReducer(s, { type: 'CLEAR_RESULTS' })
     expect(s.results).toEqual([])
     expect(s.resultKind).toBeNull()
+  })
+})
+
+describe('SET_SCREEN (#80)', () => {
+  it('有効な画面名を設定できる', () => {
+    for (const s of ['top', 'form', 'list', 'memo', 'other']) {
+      const state = appReducer(createInitialState(), { type: 'SET_SCREEN', payload: s })
+      expect(state.screen).toBe(s)
+    }
+  })
+
+  it('無効な値は無視される（状態は不変）', () => {
+    const base = createInitialState()
+    for (const bad of [undefined, null, '', 'xyz', 'FORM', 1]) {
+      const state = appReducer(base, { type: 'SET_SCREEN', payload: bad })
+      expect(state).toBe(base)
+    }
+  })
+
+  it('他のフィールドには影響しない', () => {
+    let s = createInitialState()
+    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'cafe' } })
+    s = appReducer(s, { type: 'SET_SCREEN', payload: 'memo' })
+    expect(s.screen).toBe('memo')
+    expect(s.simpleSearch.category).toBe('cafe')
+    expect(s.resultFilters).toEqual(createInitialState().resultFilters)
   })
 })

@@ -87,11 +87,10 @@ const IT_TIMEOUT = 15000
 // モックの地図は getBounds() が常に既定範囲を返す
 const INITIAL_BOUNDS = '34.800000,135.400000,34.900000,135.600000'
 
-// 従来フォーム表示→「地図から探す」タブでmapモードへ切替し、
-// フッターの地図モード検索ボタンが出るまで待つ
+// 従来フォーム表示へ切替し、フッターの地図モード検索ボタンが出るまで待つ
+// (#xx) フォームは常に地図モードのため、ソース切替タブの操作は不要
 async function enterMapMode() {
   fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
-  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
   }, { timeout: 5000 })

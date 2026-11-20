@@ -12,7 +12,7 @@
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react'
 import App from '../../App'
 import PrefectureTileMap, { TILE_GRID, CELL } from '../PrefectureTileMap'
 import { clearCache } from '../../utils/overpass'
@@ -89,16 +89,11 @@ function renderApp(query = '') {
   render(<App />)
 }
 
-// (#68) PCはモバイルと同じシェル（MobileShell）を中央寄せmax-widthコンテナ内で
-// 表示する（旧PCの並列レイアウトは廃止）。(#63) 初期表示は一般向けトップで、
-// ブロック地図（タイルグリッド）は従来フォーム（自治体モード）側に描画される。
-function openFormView() {
-  fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
-}
-
-function openMuniMode() {
-  openFormView()
-  fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
+// (#xx) ブロック地図（タイルグリッド）はトップ画面の「都道府県から探す」
+// 折りたたみセクション内にある。セクションを開くとMunicipalitySearch
+// （PrefectureTileMap含む）が表示される。
+function openMuniSection() {
+  fireEvent.click(screen.getByRole('button', { name: /都道府県から探す/ }))
 }
 
 function getSelectByLabel(label) {
@@ -283,7 +278,7 @@ describe('PrefectureTileMap（コンポーネント）', () => {
 describe('MunicipalitySearch 統合（ブロック地図選択）', () => {
   it('タイル選択 → 市区町村入力欄出現 → 検索: BBOX検索が従来通り発行される', async () => {
     renderApp()
-    openMuniMode()
+    openMuniSection()
 
     // ブロック地図の大阪府タイルをクリック
     await waitFor(() => {
@@ -291,10 +286,12 @@ describe('MunicipalitySearch 統合（ブロック地図選択）', () => {
     }, { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: '大阪府' }))
 
-    // 市区町村入力欄が出現し、高槻市を選択（従来フローへの接続）
+    // 市区町村入力欄が出現し、高槻市を選択（セクションフローへの接続）
     const input = await pickMunicipality('高槻市')
     expect(input.value).toBe('高槻市')
-    fireEvent.click(screen.getByText('検索する'))
+    // トップ画面には同名ボタンが複数あるため、セクション内の「検索する」に限定
+    const sec = screen.getByRole('region', { name: '都道府県から探す' })
+    fireEvent.click(within(sec).getByRole('button', { name: '検索する' }))
 
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     expect(overpassCalls[0]).toContain('34.78051')
@@ -303,7 +300,7 @@ describe('MunicipalitySearch 統合（ブロック地図選択）', () => {
 
   it('別県タイル選択で市区町村選択がリセットされる', async () => {
     renderApp()
-    openMuniMode()
+    openMuniSection()
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '大阪府' })).toBeTruthy()
@@ -341,8 +338,8 @@ describe('MunicipalitySearch 統合（ブロック地図選択）', () => {
     // 高槻市（大阪府 27）の共有URL
     renderApp('src=m&mun=272078&c=cafe&b=34.780510,135.557190,34.976670,135.672640')
 
-    // (#63) 初期表示はトップ。ブロック地図は従来フォーム（自治体モード）側にある
-    openFormView()
+    // (#xx) ブロック地図はトップ画面の「都道府県から探す」セクション側にある
+    openMuniSection()
 
     // 大阪府タイルが aria-pressed=true でハイライトされる
     await waitFor(() => {
@@ -364,7 +361,7 @@ describe('MunicipalitySearch 統合（ブロック地図選択）', () => {
 
   it('キーボード操作でタイル選択 → 市区町村selectが出現する', async () => {
     renderApp()
-    openMuniMode()
+    openMuniSection()
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '大阪府' })).toBeTruthy()

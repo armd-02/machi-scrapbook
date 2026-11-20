@@ -29,9 +29,9 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   「くわしく探す」で従来の検索フォーム（view='form'）へ切替、フォーム側から
  *   「トップへ戻る」でトップへ戻れる。地図は両ビューで同一の単一インスタンス
  *   （ツリー内で安定した位置に描画するため再マウントせず、位置・範囲を引き継ぐ）。
- *   自治体モードでは地図ブロックは hidden で非表示（マウントは維持）。
  *   (#63) トップ表示（view='top'）には地図を描画しない（mapBlock は hidden、
- *   マウントは維持）。タイル検索は「地図の表示範囲」ではなく「設定済みの
+ *   マウントは維持）。フォーム表示（view='form'）では地図ブロックは常に表示される
+ *   （フォームは常に地図モード＝「地図から探す」のみのため）。タイル検索は「地図の表示範囲」ではなく「設定済みの
  *   検索エリア」（state.bbox）で行う。検索エリアは次の2つの方法で設定される:
  *     ① 「検索する」押下時の geocode（地名・駅名の結果の範囲を検索エリアに設定。
  *        駅など小さな範囲は約1km正方形に拡大）
@@ -48,7 +48,12 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *        「種別を選んでください」趣旨の案内を表示する。
  *   場所と種別がそろえばその範囲・種別で施設検索を実行し、成功で一覧タブへ
  *   自動切替される（MobileShell 側の既存挙動）。
- *   詳細フォーム側（form 表示の地図モード含む）と結果画面の動作は変更しない。
+ *   詳細フォーム側（form 表示は常に地図モード）と結果画面の動作は変更しない。
+ *   自治体モードの検索はトップ画面の「都道府県から探す」セクションで実行される。
+ *   フォームに検索ソース切替タブ（「自治体から探す」／「地図から探す」）は無い。
+ *   フォームを開いた時点でソースが自治体モードのままの場合（初期状態、またはセクション
+ *   経由で検索した直後など）、地図モードへ自動切替し、#49 の引き継ぎで自治体モードの
+ *   条件（カテゴリ・料理・目的）を地図モード側（simpleSearch）に引き継ぐ。
  * - (top) 場所入力（QuickTopIntro）のすぐ下・地図（mapBlock）の上に「都道府県から探す」
  *   折りたたみセクション（既定は閉じた状態）。
  *   見出しタップで MunicipalitySearch（variant="mobile"：都道府県→市区町村→任意でカテゴリ等）
@@ -358,7 +363,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // これによりスナップショットと dispatch 後の状態が一致する。
   const handleMuniSectionSearch = () => {
     if (state.status === 'loading') return
-    const ms = state.municipalitySearch || { category: '', keyword: '', cuisine: '', purpose: '' }
+    const ms = state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
     let next = state
     if (state.searchSource !== 'municipality') {
       dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'municipality' })
@@ -427,6 +432,9 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       clearTimeout(suggestTimerRef.current)
       suggestTimerRef.current = null
     }
+    // リクエスト中のサジェスト結果も無効化する（選択した直後に通信が返って
+    // 候補リストが再表示されることがあったため。handleTopSearch と同じ扱い）
+    suggestSeqRef.current += 1
     // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアを設定
     // せず（広範囲全域の巨大クエリを防ぐ）、場所入力欄の下でエラー表示
     // （searchError）で知らせる。通常候補（駅・地名など）は従来どおり
@@ -565,11 +573,15 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   }
   const mapHeight = useDraggableHeight({ defaultHeight: 240, minHeight: 160, maxHeight: 480, storageKey: MAP_HEIGHT_STORAGE_KEY_MOBILE, onResize: handleMapResize })
 
-  const switchSource = (source) => {
-    if (source === state.searchSource) return
-    dispatch({ type: 'SET_SEARCH_SOURCE', payload: source })
-    if (source === 'map') dispatch({ type: 'SET_MUNICIPALITY', payload: null })
-  }
+  // (#xx) フォームは常に地図モード（「地図から探す」）。フォームを開いた時点で
+  // ソースが自治体モードのままの場合（初期状態、または「都道府県から探す」セクション
+  // 経由で検索した直後など）、地図モードへ自動切替する。#49 の引き継ぎで自治体
+  // モードの条件（カテゴリ・料理・目的）を地図モード側（simpleSearch）に引き継ぐ。
+  useEffect(() => {
+    if (view === 'form' && state.searchSource !== 'map') {
+      dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'map' })
+    }
+  }, [view, state.searchSource, dispatch])
 
   const setMode = (mode) => {
     dispatch({ type: 'SET_SEARCH_MODE', payload: mode })
@@ -637,12 +649,15 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 検索条件スナップショット（ボタンの無効判定・ヒント表示用）
   // 地図インスタンスはマウント後のeffectで登録されるため、state変化の
   // 再レンダリングで初めて取得できる（元の挙動を維持）
+  // (#xx) view を依存に追加: ソース切替タブの撤去で「タブ切替による再計算」が
+  // 失われたため、フォーム表示切替時に地図登録済みの範囲で再計算させる
+  // （トップ表示中はフッターボタンが描画されないため副作用はない）
   const criteria = useMemo(() => {
     const map = getMapInstance()
     const mapBounds =
       searchSource === 'map' && map && typeof map.getBounds === 'function' ? map.getBounds() : null
     return buildSearchCriteria(state, mapBounds ? { mapBounds } : {})
-  }, [state, searchSource, boundsVersion, bbox, selectedMunicipality])
+  }, [state, searchSource, boundsVersion, bbox, selectedMunicipality, view])
 
   // (top) 自治体セクション「検索する」ボタンの無効判定（自治体モードの条件スナップショット）。
   // 実行時の handleMuniSectionSearch と同じ入力（セクション内条件＋選択自治体BBOX）で判定する
@@ -677,30 +692,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     search(c)
   }
 
-  const sourceBtn = (id, label) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={searchSource === id}
-      onClick={() => switchSource(id)}
-      className={`min-h-[44px] text-sm rounded-lg transition-colors ${
-        searchSource === id
-          ? 'bg-white text-slate-800 shadow-sm font-medium'
-          : 'text-slate-500 hover:text-slate-700'
-      }`}
-    >
-      {label}
-    </button>
-  )
-
   // 地図ブロック（両ビュー共通・ツリー内で安定した位置＝2番目の子要素）。
   // 同一のJSX要素を同じ位置に描画し続けることで、トップ⇄フォーム切替時に
   // MapViewが再マウントされず、地図の位置・表示範囲が引き継がれる (#63)。
-  // 非表示になるのは: ①トップ表示（view='top'、#63でトップには地図を描画しない）
-  // ②自治体モード（source !== 'map'）。いずれもマウントは維持し、表示復帰時の
-  // resizeは MapView側のResizeObserverが処理する #60）
+  // 非表示になるのはトップ表示（view='top'、#63でトップには地図を描画しない）のみ。
+  // フォーム表示では常に地図モードなので常に表示される。マウントは両ビューで
+  // 維持し、表示復帰時のresizeは MapView側のResizeObserverが処理する #60）
   const mapBlock = (
-    <div hidden={view !== 'form' || searchSource !== 'map'} data-testid="map-block" className="rounded-xl overflow-hidden border border-slate-200">
+    <div hidden={view !== 'form'} data-testid="map-block" className="rounded-xl overflow-hidden border border-slate-200">
       <div className="relative h-[240px]" style={mapHeight.containerStyle}>
         <MapView
           onMarkerClick={onMarkerClick}
@@ -720,36 +719,32 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     </div>
   )
 
-  // 従来フォームの冒頭: トップへ戻る導線 ＋ 検索ソース切替 ＋（自治体モード）
+  // 従来フォームの冒頭: トップへ戻る導線。
+  // (#xx) フォームは常に地図モードのため、検索ソース切替タブ（「自治体から探す」／
+  // 「地図から探す」）とフォーム内蔵の MunicipalitySearch は撤去した。自治体検索は
+  // トップ画面の「都道府県から探す」セクションでのみ実行される。
   const formHeader = (
-    <div className="space-y-3">
-      <button
-        type="button"
-        onClick={() => onViewChange('top')}
-        className="min-h-[44px] w-full flex items-center justify-center gap-1 text-sm font-medium text-primary-600 bg-white border border-primary-200 rounded-xl hover:bg-primary-50"
-      >
-        ← トップへ戻る
-      </button>
-      <div className="grid grid-cols-2 gap-1 bg-slate-100 rounded-xl p-1" role="tablist" aria-label="検索モード">
-        {sourceBtn('municipality', '自治体から探す')}
-        {sourceBtn('map', '地図から探す')}
-      </div>
-      {searchSource === 'municipality' && (
-        /* エリア(都道府県・市区町村)＋カテゴリ・料理・キーワードをMunicipalitySearchが一括表示 */
-        <MunicipalitySearch variant="mobile" />
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={() => onViewChange('top')}
+      className="min-h-[44px] w-full flex items-center justify-center gap-1 text-sm font-medium text-primary-600 bg-white border border-primary-200 rounded-xl hover:bg-primary-50"
+    >
+      ← トップへ戻る
+    </button>
   )
 
-  // 従来フォームの地図以降の内容（凡例・エリア・カテゴリ/キーワード・切替）
-  const formBody = searchSource === 'map' && (
+  // 従来フォームの地図以降の内容（凡例・エリア・カテゴリ/キーワード・切替）。
+  // フォームは常に地図モードのため、ソース条件付けなしで常時描画する。
+  const formBody = (
     <>
       {/* 凡例＋POI説明枠（横並び。狭い画面では折り返し） */}
       <div className="flex flex-wrap gap-2">
         <BarrierFreeLegend />
-        <div className="flex-1 min-w-[200px]">
-          <PoiDescription tappedPoi={tappedPoi} />
-        </div>
+        {tappedPoi && (
+          <div className="flex-1 min-w-[200px]">
+            <PoiDescription tappedPoi={tappedPoi} />
+          </div>
+        )}
       </div>
 
       {/* エリア: 場所入力（確定場所で検索）＋ 検索範囲カード */}
@@ -893,9 +888,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             status={state.status}
             onSearch={handleSearch}
             onCancel={cancel}
-            label={searchSource === 'map'
-              ? (confirmedArea ? 'この範囲で検索' : 'この表示範囲で検索')
-              : '検索する'}
+            label={confirmedArea ? 'この範囲で検索' : 'この表示範囲で検索'}
           />
         </div>
       )}

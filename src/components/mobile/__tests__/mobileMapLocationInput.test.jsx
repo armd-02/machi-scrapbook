@@ -174,11 +174,10 @@ function renderApp() {
 
 // ===== 操作ヘルパー =====
 
-// (#66) 初期検索ソースが自治体（municipality）のため、フォームビューで
-// 「地図から探す」へ明示切替してから地図モードの操作を行う
+// (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）。フォームへ
+// 切替して地図モードの操作を行う
 async function openMapMode() {
   fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
-  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
   }, { timeout: 4000 })

@@ -137,59 +137,140 @@ export const APP_CONFIG = {
 
 なお、地名検索の範囲ガード（1,000 km²）は `src/utils/geo.js` 側で判定しています。
 
-## プロジェクト構造
+## プロジェクト構造（構成マップ）
+
+ソースを読むときの目次です。まず「読み方の原則」と「何を見たいときはどこ」を見て、必要な場所だけ開いてください。
+
+### 読み方の原則
+
+- `components/` = 見た目と操作の部品。`components/mobile/` は画面単位の部品で、PC表示でも左ペインに流用される（名前は mobile だが共用）
+- `hooks/` `state/` `context/` = 画面を持たない「状態と振る舞い」
+- `utils/` = 計算だけの道具。画面も状態も持たない
+- `data/` = 固定データの定義
+- どのフォルダにも `__tests__/` があるのは、テストを対象ファイルの隣に置く決まりのため。本体87ファイルに対してテストが91ファイルある
+
+### 何を見たいときはどこ
+
+| 見たいもの | 場所 |
+|---|---|
+| 画面の見た目・文言 | `src/components/`（スマホ画面は `src/components/mobile/`） |
+| カテゴリの種類・並び順 | `src/data/categories.js` |
+| 検索の動き | `src/hooks/useSearch.js` と `src/state/appReducer.js` |
+| 地図そのもの | `src/components/MapView.jsx` |
+| 地図の見た目（色・スタイル） | `src/styles/osmfj_poi.json` と `src/utils/mapStyle.js` |
+| メモ帳の保存データの形式 | `src/utils/memocho.js`（保存先はブラウザの localStorage） |
+| 検索条件をURLで共有する仕組み | `src/utils/urlState.js` |
+| Overpassへの問い合わせ | `src/utils/overpass.js` |
+| 接続先などの設定 | `src/config.js` |
+
+### 全体像
 
 ```
 src/
-├── App.jsx                  # エントリ（幅で MobileShell / PcShell を切替・URL復元）
-├── config.js                # 設定（エンドポイント・制限値）
-├── components/
-│   ├── AppHeader.jsx        # 共通ヘッダー（タイトル＋ハンバーガーメニュー）
-│   ├── HeaderMenu.jsx       # CSV/GeoJSON保存・まちメモ帳の書き出し/読み込み/全消去
-│   ├── MapView.jsx          # 本体地図（MapLibre、検索範囲の描画つき）
-│   ├── BatchMatchMap.jsx    # 照合確認用地図
-│   ├── MunicipalitySearch.jsx # 自治体から探す
-│   ├── StatisticsPanel.jsx  # 集計パネル
-│   ├── ShareButton.jsx      # URL共有
-│   ├── EditPanel.jsx        # OSM編集導線
-│   ├── AboutPanel.jsx       # データ品質・出典・制約
-│   └── mobile/              # モバイル/PC共用画面
-│       ├── MobileShell.jsx / PcShell.jsx  # 全体レイアウト
-│       ├── MobileQuickTop.jsx   # 一般向けトップ
-│       ├── MobileSearchTab.jsx  # 検索タブ（トップ/フォーム/地図）
-│       ├── MobileListTab.jsx    # 一覧タブ
-│       ├── MobileFacilityCard.jsx / MobileFacilityDetail.jsx # 施設カード/詳細
-│       ├── MemochoSection.jsx   # まちメモ帳
-│       └── MobileBatchMatch.jsx # 店名→座標CSV
+├── main.jsx                 # 起動入口（引っ張り更新の防止など初期処理）
+├── App.jsx                  # 画面幅で MobileShell / PcShell を切替、URLから状態を復元
+├── config.js                # 設定（Overpass接続先などのエンドポイント・制限値）
+├── components/              # 共通部品
+│   ├── AboutPanel.jsx           # 「まちのスクラップブックとは」（データ品質・出典・制約）
+│   ├── AdvancedSearch.jsx       # 詳細検索のタグ条件入力
+│   ├── AppHeader.jsx            # 共通ヘッダー（タイトル＋ハンバーガーメニュー）
+│   ├── AttributeCompleteness.jsx # 属性の充足率表示
+│   ├── BarrierFreeLegend.jsx    # バリアフリー検索の地図凡例
+│   ├── BatchMatchMap.jsx        # 店名→座標CSV照合の確認用ミニ地図
+│   ├── CategoryPicker.jsx       # 目的チップ＋カテゴリ選択（PC・モバイル共通）
+│   ├── CategorySummaryTable.jsx # カテゴリ別集計テーブル
+│   ├── EditPanel.jsx            # OSM編集・Note作成への導線（結果0件のときなど）
+│   ├── GeocodeCandidateList.jsx # 地名ジオコードの候補リスト
+│   ├── HeaderMenu.jsx           # ハンバーガーメニューの中身（保存・メモ帳操作）
+│   ├── MapView.jsx              # 本体地図（MapLibre、検索範囲の描画つき）
+│   ├── MunicipalitySearch.jsx   # 都道府県タイル＋市区町村サジェストで探す
+│   ├── PlaceNameInput.jsx       # 地名・駅名の入力欄（トップと地図タブで共用）
+│   ├── PoiDescription.jsx       # 地図でタップしたPOIの説明枠
+│   ├── PrefectureTileMap.jsx    # 都道府県のブロック地図（タイルグリッド）
+│   ├── ResultFilterBar.jsx      # 一覧とメモ帳で共用のフィルタバー
+│   ├── SearchActionButton.jsx   # 検索／キャンセルボタン
+│   ├── ShareButton.jsx          # 検索条件の共有ボタン
+│   ├── SimpleSearch.jsx         # PC向け簡易検索フォーム
+│   ├── Spinner.jsx              # 処理中スピナー
+│   ├── StatisticsPanel.jsx      # 集計・分類・属性欠損の分析パネル
+│   ├── StatusBanner.jsx         # 状態メッセージの帯表示
+│   ├── WorkspacePowerWifiSummary.jsx # 作業スペース系の電源・Wi-Fi集計
+│   └── mobile/              # 画面単位の部品（PC左ペインでも使う）
+│       ├── MobileShell.jsx      # スマホ全体レイアウト（下部ナビつき）
+│       ├── PcShell.jsx          # PC全体レイアウト（2ペイン）
+│       ├── MobileBottomNav.jsx  # スマホ下部ナビ（4タブ）
+│       ├── MobileQuickTop.jsx   # 一般向けトップ（タイル＋地名入力）
+│       ├── MobileSearchTab.jsx  # 検索タブ（トップ／くわしく探すフォーム）
+│       ├── MobileListTab.jsx    # 一覧タブ（結果カード＋結果マップ）
+│       ├── MobileResultsMap.jsx # 一覧タブ上部の結果マップ
+│       ├── MobileFacilityCard.jsx   # 施設カード
+│       ├── MobileFacilityDetail.jsx # 施設詳細シート
+│       ├── MiniLocationMap.jsx  # 施設詳細内の小さい地図
+│       ├── MemochoSection.jsx   # まちメモ帳タブ
+│       ├── MemochoTrash.jsx     # メモ帳のごみ箱
+│       ├── MobileBatchMatch.jsx # 店名→座標CSVの画面
+│       ├── MobileOtherTab.jsx   # 「その他」タブ
+│       ├── BarrierFreeSummary.jsx # バリアフリーのデータ充実度表示
+│       └── AppIcon.jsx          # アプリアイコン
 ├── context/
-│   └── AppContext.js        # 状態管理Context
+│   ├── AppContext.js        # アプリ全体の状態を配る仕組み
+│   └── BatchMatchContext.jsx # 一括照合の状態保持（タブ切替で消えないように）
 ├── state/
-│   └── appReducer.js        # 検索・結果などの状態遷移
+│   └── appReducer.js        # 検索・結果などの状態の変化ルール
 ├── data/
-│   └── categories.js        # 日本語カテゴリ定義
+│   └── categories.js        # 日本語カテゴリとOSMタグの対応定義
 ├── hooks/
-│   ├── useSearch.js         # 検索ロジック
-│   ├── useMemocho.js        # まちメモ帳の保存・購読
-│   └── useMapRef.js         # 地図インスタンス共有
+│   ├── useSearch.js         # 検索の実行（キャンセル・キャッシュつき）
+│   ├── useMemocho.js        # メモ帳の保存と読み出し
+│   ├── useMapRef.js         # 地図インスタンスの共有
+│   ├── useIsMobile.js       # 画面幅によるモバイル判定
+│   └── useDraggableHeight.js # 地図の高さのドラッグ調整
 ├── styles/
-│   └── osmfj_poi.json       # ベース地図のベクタスタイル
-└── utils/
-    ├── overpass.js          # Overpass API連携・クエリ生成
-    ├── geo.js               # 地理計算（面積・範囲ガード・Nominatim）
-    ├── municipalities.js    # 自治体データの読み込み・照合
-    ├── export.js            # CSV/GeoJSON出力
-    ├── batchMatch.js        # 一括照合
-    ├── locationCsv.js       # 地図制作用の座標付きCSV
-    ├── memocho.js           # まちメモ帳のデータ形式
-    ├── mapCapture.js        # メモ帳用地図サムネイル生成
-    ├── mapStyle.js          # ベース地図スタイルの読み込み
-    ├── resultFilters.js     # 視点フィルタ等の絞り込み
-    ├── statistics.js        # 集計計算
-    └── urlState.js          # URLエンコード/デコード
+│   ├── index.css            # 全体のCSS
+│   └── osmfj_poi.json       # ベース地図のベクタスタイル定義
+├── utils/                   # 計算だけの道具（画面を持たない）
+│   ├── overpass.js          # Overpass APIのクエリ生成・実行・キャッシュ
+│   ├── geo.js               # 地理計算とNominatimジオコード
+│   ├── searchBbox.js        # 検索範囲（BBOX）の決定
+│   ├── searchCriteria.js    # 検索条件のスナップショット生成
+│   ├── urlState.js          # 検索条件のURLエンコード／デコード
+│   ├── municipalities.js    # 自治体データの読み込み・照合（サジェスト用）
+│   ├── categoryMatch.js     # カテゴリ一致の判定
+│   ├── categoryProfiles.js  # カテゴリ別の情報設計
+│   ├── resultCategories.js  # 結果のカテゴリ集計
+│   ├── resultFilters.js     # 検索結果の表示フィルタ
+│   ├── facilityLabels.js    # OSMタグ→日本語の施設タイプラベル
+│   ├── poiDescription.js    # POI説明文の生成
+│   ├── accessibility.js     # バリアフリータグの解釈→日本語表示
+│   ├── barrierFree.js       # バリアフリー検索のクエリ生成・整形
+│   ├── barrierFreeGeoJSON.js # バリアフリー結果の地図描画用GeoJSON変換
+│   ├── barrierFreeResults.js # バリアフリー結果の正規化と一覧表示
+│   ├── barrierFreeSummary.js # バリアフリーのデータ充実度集計
+│   ├── memocho.js           # メモ帳のデータ形式と保存層
+│   ├── memochoFilters.js    # メモ帳の絞り込み
+│   ├── mapCapture.js        # メモ帳カード用の地図サムネイル生成
+│   ├── mapStyle.js          # ベース地図スタイルの読み込み
+│   ├── batchMatch.js        # 店名リストの一括照合
+│   ├── nameVariants.js      # 店名の表記ゆれ照合キー
+│   ├── csvParse.js          # CSVの読み取り（RFC4180準拠）
+│   ├── locationCsv.js       # 地図制作用の座標付きCSV生成
+│   ├── export.js            # 検索結果のCSV／GeoJSON出力
+│   ├── editLinks.js         # OSM／iD編集リンクの生成
+│   ├── openingHours.js      # opening_hoursの日本語化（表示用）
+│   ├── powerWifi.js         # 電源・Wi-Fi状況の3状態判定
+│   ├── statistics.js        # 検索結果の集計・分類・属性欠損分析
+│   ├── linkify.js           # メモ文字列内のURLリンク化
+│   ├── verifyIds.js         # 前年度OSM ID対応表の読み込みと再検証
+│   ├── pageZoomGuard.js     # ページズーム防止（モバイルブラウザ対応）
+│   └── pullToRefreshGuard.js # 引っ張り更新の防止（モバイルブラウザ対応）
+└── test/
+    └── maplibreMock.js      # テスト用の地図モック
 
 public/
-└── data/municipalities.json # 自治体データ（名称・コード・BBOX）
+├── data/municipalities.json # 自治体データ（名称・コード・範囲）
+└── assets/                  # 画像などの静的ファイル
 ```
+
 
 ## データ出典
 

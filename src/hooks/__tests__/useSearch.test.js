@@ -85,7 +85,7 @@ function makeState(overrides = {}) {
     searchMode: 'simple',
     bbox: SMALL_BBOX,
     simpleSearch: { category: '', keyword: '', cuisine: '', purpose: '' },
-    municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '' },
+    municipalitySearch: { category: '', cuisine: '', purpose: '' },
     advancedSearch: { tags: [], keyword: '', useAnd: true },
     ...overrides
   }
@@ -140,7 +140,7 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
   it('legacy経路: 自治体モード + barrier_free カテゴリ → 専用バリアフリークエリを使い、絞り込みしない', async () => {
     h.app.state = makeState({
       searchSource: 'municipality',
-      municipalitySearch: { category: 'barrier_free', keyword: '駅前通り', cuisine: '', purpose: '' }
+      municipalitySearch: { category: 'barrier_free', cuisine: '', purpose: '' }
     })
     h.overpassResults = [unnamedFootway, namedFootway]
 

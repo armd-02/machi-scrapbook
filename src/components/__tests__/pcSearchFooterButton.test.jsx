@@ -20,7 +20,7 @@
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react'
 import App from '../../App'
 
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする。
@@ -91,7 +91,6 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
   it('フッター（スロールーム外）にfullWidth版の大きな検索ボタンが表示される（地図モード）', async () => {
     render(<App />)
     openFormView()
-    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
 
     const btn = screen.getByRole('button', { name: 'この表示範囲で検索' })
 
@@ -116,49 +115,33 @@ describe('PC: 検索ボタンの固定フッター配置（モバイル版との
     }, { timeout: 5000 })
   }, IT_TIMEOUT)
 
-  it('ラベルは検索ソースで切り替わる: 地図モード「この表示範囲で検索」⇄ 自治体モード「検索する」', async () => {
+  it('(#xx) フォームは常に地図モード: フッターラベルは「この表示範囲で検索」、ソース切替タブは撤去済み', async () => {
     render(<App />)
 
-    // 従来フォーム表示へ切替（#66: 既定の初期ソースは自治体モード）
+    // (#xx) フォームは常に地図モード（「自治体から探す」タブ・フォーム内蔵
+    // MunicipalitySearch を撤去）。フッターボタンは常に地図モードラベル
     openFormView()
-    // 既定は自治体モード: 「検索する」のみ
-    expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
-
-    // 地図モードへ切替 → 「この表示範囲で検索」に切り替わる
-    fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: '検索する' })).toBeNull()
     }, { timeout: 5000 })
-
-    // 自治体モードへ戻す → 「検索する」に復帰
-    fireEvent.click(screen.getByRole('tab', { name: '自治体から探す' }))
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '検索する' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: 'この表示範囲で検索' })).toBeNull()
-    }, { timeout: 5000 })
+    expect(screen.queryByRole('tab', { name: '地図から探す' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
   }, IT_TIMEOUT)
 
-  it('自治体モードでも固定フッターは同一構造（fullWidth版・スロールーム外）', async () => {
+  it('(#xx) 自治体検索ボタン「検索する」はトップの「都道府県から探す」セクション内に配置（固定フッターではない）', async () => {
     render(<App />)
 
-    openFormView()
-    // 既定の自治体モードのフッターボタン
-    const btn = screen.getByRole('button', { name: '検索する' })
+    // トップ画面の「都道府県から探す」セクションを開く
+    fireEvent.click(screen.getByRole('button', { name: /都道府県から探す/ }))
+    const sec = screen.getByRole('region', { name: '都道府県から探す' })
 
-    // fullWidth版: 横幅いっぱい・min 48px の大型タップターゲット
+    // セクション内の「検索する」ボタン（fullWidth版のタップターゲット）
+    const btn = within(sec).getByRole('button', { name: '検索する' })
     expect(btn.className).toContain('w-full')
-    expect(btn.className).toContain('min-h-[48px]')
+    expect(btn.className).toContain('min-h-[44px]')
 
-    // 固定フッター内（上に境界線・白背景・shrink-0）
-    const footer = findFixedFooter(btn)
-    expect(footer).toBeTruthy()
-    expect(footer.className).toContain('shrink-0')
-    expect(footer.className).toContain('border-t')
-    expect(footer.className).toContain('bg-white')
-
-    // スロールームの外に存在する
-    expect(btn.closest('[class*="overflow-y-auto"]')).toBeNull()
+    // スロールーム内（固定フッターではない）
+    expect(btn.closest('[class*="overflow-y-auto"]')).toBeTruthy()
+    expect(findFixedFooter(btn)).toBeNull()
   }, IT_TIMEOUT)
 })

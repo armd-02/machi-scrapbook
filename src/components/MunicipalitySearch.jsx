@@ -40,8 +40,8 @@ export default function MunicipalitySearch({ variant = 'pc' }) {
   const [munInput, setMunInput] = useState('')
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(null)
-  // (#47) カテゴリ・キーワードは親stateに上げ、検索ボタンと共有する
-  const { category, keyword, cuisine, purpose } = state.municipalitySearch || { category: '', keyword: '', cuisine: '', purpose: '' }
+  // (#47) カテゴリ等は親stateに上げ、検索ボタンと共有する
+  const { category, cuisine, purpose } = state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
 
   // (#54) 飲食カテゴリ選択時のみcuisineフィルタを表示。非飲食カテゴリ・未選択時は自動クリア
   const showCuisine = isFoodCategory(category)
@@ -350,7 +350,7 @@ export default function MunicipalitySearch({ variant = 'pc' }) {
         </div>
       )}
 
-      {/* カテゴリ・キーワード（任意） */}
+      {/* カテゴリ・料理（任意） */}
       {selectedMun && (
         <>
           <div>
@@ -399,16 +399,6 @@ export default function MunicipalitySearch({ variant = 'pc' }) {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">{isMobile ? '施設名・キーワード（任意）' : 'キーワード（任意）'}</label>
-            <input
-              type="text"
-              value={keyword}
-              onChange={(e) => updateMunicipalitySearch('keyword', e.target.value)}
-              placeholder="例: 寿司"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            />
-          </div>
         </>
       )}
 

@@ -60,7 +60,7 @@ export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = nu
       return fail('too_large', sizeCheck.message, 'より小さい市区町村を選択してください。')
     }
 
-    const ms = state.municipalitySearch || { category: '', keyword: '', cuisine: '', purpose: '' }
+    const ms = state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
     // (#62) バリアフリー（カテゴリまたは目的）: 専用のバリアフリークエリ
     if (isBarrierFreeCriteria(ms.category, ms.purpose)) {
       return {
@@ -70,13 +70,13 @@ export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = nu
         searchMode: 'simple',
         category: ms.category,
         purpose: ms.purpose || '',
-        keyword: ms.keyword || '',
+        keyword: '',
         cuisine: ms.cuisine || '',
         queryKind: 'barrier_free',
         query: buildBarrierFreeQuery(bbox)
       }
     }
-    const { query, keyword } = buildPoiQuery(bbox, ms.category, ms.keyword, ms.cuisine, ms.purpose)
+    const { query, keyword } = buildPoiQuery(bbox, ms.category, '', ms.cuisine, ms.purpose)
     return {
       ok: true,
       bbox,

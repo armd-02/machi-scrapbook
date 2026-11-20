@@ -15,9 +15,14 @@
  *   - ミラーは SET_SIMPLE_SEARCH / SET_MUNICIPALITY_SEARCH（アクティブモードのみ）、
  *     SET_RESULTS、SET_SEARCH_SOURCE、SET_SEARCH_MODE で再導出する。
  */
+import { SCREENS } from '../utils/urlState'
 
 export function createInitialState() {
   return {
+    // (#80) 表示中の画面（トップ / くわしく探す / 一覧 / メモ帳 / その他）。
+    // URLの view パラメータと同期され、ブックマーク・戻る／進むに対応する。
+    // シェルは state.screen とローカルなタブ／ビュー状態を双方向で同期する。
+    screen: 'top',
     searchMode: 'simple',
     simpleSearch: { category: '', keyword: '', cuisine: '', purpose: '' },
     advancedSearch: { tags: [], keyword: '', useAnd: true },
@@ -35,10 +40,11 @@ export function createInitialState() {
     errorSuggestion: null,
     fetchMeta: null,
     activeResultId: null,
-    // 初期値は 'municipality'（URLパラメータ無しで開いたとき「自治体」検索が前提）
-    searchSource: 'municipality',
+    // (#xx) 初期値は 'map'（くわしく探すフォームは常に地図モード）。
+    // 自治体検索はトップ画面の「都道府県から探す」セクションで実行される。
+    searchSource: 'map',
     selectedMunicipality: null,
-    municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '' },
+    municipalitySearch: { category: '', cuisine: '', purpose: '' },
     resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' },
 
     // まちメモ帳タブのサブビュー: 'list'（通常の一覧）| 'trash'（ごみ箱）。
@@ -115,6 +121,11 @@ export function appReducer(state, action) {
     }
     case 'SET_STATUS':
       return { ...state, status: action.payload }
+    case 'SET_SCREEN': {
+      // (#80) 表示中の画面を設定。無効な値は無視する。
+      const s = action.payload
+      return SCREENS.includes(s) ? { ...state, screen: s } : state
+    }
     case 'SET_RESULTS':
       // 新規検索時はアクティブ結果のハイライトをリセット（旧結果へのパンを防ぐ）
       return syncCategoryFilters({ ...state, results: action.payload, activeResultId: null })
@@ -130,12 +141,13 @@ export function appReducer(state, action) {
     case 'SET_ACTIVE_RESULT':
       return { ...state, activeResultId: action.payload }
     case 'SET_SEARCH_SOURCE': {
-      // (#49 改訂) モード切替時のカテゴリ・キーワード引き継ぎ（last-wins）
+      // (#49 改訂) モード切替時のカテゴリ・条件引き継ぎ（last-wins）
       // 切り元の値を切り先に**常に**引き継ぐ。両モードのカテゴリは共有の
       // 単一値として振る舞い、「カテゴリを変えたのにモード切替で古い値に
       // 戻る（カテゴリが変わってない）」問題を解消する。
+      // キーワードは地図モード（simpleSearch）専属のため引き継ぎ対象外。
       const src = action.payload
-      const ms = state.municipalitySearch || { category: '', keyword: '', cuisine: '', purpose: '' }
+      const ms = state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
       const ss = state.simpleSearch || { category: '', keyword: '', cuisine: '', purpose: '' }
       let next
       if (src === 'municipality') {
@@ -145,7 +157,6 @@ export function appReducer(state, action) {
           municipalitySearch: {
             ...ms,
             category: ss.category,
-            keyword: ss.keyword,
             cuisine: ss.cuisine,
             purpose: ss.purpose || ''
           }
@@ -157,7 +168,6 @@ export function appReducer(state, action) {
           simpleSearch: {
             ...ss,
             category: ms.category,
-            keyword: ms.keyword,
             cuisine: ms.cuisine,
             purpose: ms.purpose || ''
           }

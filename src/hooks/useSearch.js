@@ -120,9 +120,9 @@ export function useSearch() {
           if (isBarrierFreeCriteria(ms.category, ms.purpose)) {
             queryKind = 'barrier_free'
             query = buildBarrierFreeQuery(bbox)
-            keyword = ms.keyword || ''
+            keyword = ''
           } else {
-            ;({ query, keyword } = buildPoiQuery(bbox, ms.category, ms.keyword))
+            ;({ query, keyword } = buildPoiQuery(bbox, ms.category, ''))
           }
         } else if (s.searchMode === 'simple') {
           const ss = s.simpleSearch

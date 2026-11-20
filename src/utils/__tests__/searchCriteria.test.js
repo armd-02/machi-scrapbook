@@ -31,7 +31,7 @@ function baseState(overrides = {}) {
     searchMode: 'simple',
     simpleSearch: { category: '', keyword: '', location: '' },
     advancedSearch: { tags: [], keyword: '', useAnd: true },
-    municipalitySearch: { category: '', keyword: '' },
+    municipalitySearch: { category: '' },
     selectedMunicipality: null,
     bbox: null,
     ...overrides
@@ -176,7 +176,7 @@ describe('buildSearchCriteria — 自治体モード (#44/#47)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: mun,
-      municipalitySearch: { category: 'cafe', keyword: '' }
+      municipalitySearch: { category: 'cafe' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.searchSource).toBe('municipality')
@@ -190,7 +190,7 @@ describe('buildSearchCriteria — 自治体モード (#44/#47)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: '', keyword: '' }
+      municipalitySearch: { category: '' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.query).toContain(`node[amenity](${BBOX_STR});`)
@@ -203,7 +203,7 @@ describe('buildSearchCriteria — 自治体モード (#44/#47)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: '', keyword: '', purpose: '遊ぶ' }
+      municipalitySearch: { category: '', purpose: '遊ぶ' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.purpose).toBe('遊ぶ')
@@ -217,12 +217,12 @@ describe('buildSearchCriteria — 自治体モード (#44/#47)', () => {
     const before = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: 'cafe', keyword: '' }
+      municipalitySearch: { category: 'cafe' }
     }))
     const after = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: 'restaurant', keyword: '' }
+      municipalitySearch: { category: 'restaurant' }
     }))
     expect(before.query).toContain('[amenity=cafe]')
     expect(after.query).toContain('[amenity=restaurant]')
@@ -243,7 +243,7 @@ describe('buildSearchCriteria — モード切り替え時の値漏れ (#47)', (
   it('地図モードでは自治体モード用の条件を使わない', () => {
     const criteria = buildSearchCriteria(baseState({
       bbox: SMALL_BBOX,
-      municipalitySearch: { category: 'cafe', keyword: 'コーヒー' },
+      municipalitySearch: { category: 'cafe' },
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
       simpleSearch: { category: 'school', keyword: '', location: '' }
     }))
@@ -257,7 +257,7 @@ describe('buildSearchCriteria — モード切り替え時の値漏れ (#47)', (
       bbox: SMALL_BBOX,
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: 'cafe', keyword: '' },
+      municipalitySearch: { category: 'cafe' },
       simpleSearch: { category: 'school', keyword: '旧校舎', location: '' },
       advancedSearch: { tags: [{ key: 'amenity', value: 'hospital', mode: 'equals' }], keyword: '大学', useAnd: true }
     }))
@@ -292,7 +292,7 @@ describe('buildSearchCriteria — cuisineフィルタ (#54)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: mun,
-      municipalitySearch: { category: 'food_drink', keyword: '', cuisine: 'sushi' }
+      municipalitySearch: { category: 'food_drink', cuisine: 'sushi' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.cuisine).toBe('sushi')
@@ -368,7 +368,7 @@ describe('buildSearchCriteria — バリアフリー検索 (#62)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { name: 'テスト市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: 'barrier_free', keyword: '', cuisine: '', purpose: '' }
+      municipalitySearch: { category: 'barrier_free', cuisine: '', purpose: '' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.searchSource).toBe('municipality')
@@ -381,7 +381,7 @@ describe('buildSearchCriteria — バリアフリー検索 (#62)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { name: 'テスト市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: 'バリアフリー' }
+      municipalitySearch: { category: '', cuisine: '', purpose: 'バリアフリー' }
     }))
     expect(criteria.queryKind).toBe('barrier_free')
     expect(criteria.query).toContain(`node[kerb](${BBOX_STR});`)

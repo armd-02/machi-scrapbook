@@ -57,9 +57,10 @@ describe('QuickTopTiles: 描画', () => {
     // グリッドの外・グリッドの後に位置する
     expect(grid.contains(bf)).toBe(false)
     expect(grid.compareDocumentPosition(bf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 全幅・破線枠の特別枠
+    // 全幅の特別枠。枠線は他のタイルと同一（実線）に統一されている
     expect(bf.className).toContain('w-full')
-    expect(bf.className).toContain('border-dashed')
+    expect(bf.className).not.toContain('border-dashed')
+    expect(bf.className).toContain('border-slate-200')
     // タップで onTileTap(BARRIER_FREE_TILE) が呼ばれる（他のタイルと同じ処理）
     fireEvent.click(bf)
     expect(onTileTap).toHaveBeenCalledWith(BARRIER_FREE_TILE)

@@ -171,9 +171,10 @@ describe('(top) 「都道府県から探す」折りたたみセクション（�
     expect(screen.getByRole('button', { name: '食べる' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
 
-    // 従来フォーム側の検索ソース切替ボタンの文言（「自治体から探す」）は変更対象外
-    // （トップ画面にはこのボタンは描画されない）
+    // (#xx) 検索ソース切替タブ（「地図から探す」/「自治体から探す」）は撤去済み。
+    // トップ画面にもフォームにも描画されない
     expect(screen.queryByRole('tab', { name: '自治体から探す' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: '地図から探す' })).toBeNull()
   })
 
   it('見出しタップで開く: 都道府県グリッド・市区町村入力・「検索する」が表示され、再度タップで閉じる', async () => {

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * URL状態エンコード/デコードの回帰テスト（Issue #22）
  * - コロンを含むキー（addr:street）が正しく復元される
@@ -5,7 +6,7 @@
  * - BBOXバリデーション
  */
 import { describe, it, expect } from 'vitest'
-import { encodeStateToURL, decodeURLToState } from '../urlState'
+import { encodeStateToURL, decodeURLToState, generateShareURL } from '../urlState'
 
 describe('encodeStateToURL / decodeURLToState', () => {
   it('コロンを含むタグキー（addr:street）が正しく復元される', () => {
@@ -117,7 +118,7 @@ describe('encodeStateToURL / decodeURLToState', () => {
       searchMode: 'simple',
       simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '遊ぶ' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
-      municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '' },
+      municipalitySearch: { category: '', cuisine: '', purpose: '' },
       selectedMunicipality: null,
       bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 }
     }
@@ -133,7 +134,7 @@ describe('encodeStateToURL / decodeURLToState', () => {
       searchMode: 'simple',
       simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
-      municipalitySearch: { category: '', keyword: '', cuisine: '', purpose: '暮らす' },
+      municipalitySearch: { category: '', cuisine: '', purpose: '暮らす' },
       selectedMunicipality: { code: '272078', name: '高槻市', bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 } },
       bbox: null
     }
@@ -191,12 +192,74 @@ describe('encodeStateToURL / decodeURLToState: 一覧フィルタ (A2)', () => {
     const state = {
       searchSource: 'municipality',
       selectedMunicipality: { code: '27', name: '吹田市', bbox: null },
-      municipalitySearch: { category: 'cafe', keyword: '', cuisine: '', purpose: '' },
+      municipalitySearch: { category: 'cafe', cuisine: '', purpose: '' },
       resultFilters: { ...baseFilters, nameFilter: 'スターバックス' }
     }
     const qs = encodeStateToURL(state)
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.searchSource).toBe('municipality')
+    // #xx: 旧自治体モードURLは地図モードとして復元される
+    expect(decoded.searchSource).toBe('map')
     expect(decoded.resultFilters).toEqual({ nameFilter: 'スターバックス' })
+  })
+})
+
+/**
+ * (#80) 画面パラメータ（view）のエンコード/デコード
+ */
+describe('encodeStateToURL / decodeURLToState: 画面 view (#80)', () => {
+  const baseState = {
+    searchMode: 'simple',
+    simpleSearch: { category: '', keyword: '', cuisine: '', purpose: '' },
+    advancedSearch: { tags: [], keyword: '', useAnd: true },
+    bbox: null,
+    searchSource: 'map'
+  }
+
+  it('top（既定値）はURLに書き込まれない', () => {
+    const qs = encodeStateToURL({ ...baseState, screen: 'top' })
+    expect(qs).not.toContain('view=')
+    const plain = encodeStateToURL({ ...baseState, screen: undefined })
+    expect(plain).not.toContain('view=')
+  })
+
+  it('form / list / memo / other は view パラメータとして書き込まれる', () => {
+    for (const s of ['form', 'list', 'memo', 'other']) {
+      const qs = encodeStateToURL({ ...baseState, screen: s })
+      expect(new URLSearchParams(qs).get('view')).toBe(s)
+    }
+  })
+
+  it('view のみ（検索条件なし）でもデコードされて画面が復元される', () => {
+    const decoded = decodeURLToState('?view=memo')
+    expect(decoded).not.toBeNull()
+    expect(decoded.screen).toBe('memo')
+    expect(decoded.simpleSearch).toBeUndefined()
+  })
+
+  it('view と検索条件が共存するURLでも両方正しく復元される', () => {
+    const decoded = decodeURLToState('?view=form&c=cafe&k=コーヒー')
+    expect(decoded.screen).toBe('form')
+    expect(decoded.simpleSearch).toEqual({ category: 'cafe', keyword: 'コーヒー', cuisine: '', purpose: '' })
+  })
+
+  it('view=top が明示されていても screen=top に復元される', () => {
+    const decoded = decodeURLToState('?view=top&c=cafe')
+    expect(decoded.screen).toBe('top')
+    expect(decoded.simpleSearch.category).toBe('cafe')
+  })
+
+  it('無効な view 値は無視される（画面は復元されない）', () => {
+    const decoded = decodeURLToState('?view=xyz')
+    expect(decoded).toBeNull()
+    const withCond = decodeURLToState('?view=xyz&c=cafe')
+    expect(withCond.screen).toBeUndefined()
+    expect(withCond.simpleSearch.category).toBe('cafe')
+  })
+
+  it('generateShareURL に画面が含まれる', () => {
+    const url = generateShareURL({ ...baseState, screen: 'form' })
+    expect(new URLSearchParams(url.split('?')[1]).get('view')).toBe('form')
+    const urlTop = generateShareURL({ ...baseState, screen: 'top' })
+    expect(urlTop).not.toContain('view=')
   })
 })

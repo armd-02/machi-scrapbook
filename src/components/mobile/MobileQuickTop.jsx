@@ -220,8 +220,8 @@ export function QuickTopTiles({
             selectedTileId === BARRIER_FREE_TILE.id
               ? // 選択中: 他のタイルと同じハイライト（実線・プライマリ色）
                 'w-full min-h-[48px] rounded-xl border-2 border-primary-600 bg-primary-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-primary-700 disabled:opacity-50'
-              : // 特別枠であることを破線枠で表現
-                'w-full min-h-[48px] rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-slate-700 active:bg-primary-50 disabled:opacity-50'
+              : // 枠線は他のタイルと同一（実線・slate-200）に統一
+                'w-full min-h-[48px] rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-slate-700 active:bg-primary-50 disabled:opacity-50'
           }
         >
           <span aria-hidden="true" className="text-xl leading-none">{BARRIER_FREE_TILE.icon}</span>

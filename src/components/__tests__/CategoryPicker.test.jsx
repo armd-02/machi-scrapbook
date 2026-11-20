@@ -228,8 +228,9 @@ describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー分
     expect(grid.contains(bf)).toBe(false)
     expect(bf.className).toContain('w-full')
     expect(grid.compareDocumentPosition(bf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 特別枠であることを破線枠で表現（未選択時）
-    expect(bf.className).toContain('border-dashed')
+    // 枠線は目的チップと同一（実線）に統一されている（未選択時）
+    expect(bf.className).not.toContain('border-dashed')
+    expect(bf.className).toContain('border-slate-200')
   })
 
   it('特別枠をタップすると目的スコープが設定される（目的チップと同じ挙動）', () => {

@@ -48,6 +48,55 @@ export default function PcShell() {
   // 検索成功で右ペインが一覧へ切替されても左ペインの状態は保持される
   const [searchView, setSearchView] = useState('top')
 
+  // (#80) 画面 ↔ state.screen 同期（ブックマーク・URL連動）
+  //
+  // PC は2ペインのため、画面値はローカル状態の射影（完全な双射ではない）:
+  //   other                    → 'other'
+  //   main + form（右ペイン任意）→ 'form'
+  //   main + top + 右:メモ帳    → 'top'   （PCの既定トップ表示）
+  //   main + top + 右:一覧      → 'list'
+  // 「メモ帳画面」は PC ではトップ画面と同一の外観（右ペイン=メモ帳）なので、
+  // 'memo' は 'top' のエイリアスとして扱う。URLに view=memo があった場合は
+  // state.screen は 'memo' のまま（URLを書き換えない）だが、同期比較では
+  // 'top' として見合うようにしている（memo→top→memo のループを避ける）。
+  // 同期は単一の effect で行う。双方向を別々の effect で行うと、片方の
+  // 変更が相手に届く前の古い値で逆向きの同期が走り、値が往復して無限
+  // ループになる（screenUrl テストのハングで判明）。「直前に一致していた
+  // 値」（lastScreenRef）と比べ、変わった側に合わせて片方向だけ同期する。
+  const lastScreenRef = useRef(state.screen === 'memo' ? 'top' : state.screen)
+  useEffect(() => {
+    const s = mode === 'other' ? 'other'
+      : searchView === 'form' ? 'form'
+      : rightTab === 'memo' ? 'top'
+      : 'list'
+    const current = state.screen === 'memo' ? 'top' : state.screen
+    if (s === current) {
+      lastScreenRef.current = s
+      return
+    }
+    if (current !== lastScreenRef.current) {
+      // 外部の画面変更（URL復元・戻る／進む）→ ローカルへ反映。
+      // 'form' 復元時は右ペインを触らない（現状の内容を保持する）。
+      lastScreenRef.current = current
+      if (current === 'other') {
+        if (mode !== 'other') setMode('other')
+        return
+      }
+      if (mode !== 'main') setMode('main')
+      if (current === 'form') {
+        if (searchView !== 'form') setSearchView('form')
+        return
+      }
+      if (searchView !== 'top') setSearchView('top')
+      const rt = current === 'list' ? 'list' : 'memo'
+      if (rightTab !== rt) setRightTab(rt)
+    } else {
+      // ローカルの画面変更 → state.screen へ反映
+      lastScreenRef.current = s
+      dispatch({ type: 'SET_SCREEN', payload: s })
+    }
+  }, [mode, rightTab, searchView, state.screen, dispatch])
+
   // 検索完了（loading → success）で右ペインを自動的に「一覧」へ切替。
   // エラー時は切替しない（左ペイン検索のまま、エラーはStatusBannerで表示）。
   const prevStatusRef = useRef(state.status)
@@ -95,8 +144,11 @@ export default function PcShell() {
     else setRightTab(id)                        // 'list' | 'memo'（右ペイン切替）
   }
 
-  // ヘッダーのタイトルボタン: 一般トップへ戻す（左ペイン検索 + top表示）。
-  // 詳細シートが開いていれば閉じる（MobileShell の goTop と同じ挙動）。
+  // ヘッダーのタイトルボタン: 左ペインを一般トップへ戻す。
+  // 右ペインの内容は保持する（pcLayout テストの仕様）。そのため
+  // SET_SCREEN 'top' の dispatch ではなくローカル状態を操作し、画面値は
+  // 同期エフェクトの射影に委ねる（右:メモ帳なら 'top'、右:一覧なら 'list'）。
+  // 詳細シートが開いていれば閉じる。
   const goTop = () => {
     if (detail) setDetail(null)
     setMode('main')

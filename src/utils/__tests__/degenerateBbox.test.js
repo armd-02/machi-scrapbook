@@ -29,7 +29,7 @@ function baseState(overrides = {}) {
     searchMode: 'simple',
     simpleSearch: { category: 'cafe', keyword: '', location: '' },
     advancedSearch: { tags: [], keyword: '', useAnd: true },
-    municipalitySearch: { category: '', keyword: '', cuisine: '' },
+    municipalitySearch: { category: '', cuisine: '' },
     selectedMunicipality: null,
     bbox: null,
     ...overrides

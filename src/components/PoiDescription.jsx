@@ -7,16 +7,11 @@ import { buildPoiDescription } from '../utils/poiDescription'
  * マップ上のマーカーをタップしたPOIの説明をタグから生成して表示する。
  * 説明文の組み立ては buildPoiDescription（utils/poiDescription.js）に委譲する。
  *
- * 使用場所: 地図ブロックの下（PC: SearchTabContent / モバイル: MobileSearchTab）。
+ * 使用場所: くわしく探すフォームの地図ブロックの下（MobileSearchTab）。
  */
 export default function PoiDescription({ tappedPoi }) {
-  if (!tappedPoi) {
-    return (
-      <div className="border border-slate-200 rounded-lg bg-slate-50 px-3 py-2.5">
-        <p className="text-xs text-slate-400">地図のPOIをタップすると、ここに説明が表示されます</p>
-      </div>
-    )
-  }
+  // POI未タップ時は何も表示しない（案内文は検索結果側の話なので検索画面には出さない）
+  if (!tappedPoi) return null
 
   const desc = buildPoiDescription(tappedPoi)
   if (!desc) return null

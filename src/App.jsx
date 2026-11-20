@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { AppContext } from './context/AppContext'
-import { decodeURLToState } from './utils/urlState'
+import { decodeURLToState, normalizeScreen } from './utils/urlState'
 import { useIsMobile } from './hooks/useIsMobile'
 import MobileShell from './components/mobile/MobileShell'
 import PcShell from './components/mobile/PcShell'
@@ -41,6 +41,8 @@ function App() {
     restoredRef.current = true
     const urlState = decodeURLToState(window.location.search)
     if (urlState) {
+      // (#80) 画面（view パラメータ）。検索条件の復元と独立。
+      if (urlState.screen) dispatch({ type: 'SET_SCREEN', payload: urlState.screen })
       // (#49) SET_SEARCH_SOURCE を先頭でdispatch: last-wins引き継ぎにより
       // モード切替時にカテゴリが上書きされるため、モード固有stateの復元より先に
       // 実行しないと、URLのカテゴリが初期値で消去される。
@@ -57,6 +59,47 @@ function App() {
       if (urlState.resultFilters) dispatch({ type: 'SET_RESULT_FILTERS', payload: urlState.resultFilters })
     }
   }, [dispatch])
+
+  // (#80) 画面 ↔ URL同期（ブックマーク・戻る／進む対応）
+  //
+  // state.screen が変更されると、現在URLの view パラメータを更新して
+  // pushState する（履歴エントリが追加され、戻る／進むで画面を行き来できる）。
+  // URLの検索条件パラメータはセッション中に書き換えられない（共有URLは
+  // ShareButton経由のみ）ため、view だけを更新してその他はそのまま残す。
+  //
+  // 例外: 現在URLの view が state.screen と既に見合っている場合は push しない。
+  // 戻る／進む（popstate）で画面が変わった場合はURLが既に正しい位置にある
+  // ため、ここで push すると履歴が汚染される（forward が壊れる）。
+  const lastScreenRef = useRef(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const current = normalizeScreen(params.get('view')) || 'top'
+    // 初回（マウント時）は push しない（URL復元で来た画面をURLに書き戻さない）
+    // URLとstateが既に見合っていれば push しない（popstate 由来の変更）
+    if (lastScreenRef.current === state.screen || current === state.screen) {
+      lastScreenRef.current = state.screen
+      return
+    }
+    lastScreenRef.current = state.screen
+    if (state.screen === 'top') params.delete('view')
+    else params.set('view', state.screen)
+    const qs = params.toString()
+    const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+    window.history.pushState({ screen: state.screen }, '', url)
+  }, [state.screen])
+
+  // (#80) 戻る／進む（popstate）: URLの view パラメータから画面を復元する。
+  // 検索条件パラメータはエントリ間で共通（セッション中にURLへ書き込まない）
+  // なので、ここでは画面のみを適用する。
+  useEffect(() => {
+    const onPop = () => {
+      // view パラメータの省略＝既定のトップ画面
+      const s = normalizeScreen(new URLSearchParams(window.location.search).get('view')) || 'top'
+      if (s !== state.screen) dispatch({ type: 'SET_SCREEN', payload: s })
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [state.screen, dispatch])
 
   const contextValue = { state, dispatch }
   if (isMobile) {

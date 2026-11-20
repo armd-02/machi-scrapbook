@@ -123,10 +123,9 @@ function openFormView() {
   fireEvent.click(screen.getByRole('button', { name: /くわしく探す/ }))
 }
 
-// (#66) 初期ソースはmunicipality → 地図モードへ切替（カテゴリチップを有効化）
-function switchToMapMode() {
-  fireEvent.click(screen.getByRole('tab', { name: '地図から探す' }))
-}
+// (#xx) フォームは常に地図モード（ソース切替タブは撤去済み・初期ソースもmap）。
+// 旧「地図から探すタブ切替」の残骸として残すno-op（呼び出し箇所はそのまま動作）
+function switchToMapMode() {}
 
 // (#44) 目的チップ→カテゴリチップ でカテゴリを選択する
 function selectCategoryChip(catLabel) {
@@ -319,7 +318,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(tabIsCurrent('その他')).toBe(true)
     // 左ペインはアンマウントされず hidden 属性で保持（検索状態・地図が維持される）。
     // ※byRole系クエリはhiddenサブツリーを除外するため、テキスト照合で確認する
-    expect(within(getLeftPane()).queryByText('地図から探す')).toBeTruthy()
+    expect(within(getLeftPane()).queryByText(/トップへ戻る/)).toBeTruthy()
 
     // フッター「検索」→ 2ペインレイアウトへ復帰（右ペインの内容は直前のまま＝一覧）
     clickTab('検索')

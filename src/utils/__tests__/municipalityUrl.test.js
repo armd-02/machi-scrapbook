@@ -7,7 +7,7 @@ describe('#44 Municipality URL encoding/decoding', () => {
       searchMode: 'simple',
       searchSource: 'municipality',
       selectedMunicipality: { code: '271021', name: '都島区', bbox: { south: 34.69, west: 135.51, north: 34.73, east: 135.54 } },
-      municipalitySearch: { category: 'cafe', keyword: 'コーヒー' },
+      municipalitySearch: { category: 'cafe' },
       simpleSearch: { category: 'restaurant', keyword: '', location: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       bbox: { south: 34.69, west: 135.51, north: 34.73, east: 135.54 }
@@ -16,7 +16,8 @@ describe('#44 Municipality URL encoding/decoding', () => {
     expect(qs).toContain('src=m')
     expect(qs).toContain('mun=271021')
     expect(qs).toContain('c=cafe')
-    expect(qs).toContain('k=')
+    // 自治体検索からキーワード欄を削除したため k= は出力されない
+    expect(qs).not.toContain('k=')
   })
 
   it('地図モード（デフォルト）をエンコードする', () => {
@@ -24,7 +25,7 @@ describe('#44 Municipality URL encoding/decoding', () => {
       searchMode: 'simple',
       searchSource: 'map',
       selectedMunicipality: null,
-      municipalitySearch: { category: 'cafe', keyword: 'コーヒー' },
+      municipalitySearch: { category: 'cafe' },
       simpleSearch: { category: 'cafe', keyword: '', location: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       bbox: { south: 34.69, west: 135.51, north: 34.73, east: 135.54 }
@@ -36,16 +37,21 @@ describe('#44 Municipality URL encoding/decoding', () => {
     expect(qs).not.toContain('k=')
   })
 
-  it('自治体モードURLをデコードする', () => {
+  it('旧自治体モードURLを地図モードとしてデコードする（#xx graceful degradation）', () => {
     const qs = 'src=m&mun=271021&c=cafe&k=%E3%82%B3%E3%83%BC%E3%83%92%E3%83%BC&b=34.690000,135.510000,34.730000,135.540000'
     const state = decodeURLToState('?' + qs)
-    expect(state.searchSource).toBe('municipality')
+    // フォームが常に地図モードになったため、検索ソースは地図モードに復元される
+    expect(state.searchSource).toBe('map')
+    // 選択自治体とBBOXは保持される（「都道府県から探す」セクションで使える）
     expect(state.selectedMunicipality.code).toBe('271021')
     expect(state.selectedMunicipality.bbox).toEqual({
       south: 34.69, west: 135.51, north: 34.73, east: 135.54
     })
+    // 条件は地図モード側（simpleSearch）にも自治体側（municipalitySearch）にも反映される
+    expect(state.simpleSearch.category).toBe('cafe')
     expect(state.municipalitySearch.category).toBe('cafe')
-    expect(state.municipalitySearch.keyword).toBe('コーヒー')
+    // 旧URLの k=（キーワード）は自治体検索に適用されなくなった
+    expect(state.municipalitySearch).not.toHaveProperty('keyword')
   })
 
   it('round-trip: encode → decode で状態が一致する', () => {
@@ -53,17 +59,19 @@ describe('#44 Municipality URL encoding/decoding', () => {
       searchMode: 'simple',
       searchSource: 'municipality',
       selectedMunicipality: { code: '131016', name: '千代田区', bbox: { south: 35.67, west: 139.74, north: 35.70, east: 139.78 } },
-      municipalitySearch: { category: 'restaurant', keyword: '' },
+      municipalitySearch: { category: 'restaurant' },
       simpleSearch: { category: '', keyword: '', location: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       bbox: { south: 35.67, west: 139.74, north: 35.70, east: 139.78 }
     }
     const qs = encodeStateToURL(original)
     const restored = decodeURLToState('?' + qs)
-    expect(restored.searchSource).toBe('municipality')
+    // #xx: 旧自治体モードURLは地図モードとして復元される（条件は両モード分に反映）
+    expect(restored.searchSource).toBe('map')
     expect(restored.selectedMunicipality.code).toBe('131016')
     expect(restored.selectedMunicipality.bbox).toEqual(original.bbox)
     expect(restored.municipalitySearch.category).toBe('restaurant')
+    expect(restored.simpleSearch.category).toBe('restaurant')
   })
 })
 
@@ -74,7 +82,7 @@ describe('#54 cuisineフィルタのURL encode/decoding', () => {
       searchMode: 'simple',
       searchSource: 'municipality',
       selectedMunicipality: { code: '26100', name: '高槻市', bbox: { south: 34.78, west: 135.49, north: 34.81, east: 135.52 } },
-      municipalitySearch: { category: 'restaurant', keyword: '', cuisine: 'ramen' },
+      municipalitySearch: { category: 'restaurant', cuisine: 'ramen' },
       simpleSearch: { category: '', keyword: '', location: '', cuisine: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       bbox: { south: 34.78, west: 135.49, north: 34.81, east: 135.52 }
@@ -86,7 +94,7 @@ describe('#54 cuisineフィルタのURL encode/decoding', () => {
       searchMode: 'simple',
       searchSource: 'map',
       selectedMunicipality: null,
-      municipalitySearch: { category: '', keyword: '', cuisine: '' },
+      municipalitySearch: { category: '', cuisine: '' },
       simpleSearch: { category: 'food_drink', keyword: '', location: '', cuisine: 'sushi' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       bbox: { south: 34.78, west: 135.49, north: 34.81, east: 135.52 }
@@ -109,11 +117,14 @@ describe('#54 cuisineフィルタのURL encode/decoding', () => {
     expect(state.simpleSearch.cuisine).toBe('ramen')
   })
 
-  it('旧共有URL c=ramen をマッピングする（自治体モード）', () => {
+  it('旧共有URL c=ramen をマッピングする（旧自治体モードURL）', () => {
     const state = decodeURLToState('?src=m&mun=26100&c=ramen')
-    expect(state.searchSource).toBe('municipality')
+    // #xx: 旧自治体モードURLは地図モードとして復元される
+    expect(state.searchSource).toBe('map')
     expect(state.municipalitySearch.category).toBe('restaurant')
     expect(state.municipalitySearch.cuisine).toBe('ramen')
+    expect(state.simpleSearch.category).toBe('restaurant')
+    expect(state.simpleSearch.cuisine).toBe('ramen')
   })
 
   it('c=ramen + 明示cu指定の場合はcuを優先する', () => {
