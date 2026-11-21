@@ -15,13 +15,20 @@
  *  - 公園（way/relation）: boundingbox は要素の bounds（out bb）。
  *    座標は bounds の中心
  * 検索エリアの設定（searchAreaFromGeocode）はそのまま通用する。
+ *
+ * 公園の面積フィルタ（PARK_MIN_AREA_M2 以上）は端末側で行う。
+ * Overpass QL の `(if: area() > ...)` 節は実サーバー（armd-01・公式
+ * overpass-api.de）に受け付けられず（HTTP 500 / 400）、クエリ全体が
+ * 失敗するため使えない。代わりに `out bb` の bounds から近似面積を
+ * 計算し、parseNearbyResponse 側で選別する。
  */
 
 import { executeOverpassQuery } from './overpass'
 
 // 周辺候補の取得半径（m）。仕様: 5 km
 export const NEARBY_RADIUS_M = 5000
-// 公園の最小面積（m²）。仕様: area() > 10000
+// 公園の最小面積（m²）。サーバー側の if 節が使えないため、
+// 端末側で bounds の近似面積としてフィルタする（parseNearbyResponse 参照）
 export const PARK_MIN_AREA_M2 = 10000
 // 入力中のサジェストに表示する候補数の上限。仕様: 最大8件程度
 export const MAX_NEARBY_SUGGEST = 8
@@ -57,11 +64,30 @@ export function buildNearbyQuery(lat, lon) {
     '(',
     `nwr["railway"="station"]["name"](${around});`,
     `nwr["place"~"^(neighbourhood|quarter|suburb|locality)$"]["name"](${around});`,
-    `way["leisure"="park"]["name"](${around})(if: area() > ${PARK_MIN_AREA_M2});`,
-    `relation["leisure"="park"]["name"](${around})(if: area() > ${PARK_MIN_AREA_M2});`,
+    // 公園は面積フィルタなしで取得（(if: area() > ...) 節は実サーバーに
+    // 受け付けられないため）。面積による選別は parseNearbyResponse 側で
+    // bounds の近似面積として行う
+    `way["leisure"="park"]["name"](${around});`,
+    `relation["leisure"="park"]["name"](${around});`,
     ');',
     'out bb;'
   ].join('')
+}
+
+/**
+ * 要素の bounds（out bb）から近似面積（m²）を概算する。
+ * 緯度1度 ≒ 111320m、経度1度 ≒ 111320m × cos(中央緯度) として矩形面積を
+ * 計算する（Overpass の area() とは厳密には一致しないが、10000m²程度の
+ * しきい値選別には十分）
+ * @param {{ minlat: number, minlon: number, maxlat: number, maxlon: number }} b
+ * @returns {number} 近似面積（m²）
+ */
+export function approxBoundsAreaM2(b) {
+  const METERS_PER_DEG = 111320
+  const midLat = (b.minlat + b.maxlat) / 2
+  const heightM = (b.maxlat - b.minlat) * METERS_PER_DEG
+  const widthM = (b.maxlon - b.minlon) * METERS_PER_DEG * Math.cos(toRad(midLat))
+  return heightM * widthM
 }
 
 /**
@@ -69,6 +95,8 @@ export function buildNearbyQuery(lat, lon) {
  * 施設検索用の parseOverpassResponse とは違い:
  *  - way/relation の bounds（out bb）を boundingbox として保持する
  *  - 駅・地区名・大きな公園の名前持ち要素だけを残す
+ *  - 公園は bounds の近似面積が PARK_MIN_AREA_M2 を超えるものだけを残す
+ *    （サーバー側の if 節が使えないため端末側でフィルタ。モジュール冒頭参照）
  */
 export function parseNearbyResponse(data) {
   const elements = (data && data.elements) || []
@@ -96,6 +124,8 @@ export function parseNearbyResponse(data) {
         (n) => typeof n === 'number' && Number.isFinite(n)
       )
       if (!valid) continue
+      // 面積フィルタ（端末側）: 近似面積がしきい値を超えない公園は除外
+      if (approxBoundsAreaM2(b) <= PARK_MIN_AREA_M2) continue
       out.push({
         lat: (b.minlat + b.maxlat) / 2,
         lon: (b.minlon + b.maxlon) / 2,

@@ -13,7 +13,16 @@
  * していた。
  */
 import { describe, it, expect } from 'vitest'
-import { haversineKm, prepareNearbyCandidates, matchNearbyCandidates, MAX_NEARBY_SUGGEST } from '../nearbyCandidates'
+import {
+  haversineKm,
+  buildNearbyQuery,
+  parseNearbyResponse,
+  approxBoundsAreaM2,
+  prepareNearbyCandidates,
+  matchNearbyCandidates,
+  PARK_MIN_AREA_M2,
+  MAX_NEARBY_SUGGEST
+} from '../nearbyCandidates'
 
 const CENTER = { lat: 34.7, lon: 135.5 }
 
@@ -21,6 +30,97 @@ const CENTER = { lat: 34.7, lon: 135.5 }
 const area = (name, lat, lon) => ({ lat, lon, name, kind: '地区' })
 /** 駅候補のファクトリ */
 const station = (name, lat, lon) => ({ lat, lon, name, kind: '駅' })
+
+// ===== buildNearbyQuery / parseNearbyResponse（公園の面積フィルタ） =====
+//
+// 背景: 旧クエリの `(if: area() > 10000)` 節は実サーバー（armd-01 で HTTP 500、
+// 公式 overpass-api.de で HTTP 400）に受け付けられず、周辺候補の取得が
+// 常時失敗していた。節を除去し、公園の面積フィルタは `out bb` の bounds
+// から近似面積を計算して parseNearbyResponse 側（端末側）で行う形にした。
+
+describe('buildNearbyQuery: サーバーに受け付けられる形', () => {
+  it('生成クエリに (if: ...) 節が含まれない', () => {
+    const q = buildNearbyQuery(34.7, 135.5)
+    expect(q).not.toContain('(if:')
+    expect(q).not.toContain('area()')
+  })
+
+  it('駅・地区名・公園（way/relation）の取得節と out bb を含める', () => {
+    const q = buildNearbyQuery(34.7, 135.5)
+    expect(q).toContain('nwr["railway"="station"]["name"](around:5000,34.7,135.5);')
+    expect(q).toContain('nwr["place"~"^(neighbourhood|quarter|suburb|locality)$"]["name"](around:5000,34.7,135.5);')
+    expect(q).toContain('way["leisure"="park"]["name"](around:5000,34.7,135.5);')
+    expect(q).toContain('relation["leisure"="park"]["name"](around:5000,34.7,135.5);')
+    expect(q.endsWith('out bb;')).toBe(true)
+  })
+})
+
+describe('parseNearbyResponse: 公園の面積フィルタ（端末側）', () => {
+  /** 公園要素（way/relation）のファクトリ。sideDeg: 正方形の一辺の緯度・経度幅（度） */
+  const park = (name, minlat, minlon, sideDeg, type = 'way') => ({
+    type,
+    tags: { name, leisure: 'park' },
+    bounds: {
+      minlat,
+      minlon,
+      maxlat: minlat + sideDeg,
+      maxlon: minlon + sideDeg
+    }
+  })
+
+  it('大きな公園（近似面積 > 10000m²）は候補に残る', () => {
+    // 約220m × 約180m ≈ 40000m²
+    const data = { elements: [park('大きな公園', 34.7, 135.5, 0.002)] }
+    const out = parseNearbyResponse(data)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ name: '大きな公園', kind: '公園' })
+    expect(out[0].boundingbox).toEqual({
+      south: 34.7, west: 135.5, north: 34.7 + 0.002, east: 135.5 + 0.002
+    })
+  })
+
+  it('小さい公園（近似面積 <= 10000m²）は候補から落ちる', () => {
+    // 約56m × 約46m ≈ 2500m²
+    const data = { elements: [park('小さな庭', 34.7, 135.5, 0.0005)] }
+    expect(parseNearbyResponse(data)).toEqual([])
+  })
+
+  it('relation 型の公園も同じ面積フィルタが効く', () => {
+    const data = { elements: [park('関係公園', 34.7, 135.5, 0.002, 'relation')] }
+    expect(parseNearbyResponse(data).map((c) => c.name)).toEqual(['関係公園'])
+  })
+
+  it('駅・地区名（node）は面積フィルタの対象外（変化なし）', () => {
+    const data = {
+      elements: [
+        { type: 'node', lat: 34.701, lon: 135.5, tags: { name: '某駅', railway: 'station' } },
+        { type: 'node', lat: 34.702, lon: 135.5, tags: { name: '某町', place: 'neighbourhood' } },
+        { type: 'way', tags: { name: '小さな庭', leisure: 'park' }, bounds: { minlat: 34.7, minlon: 135.5, maxlat: 34.7005, maxlon: 135.5005 } }
+      ]
+    }
+    const out = parseNearbyResponse(data)
+    expect(out.map((c) => c.name)).toEqual(['某駅', '某町'])
+  })
+})
+
+describe('approxBoundsAreaM2: bounds の近似面積', () => {
+  it('緯度・経度の幅をメートル換算した矩形面積を返す', () => {
+    // 0.001度 ≒ 111m（緯度）。34.7度付近で経度方向は cos(34.7°)≒0.82 を掛ける
+    const areaM2 = approxBoundsAreaM2({ minlat: 34.7, minlon: 135.5, maxlat: 34.701, maxlon: 135.501 })
+    // 0.001度 ≒ 111m（緯度）。34.7度付近で経度方向は cos(34.7°)≒0.82 を掛ける
+    // → 111m × 約91m ≒ 10200m²
+    expect(areaM2).toBeGreaterThan(9000)
+    expect(areaM2).toBeLessThan(13000)
+    expect(areaM2).toBeCloseTo(111320 * 111320 * Math.cos((34.7005 * Math.PI) / 180) * 0.001 * 0.001, 0)
+  })
+
+  it('しきい値（PARK_MIN_AREA_M2）との大小関係が選別に使える', () => {
+    const big = approxBoundsAreaM2({ minlat: 34.7, minlon: 135.5, maxlat: 34.702, maxlon: 135.502 })
+    const small = approxBoundsAreaM2({ minlat: 34.7, minlon: 135.5, maxlat: 34.7005, maxlon: 135.5005 })
+    expect(big).toBeGreaterThan(PARK_MIN_AREA_M2)
+    expect(small).toBeLessThanOrEqual(PARK_MIN_AREA_M2)
+  })
+})
 
 describe('prepareNearbyCandidates', () => {
   it('距離順に並び替え、distanceKm・displayName・prefecture・city を付与する', () => {
