@@ -1,17 +1,24 @@
 /**
- * 周辺地名候補（駅・地区名・大きな公園）の Overpass 取得と端末内照合
+ * 周辺地名候補（地区名・大きな公園）の Overpass 取得と端末内照合
+ * （駅・路面電車・ケーブルカーの候補は全国駅ファイル stations.json 側で
+ * 扱う。stationCandidates.js 参照）
  *
  * 公開 Nominatim の利用ポリシーはオートコンプリート（入力中の問い合わせ）を
  * 禁止しているため、地名入力欄のサジェストは Nominatim を叩かない。
  * 代わりに:
  *  - 入力欄にフォーカスした時点で現在位置（Geolocation API）を取得し、
- *    5km 圏内の「駅・地区名・大きな公園」を Overpass（アプリ既定の
+ *    5km 圏内の「地区名・大きな公園」を Overpass（アプリ既定の
  *    エンドポイント＋フォールバック）へ1回だけ問い合わせ、結果をキャッシュする
  *  - 入力中はキャッシュされた候補に対して端末内で名前の部分一致照合を行う
  *
+ * 駅・路面電車・ケーブルカーの候補は Overpass ではなく全国駅ファイル
+ * （public/data/stations.json。scripts/fetch-stations.mjs で生成）から
+ * 取る（stationCandidates.js）。遠方の駅も候補に出せるようにするため、
+ * 周辺クエリからは駅を除外した（駅はファイルに一本化）。
+ *
  * 候補の形は Nominatim 候補（geocodeCandidates の戻り値）と互換:
  *   { lat, lon, name, displayName, kind, boundingbox, distanceKm, prefecture, city }
- *  - 駅・地区名（node）: boundingbox は null。座標はノード自体
+ *  - 地区名（node）: boundingbox は null。座標はノード自体
  *  - 公園（way/relation）: boundingbox は要素の bounds（out bb）。
  *    座標は bounds の中心
  * 検索エリアの設定（searchAreaFromGeocode）はそのまま通用する。
@@ -62,7 +69,8 @@ export function buildNearbyQuery(lat, lon) {
   return [
     '[out:json][timeout:25];',
     '(',
-    `nwr["railway"="station"]["name"](${around});`,
+    // 駅（railway=station）は全国駅ファイル（stations.json）に一本化するため
+    // 周辺クエリには含めない。地区名・公園のみを取得する
     `nwr["place"~"^(neighbourhood|quarter|suburb|locality)$"]["name"](${around});`,
     // 公園は面積フィルタなしで取得（(if: area() > ...) 節は実サーバーに
     // 受け付けられないため）。面積による選別は parseNearbyResponse 側で
@@ -94,7 +102,7 @@ export function approxBoundsAreaM2(b) {
  * 周辺候補の Overpass 応答パーサー（executeOverpassQuery の parse に渡す）。
  * 施設検索用の parseOverpassResponse とは違い:
  *  - way/relation の bounds（out bb）を boundingbox として保持する
- *  - 駅・地区名・大きな公園の名前持ち要素だけを残す
+ *  - 地区名・大きな公園の名前持ち要素だけを残す（駅はファイルに一本化済み）
  *  - 公園は bounds の近似面積が PARK_MIN_AREA_M2 を超えるものだけを残す
  *    （サーバー側の if 節が使えないため端末側でフィルタ。モジュール冒頭参照）
  */
@@ -109,9 +117,7 @@ export function parseNearbyResponse(data) {
     if (el.type === 'node') {
       const hasCoords = typeof el.lat === 'number' && typeof el.lon === 'number'
       if (!hasCoords) continue
-      if (tags.railway === 'station') {
-        out.push({ lat: el.lat, lon: el.lon, name, kind: '駅' })
-      } else if (AREA_PLACE_VALUES.includes(tags.place)) {
+      if (AREA_PLACE_VALUES.includes(tags.place)) {
         out.push({ lat: el.lat, lon: el.lon, name, kind: '地区' })
       }
     } else if (
@@ -183,7 +189,7 @@ export function prepareNearbyCandidates(raw, center) {
 }
 
 /**
- * 周辺候補の取得（駅・地区名・大きな公園）。
+ * 周辺候補の取得（地区名・大きな公園。駅は stations.json に一本化済み）。
  * アプリ既定の Overpass エンドポイント（フォールバック連鎖付き）を使う。
  * 失敗時は candidates が空配列・error に理由を返す（例外は送出しない。
  * 位置情報は得られたのに周辺候補だけ取れない、という状態を軽く扱うため）

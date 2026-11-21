@@ -224,6 +224,24 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
     expect(resultsPayload()[0].osmId).toBe('node/401')
   })
 
+  it('デフォルト並び: 名前あり優先＋bbox中心から近い順で格納する（sortDir未選択）', async () => {
+    h.app.state = makeState({
+      simpleSearch: { category: 'cafe', keyword: '', cuisine: '', purpose: '' }
+    })
+    // 返却順（node順）では名前のない施設が先頭に来る並び
+    h.overpassResults = [
+      { type: 'node', id: 1, lat: 34.719, lon: 135.519, tags: { amenity: 'cafe' } }, // 名なし・遠い
+      { type: 'node', id: 2, lat: 34.71, lon: 135.51, tags: { amenity: 'cafe', name: '近いカフェ' }, name: '近いカフェ' }, // 名あり・近い
+      { type: 'node', id: 3, lat: 34.718, lon: 135.518, tags: { amenity: 'cafe', name: '遠いカフェ' }, name: '遠いカフェ' }, // 名あり・遠い
+      { type: 'node', id: 4, lat: 34.708, lon: 135.508, tags: { amenity: 'cafe' } } // 名なし・近い
+    ]
+
+    await runSearch({ ...SMALL_BBOX })
+
+    // 名前あり（2, 3）→ 名なし（4, 1）。グループ内で中心に近い順
+    expect(resultsPayload().map((r) => r.id)).toEqual([2, 3, 4, 1])
+  })
+
   it('キーワード未入力のバリアフリー検索 → 全結果が残る', async () => {
     h.app.state = makeState({
       simpleSearch: { category: 'barrier_free', keyword: '', cuisine: '', purpose: '' }

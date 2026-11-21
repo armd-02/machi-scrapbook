@@ -38,16 +38,20 @@ const station = (name, lat, lon) => ({ lat, lon, name, kind: '駅' })
 // 常時失敗していた。節を除去し、公園の面積フィルタは `out bb` の bounds
 // から近似面積を計算して parseNearbyResponse 側（端末側）で行う形にした。
 
-describe('buildNearbyQuery: サーバーに受け付けられる形', () => {
+describe('buildNearbyQuery', () => {
   it('生成クエリに (if: ...) 節が含まれない', () => {
     const q = buildNearbyQuery(34.7, 135.5)
     expect(q).not.toContain('(if:')
     expect(q).not.toContain('area()')
   })
 
-  it('駅・地区名・公園（way/relation）の取得節と out bb を含める', () => {
+  it('駅（railway=station）は全国駅ファイル（stations.json）に一本化するため含まれない', () => {
     const q = buildNearbyQuery(34.7, 135.5)
-    expect(q).toContain('nwr["railway"="station"]["name"](around:5000,34.7,135.5);')
+    expect(q).not.toContain('railway')
+  })
+
+  it('地区名・公園（way/relation）の取得節と out bb を含める', () => {
+    const q = buildNearbyQuery(34.7, 135.5)
     expect(q).toContain('nwr["place"~"^(neighbourhood|quarter|suburb|locality)$"]["name"](around:5000,34.7,135.5);')
     expect(q).toContain('way["leisure"="park"]["name"](around:5000,34.7,135.5);')
     expect(q).toContain('relation["leisure"="park"]["name"](around:5000,34.7,135.5);')
@@ -90,16 +94,15 @@ describe('parseNearbyResponse: 公園の面積フィルタ（端末側）', () =
     expect(parseNearbyResponse(data).map((c) => c.name)).toEqual(['関係公園'])
   })
 
-  it('駅・地区名（node）は面積フィルタの対象外（変化なし）', () => {
+  it('駅（railway=station）は解析しない（全国駅ファイルに一本化済み）', () => {
     const data = {
       elements: [
         { type: 'node', lat: 34.701, lon: 135.5, tags: { name: '某駅', railway: 'station' } },
-        { type: 'node', lat: 34.702, lon: 135.5, tags: { name: '某町', place: 'neighbourhood' } },
-        { type: 'way', tags: { name: '小さな庭', leisure: 'park' }, bounds: { minlat: 34.7, minlon: 135.5, maxlat: 34.7005, maxlon: 135.5005 } }
+        { type: 'node', lat: 34.702, lon: 135.5, tags: { name: '某町', place: 'neighbourhood' } }
       ]
     }
     const out = parseNearbyResponse(data)
-    expect(out.map((c) => c.name)).toEqual(['某駅', '某町'])
+    expect(out.map((c) => c.name)).toEqual(['某町'])
   })
 })
 

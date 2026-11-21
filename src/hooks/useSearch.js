@@ -16,6 +16,7 @@ import {
 } from '../utils/barrierFreeResults'
 import { checkBboxSize } from '../utils/geo'
 import { isValidBbox } from '../utils/searchBbox'
+import { sortResultsDefault } from '../utils/resultSort'
 
 /**
  * 検索実行のフック
@@ -177,7 +178,11 @@ export function useSearch() {
         ? filterByBbox(results, bbox)
         : filterByBbox(filterByKeyword(results, keyword), bbox)
 
-      dispatch({ type: 'SET_RESULTS', payload: filtered })
+      // デフォルト並び: 名前あり優先＋bbox中心から近い順（並び順プルダウン
+      // 未選択時の表示順）。格納時に並べておけばフィルタ後も順序が保たれる。
+      // 昇順・降順を明示選択した場合は表示側（applyResultFilters）で名前順に
+      // 再並び替えられ、明示選択が優先される
+      dispatch({ type: 'SET_RESULTS', payload: sortResultsDefault(filtered, bbox) })
       dispatch({ type: 'SET_RESULT_KIND', payload: queryKind })
       dispatch({ type: 'SET_FETCH_META', payload: meta })
       dispatch({ type: 'SET_STATUS', payload: 'success' })

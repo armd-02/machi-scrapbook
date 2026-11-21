@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../../context/AppContext'
 import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
@@ -6,6 +6,7 @@ import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
 import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround } from '../../utils/geo'
 import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
+import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates } from '../../utils/stationCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
 import SimpleSearch from '../SimpleSearch'
@@ -128,10 +129,27 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // (top) 自治体データ（municipalities.json）。トップ表示時に読み込む
   const [municipalities, setMunicipalities] = useState([])
 
-  // 周辺地名候補（駅・地区・大きな公園）。地名入力欄のフォーカス時に現在位置
+  // 周辺地名候補（地区・大きな公園）。地名入力欄のフォーカス時に現在位置
   // から5km圏内を Overpass で1回取得してキャッシュし、入力中の端末内照合に
-  // 使う。位置情報が拒否された場合は空配列（自治体候補のみで動作）
+  // 使う。位置情報が拒否された場合は空配列（自治体候補のみで動作）。
+  // 駅・路面電車・ケーブルカーの候補は全国駅ファイル（stations.json）から取る
   const nearby = useNearbyPlaceCandidates()
+
+  // 全国駅ファイルの候補（stations.json。フォーカス時に読み込む・
+  // モジュールキャッシュで再フォーカス時の再取得を防ぐ）。読み込み失敗時は
+  // 空配列（駅候補なしで従来どおり動作・エラー表示しない）
+  const [stations, setStations] = useState([])
+  const loadStations = useCallback(() => {
+    loadStationFile().then((rows) => setStations(stationFileToCandidates(rows)))
+  }, [])
+
+  // 地名入力欄フォーカス時: 周辺候補の現在位置取得・Overpass キャッシュ
+  // （nearby.request）に加えて全国駅ファイルを読み込む（モジュールキャッシュ
+  // 済みなら即返すので再フォーカス時のコストはほぼない）
+  const handlePlaceFocus = useCallback(() => {
+    nearby.request()
+    loadStations()
+  }, [nearby.request, loadStations])
 
   // (top) トップ表示時に自治体データを読み込む（モジュールキャッシュで二重取得しない。
   // loadMunicipalities は失敗時も空配列を返すため catch は不要）
@@ -165,8 +183,15 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     // 編集されると placeAreaSet がクリアされるので、その後はリストが再表示
     // される
     if (placeAreaSet) return
-    setSuggestCandidates(matchNearbyCandidates(nearby.candidates, q))
-  }, [nearby.candidates, placeQuery, placeAreaSet])
+    // 駅ファイルが後から読み込み完了した場合もここで再導出される
+    setSuggestCandidates(
+      combineSuggestCandidates(
+        matchStationCandidates(stations, q),
+        matchNearbyCandidates(nearby.candidates, q),
+        nearby.center
+      )
+    )
+  }, [stations, nearby.candidates, nearby.center, placeQuery, placeAreaSet])
 
   // (top) 「地名検索」で候補が複数（2件以上）だったときの選択待ち候補。
   // 入力欄の下に「候補が複数あります。選んでください。」の案内付きで表示され、
@@ -412,9 +437,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     setMuniSuggest(q.length >= 2
       ? matchMunicipalities(municipalities, q).map(municipalityToCandidate)
       : [])
-    // 周辺候補（駅・地区・公園）: キャッシュされた Overpass 結果と端末内で照合
+    // 駅候補（全国駅ファイル）＋周辺候補（地区・公園）: 端末内で照合して
+    // 結合する（位置が分かっていれば距離順・分からなければ駅→周辺の順）
     setSuggestCandidates(q.length >= 2
-      ? matchNearbyCandidates(nearby.candidates, q)
+      ? combineSuggestCandidates(
+          matchStationCandidates(stations, q),
+          matchNearbyCandidates(nearby.candidates, q),
+          nearby.center
+        )
       : [])
   }
 
@@ -675,7 +705,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             value={placeQuery}
             onChange={handlePlaceQueryChange}
             onKeyDown={handleMapPlaceKeyDown}
-            onFocus={nearby.request}
+            onFocus={handlePlaceFocus}
             onGeocode={handleGeocodePlace}
             placeholder="地名・駅名（例: 大阪駅）"
             disabled={state.status === 'loading'}
@@ -730,7 +760,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               placeQuery={placeQuery}
               onPlaceQueryChange={handlePlaceQueryChange}
               onGeocode={handleGeocodePlace}
-              onFocus={nearby.request}
+              onFocus={handlePlaceFocus}
               geocodeDisabled={geocoding}
               searching={searching}
               searchError={searchError}

@@ -43,6 +43,10 @@ export function useNearbyPlaceCandidates() {
   const [status, setStatus] = useState('idle')
   const [candidates, setCandidates] = useState([])
   const [error, setError] = useState(null)
+  // 現在位置（{ lat, lon }）。値が変化した場合のみ更新してオブジェクトの
+  // アイデンティティを安定させる（レンダリングごとに新しいオブジェクトを
+  // 生成すると、center を依存配列にするエフェクトが無限ループする）
+  const [center, setCenter] = useState(null)
   // キャッシュ（再レンダリングで失われないように ref）。{ lat, lon, candidates }
   const cacheRef = useRef(null)
   // 最後に取得した現在位置（Overpass 取得の成否・完了と切り離して保持）。
@@ -163,11 +167,15 @@ export function useNearbyPlaceCandidates() {
   }, [])
 
   // center: キャッシュ位置があればそれを、なければ最後に取得した位置を使う
-  // （「位置が取れているのに center が null」にならないようにする）
+  // （「位置が取れているのに center が null」にならないようにする）。
+  // 値が同じなら状態を更新しない（レンダリングフェーズの状態調整・
+  // ガード付きで無限ループを防ぐ）
   const centerPos = cacheRef.current || positionRef.current
-  const center = centerPos
-    ? { lat: centerPos.lat, lon: centerPos.lon }
-    : null
+  const centerKey = centerPos ? `${centerPos.lat},${centerPos.lon}` : ''
+  const currentKey = center ? `${center.lat},${center.lon}` : ''
+  if (currentKey !== centerKey) {
+    setCenter(centerPos ? { lat: centerPos.lat, lon: centerPos.lon } : null)
+  }
 
   return { status, candidates, error, center, request, awaitPosition }
 }

@@ -49,6 +49,16 @@ const MUNI_DATA = {
   ]
 }
 
+// 全国駅ファイル（stations.json）のフィクスチャ行（[名前, 緯度, 経度, 種別]。
+// 種別: 0=駅・1=路面電車・2=ケーブルカー）。梅田駅は現在位置 mock
+// （34.7, 135.5）直下（距離0）、東京駅は遠方（約400km）
+const STATION_ROWS = [
+  ['梅田駅', 34.7, 135.5, 0],
+  ['東京駅', 35.688, 139.766, 0],
+  ['西長田ゆりの里', 34.702, 135.49, 1],
+  ['美智駅', 34.29, 135.29, 2],
+]
+
 // 「梅田」ジオコード候補（searchAreaFromGeocode による約1km²未満拡大の対象外:
 // 範囲が約4.3km²のためそのまま採用される）
 const UEDA_ROW = {
@@ -142,8 +152,9 @@ const OVERPASS_ELEMENTS = [
 
 // 周辺地名候補（around:5000 クエリ）のレスポンス用要素。
 // 現在位置 mock（34.7, 135.5）の周囲に置く
+// 駅は全国駅ファイル（stations.json）に一本化されたため周辺クエリには
+// 含まれない（地区名・公園のみ）
 const NEARBY_ELEMENTS = [
-  { type: 'node', id: 2001, lat: 34.7, lon: 135.5, tags: { railway: 'station', name: '梅田駅' } },
   { type: 'node', id: 2002, lat: 34.701, lon: 135.499, tags: { place: 'neighbourhood', name: '梅田' } },
 ]
 
@@ -218,6 +229,9 @@ function setupFetchMock() {
     const u = String(url)
     if (u.includes('municipalities.json')) {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
+    }
+    if (u.includes('stations.json')) {
+      return { ok: true, status: 200, headers: new Map(), json: async () => STATION_ROWS }
     }
     if (u.includes('nominatim')) {
       nominatimUrls.push(u)
@@ -404,6 +418,28 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     expect(within(section).getByText('地図の現在表示範囲')).toBeTruthy()
     // 検索ボタンラベルは「この表示範囲で検索」
     expect(screen.getByRole('button', { name: 'この表示範囲で検索' })).toBeTruthy()
+  })
+
+  it('遠方の駅は全国駅ファイルから候補に出る（「東京」で東京駅）', async () => {
+    renderApp()
+    await openMapMode()
+    // 周辺取得（5km圏内）には入らない遠方の駅（東京駅・約400km）も、
+    // 全国駅ファイル（stations.json）由来の候補として出る
+    await typeAndAwaitSuggest('東京')
+    const options = getSuggestOptions()
+    expect(options).toHaveLength(1)
+    expect(options[0].textContent).toContain('東京駅')
+    expect(options[0].textContent).toContain('駅')
+  })
+
+  it('路面電車の停留所は駅ファイルから候補に出る（「ゆりの里」で西長田ゆりの里）', async () => {
+    renderApp()
+    await openMapMode()
+    await typeAndAwaitSuggest('ゆりの里')
+    const options = getSuggestOptions()
+    expect(options).toHaveLength(1)
+    expect(options[0].textContent).toContain('西長田ゆりの里')
+    expect(options[0].textContent).toContain('路面電車')
   })
 
   it('地名入力でサジェストが表示され、候補タップで検索エリアが設定される', async () => {

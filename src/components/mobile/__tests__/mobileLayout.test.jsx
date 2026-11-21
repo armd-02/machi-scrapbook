@@ -95,10 +95,18 @@ const BF_ELEMENTS_UMEDA = [
 // 周辺地名候補（around:5000 クエリ）のレスポンス要素。
 // ローカルサジェスト（端末内照合）の検証用。座標は geolocation モックの
 // 固定現在位置（34.7, 135.5）と同じ領域に置く
+// 駅は全国駅ファイル（stations.json）に一本化されたため周辺クエリには
+// 含まれない（地区名・公園のみ）
 const NEARBY_ELEMENTS = [
-  { type: 'node', id: 2001, lat: 34.7, lon: 135.5, tags: { railway: 'station', name: '梅田駅' } },
   { type: 'node', id: 2002, lat: 34.701, lon: 135.499, tags: { place: 'neighbourhood', name: '梅田' } },
-  { type: 'node', id: 2003, lat: 34.706, lon: 135.496, tags: { railway: 'station', name: '大阪駅' } },
+  { type: 'node', id: 2003, lat: 34.706, lon: 135.496, tags: { place: 'neighbourhood', name: '大阪' } },
+]
+
+// 全国駅ファイル（stations.json）のフィクスチャ行（[名前, 緯度, 経度, 種別]）。
+// 座標は従来の NEARBY_ELEMENTS の駅ノードと同じ
+const STATION_ROWS = [
+  ['梅田駅', 34.7, 135.5, 0],
+  ['大阪駅', 34.706, 135.496, 0],
 ]
 
 // Nominatim応答行（geocode / geocodeCandidates 検証用）。
@@ -181,6 +189,9 @@ function setupFetchMock() {
     const u = String(url)
     if (u.includes('municipalities.json')) {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
+    }
+    if (u.includes('stations.json')) {
+      return { ok: true, status: 200, headers: new Map(), json: async () => STATION_ROWS }
     }
     // (#63) Nominatimジオコード（QuickTopIntroの「検索」・地名入力サジェスト・
     // 複数候補提示の検証用）。テスト側が nominatimRows を切り替えられる
@@ -937,6 +948,9 @@ describe('(#59) 一覧タブ: クライアント側フィルタ', () => {
       const u = String(url)
       if (u.includes('municipalities.json')) {
         return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
+      }
+      if (u.includes('stations.json')) {
+        return { ok: true, status: 200, headers: new Map(), json: async () => STATION_ROWS }
       }
       if (u.includes('interpreter') || u.includes('sakura') || u.includes('overpass')) {
         const body = (options.body) || ''
@@ -1957,8 +1971,8 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     }, { timeout: 8000 })
     expect(screen.queryByRole('listbox')).toBeNull()
 
-    // 通信中だった Overpass の応答（大阪駅など・「大阪」に一致する要素を含む）が
-    // 後から届いても、候補リストは再表示されない
+    // 通信中だった Overpass の応答（地区「大阪」など・「大阪」に一致する
+    // 要素を含む）が後から届いても、候補リストは再表示されない
     nearbyDeferred.resolve({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: NEARBY_ELEMENTS })
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByRole('listbox')).toBeNull()
