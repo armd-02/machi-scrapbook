@@ -28,7 +28,7 @@ function StatisticsPanel() {
       <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 border-b border-slate-200">
         {[
           { id: 'overview', label: '概要' },
-          { id: 'category', label: 'カテゴリ別' },
+          { id: 'category', label: '種別詳細別' },
           { id: 'tags', label: 'タグ別' },
           { id: 'missing', label: '欠損' }
         ].map(t => (

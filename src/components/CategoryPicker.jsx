@@ -1,22 +1,12 @@
 import React, { useState } from 'react'
 import { CATEGORY_GROUPS, getCategoriesForPurpose, getCategoryById, getPurposeOfCategory } from '../data/categories'
 
-// 目的グループの表示順（このピース）: 「すること」系（食べる・買う・遊ぶ・学ぶ）
-// →「生活の施設」系（病院・薬局・役所・手続き・暮らす・その他）。
-// モバイルクイックトップ（QUICK_TILES）の表示順と同一のグループ分け・順序とする
-// （チップ側は目的単位: 泊まる=遊ぶ、駅・交通=その他、会社・事務所とトイレは
-// 暮らすに含まれる）。
-const PURPOSE_DISPLAY_ORDER = ['食べる', '買う', '遊ぶ', '学ぶ', '病院・薬局', '役所・手続き', '暮らす', 'その他']
-
-const orderIndexOf = (name) => {
-  const i = PURPOSE_DISPLAY_ORDER.indexOf(name)
-  return i === -1 ? PURPOSE_DISPLAY_ORDER.length : i
-}
-
-// チップグリッドに載せるグループ（表示順・バリアフリーは除外して特別枠で表示）
-const GRID_GROUPS = [...CATEGORY_GROUPS]
-  .filter((g) => g.name !== 'バリアフリー')
-  .sort((a, b) => orderIndexOf(a.name) - orderIndexOf(b.name))
+// 目的グループの表示順は CATEGORY_GROUPS の定義順そのままを使う: 「すること」系
+// （食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・
+// 公共施設・会社・事務所・移動・交通）。モバイルクイックトップ（QUICK_TILES）と
+// 同一のグループ分け・順序（単一データソース）。
+// チップグリッドに載せるグループ（バリアフリーは除外して特別枠で表示）
+const GRID_GROUPS = CATEGORY_GROUPS.filter((g) => g.name !== 'バリアフリー')
 
 // バリアフリーグループ（グリッドの下に横長特別枠として表示）
 const BARRIER_FREE_GROUP = CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー') || null
@@ -26,7 +16,8 @@ const BARRIER_FREE_GROUP = CATEGORY_GROUPS.find((g) => g.name === 'バリアフ�
  *
  * variant='pc'    : 従来どおりのグループ付き <select>（PC検索パネル用）
  * variant='mobile': 目的ベースのアイコンチップ。「すること」系→「生活の施設」系の順で表示
- *                  （食べる／買う／遊ぶ／学ぶ → 病院・薬局／役所・手続き／暮らす／その他）。
+ *                  （食べる／買う／遊ぶ・公園／学ぶ → 病院・薬局／役所・手続き／公共施設／
+ *                  会社・事務所／移動・交通）。
  *                  バリアフリーは場所の種類ではなく見方のモードなので、グリッドの下に
  *                  横長（全幅）1行の特別枠として分離表示する。
  *                  → タップするとその目的の具体カテゴリチップが展開する
@@ -119,7 +110,7 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
 
   return (
     <div>
-      {/* 目的チップ: 「すること」系 → 「生活の施設」系の順（バリアフリーは除外） */}
+      {/* 目的チップ: CATEGORY_GROUPS の定義順（バリアフリーは除外） */}
       <div className="grid grid-cols-3 gap-1.5">
         {GRID_GROUPS.map((g) => {
           const isSel = selectedCat && purposeOf(selectedCat.id) === g.name

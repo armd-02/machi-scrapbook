@@ -495,7 +495,7 @@ describe('PC「その他」タブ機能（2ペインレイアウト下）', () =
     expect(screen.getByRole('navigation', { name: 'モバイルナビゲーション' })).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('「統計」サブタブ: 検索結果の集計が表示される（総件数・カテゴリ別）', async () => {
+  it('「統計」サブタブ: 検索結果の集計が表示される（総件数・種別詳細別）', async () => {
     renderApp()
     openFormView()
     switchToMapMode()
@@ -510,8 +510,8 @@ describe('PC「その他」タブ機能（2ペインレイアウト下）', () =
     // 概要（デフォルト）: 総件数が表示される（モックは3件返す）
     expect(within(other).getByText('総件数')).toBeTruthy()
 
-    // 「カテゴリ別」タブ: 集計表（カフェの行）が表示される
-    fireEvent.click(within(other).getByText('カテゴリ別'))
+    // 「種別詳細別」タブ: 集計表（カフェの行）が表示される
+    fireEvent.click(within(other).getByText('種別詳細別'))
     await waitFor(() => {
       expect(within(other).getByText('カフェ')).toBeTruthy()
     })

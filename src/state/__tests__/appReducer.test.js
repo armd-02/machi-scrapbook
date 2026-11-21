@@ -89,15 +89,15 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
 
   it('目的のみ選択: purposeFilterがミラーされる（catFilterは空）', () => {
     let s = withResults(mapState())
-    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
-    expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
+    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ・公園' } })
+    expect(s.resultFilters.purposeFilter).toBe('遊ぶ・公園')
     expect(s.resultFilters.catFilter).toBe('')
   })
 
   it('カテゴリ優先: 目的を設定してからカテゴリを選ぶとpurposeFilterは空になる', () => {
     let s = withResults(mapState())
-    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
-    expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
+    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ・公園' } })
+    expect(s.resultFilters.purposeFilter).toBe('遊ぶ・公園')
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { category: 'park', purpose: '' } })
     expect(s.resultFilters.catFilter).toBe('park')
     expect(s.resultFilters.purposeFilter).toBe('')
@@ -105,7 +105,7 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
 
   it('目的を解除するとpurposeFilterも消える', () => {
     let s = withResults(mapState())
-    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
+    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ・公園' } })
     s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '' } })
     expect(s.resultFilters.purposeFilter).toBe('')
   })
@@ -128,19 +128,19 @@ describe('データ取得後のカテゴリ・目的ミラー (#44)', () => {
   it('モード切替でカテゴリを引き継いだあとミラーを再導出する', () => {
     // mapモードで目的を設定 → 結果ロード
     let s = mapState()
-    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ' } })
+    s = appReducer(s, { type: 'SET_SIMPLE_SEARCH', payload: { purpose: '遊ぶ・公園' } })
     s = withResults(s)
-    expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
+    expect(s.resultFilters.purposeFilter).toBe('遊ぶ・公園')
 
     // municipalityモードへ切替（目的を引き継ぐ）→ ミラーも追随
     s = appReducer(s, { type: 'SET_SEARCH_SOURCE', payload: 'municipality' })
-    expect(s.municipalitySearch.purpose).toBe('遊ぶ')
-    expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
+    expect(s.municipalitySearch.purpose).toBe('遊ぶ・公園')
+    expect(s.resultFilters.purposeFilter).toBe('遊ぶ・公園')
 
     // 逆にmapへ切替
     s = appReducer(s, { type: 'SET_SEARCH_SOURCE', payload: 'map' })
-    expect(s.simpleSearch.purpose).toBe('遊ぶ')
-    expect(s.resultFilters.purposeFilter).toBe('遊ぶ')
+    expect(s.simpleSearch.purpose).toBe('遊ぶ・公園')
+    expect(s.resultFilters.purposeFilter).toBe('遊ぶ・公園')
   })
 
   it('高度モード切替でカテゴリ系フィルタを解除する', () => {

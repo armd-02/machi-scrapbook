@@ -3,28 +3,54 @@ import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { QuickTopTiles, QUICK_TILES, BARRIER_FREE_TILE } from '../MobileQuickTop'
+import { CATEGORY_GROUPS } from '../../../data/categories'
+
+// CATEGORY_GROUPS からタイルを組み立てたとき预期される形（実装と同一のマッピング）
+const expectedTile = (group) => ({ id: group.name, label: group.name, icon: group.icon, purpose: group.name })
 
 afterEach(cleanup)
 
 describe('QUICK_TILES: タイルデータ', () => {
-  it('会社・事務所タイル: company_office の単一カテゴリ検索（🏢）', () => {
-    const tile = QUICK_TILES.find((t) => t.label === '会社・事務所')
-    expect(tile).toBeTruthy()
-    expect(tile.category).toBe('company_office')
-    expect(tile.icon).toBe('🏢')
-    expect(tile.purpose).toBeUndefined()
+  it('タイルはすべて目的（purpose）ベースで、単一カテゴリのタイルは存在しない', () => {
+    for (const tile of QUICK_TILES) {
+      expect(tile.purpose).toBeTruthy()
+      expect(tile.category).toBeUndefined()
+    }
   })
 
-  it('タイルの表示順: 「すること」系（食べる・買う・遊ぶ・公園・学ぶ・泊まる）→「生活の施設」系（病院・薬局・役所・手続き・会社・事務所・駅・交通・トイレ）', () => {
+  it('QUICK_TILES は CATEGORY_GROUPS から組み立てられている（定義を変えたらタイルも追随する）', () => {
+    // バリアフリーを除いた全グループを、定義順・ラベル・アイコン・purpose ごとに対比
+    const expected = CATEGORY_GROUPS
+      .filter((g) => g.name !== 'バリアフリー')
+      .map(expectedTile)
+    expect(QUICK_TILES).toEqual(expected)
+  })
+
+  it('タイルの表示順・ラベル・アイコンは CATEGORY_GROUPS と同一（10種別のうちバリアフリーを除く9種）', () => {
     expect(QUICK_TILES.map((t) => t.label)).toEqual([
-      '食べる', '買う', '遊ぶ・公園', '学ぶ', '泊まる',
-      '病院・薬局', '役所・手続き', '会社・事務所', '駅・交通', 'トイレ'
+      '食べる', '買う', '遊ぶ・公園', '学ぶ',
+      '病院・薬局', '役所・手続き', '公共施設', '会社・事務所', '移動・交通'
     ])
+    for (const tile of QUICK_TILES) {
+      const group = CATEGORY_GROUPS.find((g) => g.name === tile.purpose)
+      expect(group).toBeTruthy()
+      expect(group.name).toBe(tile.label) // purposeはグループ名そのもの
+      expect(tile.icon).toBe(group.icon) // アイコンもグループと同一
+    }
   })
 
-  it('会社・事務所タイルの位置: 役所・手続きの直後（生活の施設系の並び）', () => {
-    const labels = QUICK_TILES.map((t) => t.label)
-    expect(labels.indexOf('会社・事務所') - labels.indexOf('役所・手続き')).toBe(1)
+  it('新規タイル: 公共施設（🚻）・会社・事務所（🏢）・移動・交通（🚉）が生活の施設系に並ぶ', () => {
+    const byLabel = (label) => QUICK_TILES.find((t) => t.label === label)
+    expect(byLabel('公共施設').icon).toBe('🚻')
+    expect(byLabel('公共施設').purpose).toBe('公共施設')
+    expect(byLabel('会社・事務所').icon).toBe('🏢')
+    expect(byLabel('会社・事務所').purpose).toBe('会社・事務所')
+    expect(byLabel('移動・交通').icon).toBe('🚉')
+    expect(byLabel('移動・交通').purpose).toBe('移動・交通')
+    // 単一カテゴリ由来の旧タイル（泊まる・駅・交通・トイレ）は廃止
+    for (const label of ['泊まる', '駅・交通', 'トイレ']) {
+      expect(byLabel(label)).toBeUndefined()
+    }
   })
 
   it('各タイルは id が一意で、purpose と category をちょうど片方だけ持つ', () => {
@@ -39,12 +65,9 @@ describe('QUICK_TILES: タイルデータ', () => {
 
   it('バリアフリーは QUICK_TILES から外され、BARRIER_FREE_TILE（グリッド下の全幅特別枠）として分離される', () => {
     expect(QUICK_TILES.find((t) => t.purpose === 'バリアフリー')).toBeUndefined()
-    expect(BARRIER_FREE_TILE).toEqual({
-      id: 'barrierFree',
-      label: 'バリアフリー',
-      icon: '♿',
-      purpose: 'バリアフリー'
-    })
+    expect(BARRIER_FREE_TILE).toEqual(expectedTile(
+      CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー')
+    ))
   })
 })
 
@@ -67,7 +90,7 @@ describe('QuickTopTiles: 描画', () => {
   })
 
   it('バリアフリー特別枠の選択状態は aria-pressed で表現される', () => {
-    render(<QuickTopTiles onTileTap={vi.fn()} onSearch={vi.fn()} selectedTileId="barrierFree" />)
+    render(<QuickTopTiles onTileTap={vi.fn()} onSearch={vi.fn()} selectedTileId="バリアフリー" />)
     expect(screen.getByRole('button', { name: 'バリアフリー' }).getAttribute('aria-pressed')).toBe('true')
     // 選択中は破線枠ではなく実線のプライマリ枠になる
     const bf = screen.getByRole('button', { name: 'バリアフリー' })

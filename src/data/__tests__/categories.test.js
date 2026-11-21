@@ -14,58 +14,65 @@ import {
   getPurposeLabelList
 } from '../../data/categories'
 
-describe('カテゴリの目的ベースグループ化（#44 生活者目線UI）', () => {
-  it('9つの目的グループ（基本7＋(#63)モバイルトップ用クイック2）を返す', () => {
+// 新構成（再編）の10種別: 「すること」系→「生活の施設」系の順
+const GROUP_NAMES = [
+  '食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き',
+  '公共施設', '会社・事務所', '移動・交通', 'バリアフリー'
+]
+
+describe('カテゴリの目的ベースグループ化（#44 生活者目線UI・再編）', () => {
+  it('10の種別グループ（カテゴリの重複所属なし）を新しい順序で返す', () => {
     const grouped = getGroupedCategories()
-    expect(grouped.length).toBe(9)
-    expect(grouped.map((g) => g.group)).toEqual([
-      '食べる', '買う', '遊ぶ', '暮らす', '病院・薬局', '役所・手続き', '学ぶ', 'その他', 'バリアフリー'
-    ])
-    // クイック2グループは「暮らす」と意図的に重複するため、カテゴリ総数は25+4
+    expect(grouped.length).toBe(10)
+    expect(grouped.map((g) => g.group)).toEqual(GROUP_NAMES)
+    // 重複所属が廃止されたため、カテゴリ総数は CATEGORIES と一致
     const total = grouped.reduce((n, g) => n + g.categories.length, 0)
-    expect(total).toBe(CATEGORIES.length + 4)
+    expect(total).toBe(CATEGORIES.length)
   })
 
-  it('(#44) 学ぶグループに教育施設のサブカテゴリ（幼稚園・小学校・大学・予備校・学校）を含む', () => {
-    const grouped = getGroupedCategories()
-    const learn = grouped.find((g) => g.group === '学ぶ')
-    expect(learn).toBeTruthy()
-    expect(learn.categories.map((c) => c.id)).toEqual([
-      'kindergarten', 'primary_school', 'university', 'prep_school', 'school'
-    ])
-    const labels = learn.categories.map((c) => c.label)
-    expect(labels).toContain('幼稚園')
-    expect(labels).toContain('小学校')
-    expect(labels).toContain('大学・短大')
-    expect(labels).toContain('予備校・塾')
-    for (const c of learn.categories) {
-      expect(getCategoryById(c.id)).toBeTruthy()
-    }
-  })
-
-  it('基本7グループは全カテゴリの分区（各カテゴリはちょうど1つの主グループに属する）', () => {
-    const original = ['食べる', '買う', '遊ぶ', '暮らす', '学ぶ', 'その他', 'バリアフリー']
-    const seen = new Set()
-    for (const name of original) {
+  it('各カテゴリはちょうど1つの種別にだけ所属する（分区・漏れなし）', () => {
+    const seen = new Map()
+    for (const name of GROUP_NAMES) {
       for (const cat of getCategoriesForPurpose(name)) {
         expect(seen.has(cat.id)).toBe(false) // グループ間の重複なし
-        seen.add(cat.id)
+        seen.set(cat.id, name)
       }
     }
-    // 集合 === CATEGORIES の集合（漏れ・余計な追加がない）
+    // 全カテゴリがちょうど1グループに所属（漏れ・余計な追加がない）
     expect(seen.size).toBe(CATEGORIES.length)
+    for (const c of CATEGORIES) {
+      expect(seen.has(c.id)).toBe(true)
+    }
   })
 
-  it('(#63) クイックグループ（病院・薬局／役所・手続き）は「暮らす」のサブセットで、IDはすべてCATEGORIESに存在する', () => {
-    const living = getCategoriesForPurpose('暮らす').map((c) => c.id)
-    for (const name of ['病院・薬局', '役所・手続き']) {
-      const cats = getCategoriesForPurpose(name)
-      expect(cats.length).toBeGreaterThan(0)
-      for (const c of cats) {
-        expect(getCategoryById(c.id)).toBeTruthy()
-        expect(living).toContain(c.id) // 「暮らす」内に含まれる
-      }
+  it('各グループの所属カテゴリが新しい構成と一致する', () => {
+    const expected = {
+      '食べる': ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'],
+      '買う': ['retail', 'convenience'],
+      '遊ぶ・公園': ['park', 'sports', 'museum', 'worship', 'accommodation'],
+      '学ぶ': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'],
+      '病院・薬局': ['hospital', 'pharmacy'],
+      '役所・手続き': ['public_facility', 'bank'],
+      '公共施設': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'],
+      '会社・事務所': ['company_office'],
+      '移動・交通': ['transport'],
+      'バリアフリー': ['barrier_free']
     }
+    for (const [name, ids] of Object.entries(expected)) {
+      expect(getCategoriesForPurpose(name).map((c) => c.id)).toEqual(ids)
+    }
+  })
+
+  it('旧グループ「暮らす」「その他」は廃止されている', () => {
+    for (const name of ['暮らす', 'その他']) {
+      expect(CATEGORY_GROUPS.find((g) => g.name === name)).toBeUndefined()
+      expect(getCategoriesForPurpose(name)).toBeNull()
+    }
+  })
+
+  it('遊ぶグループの表示名は「遊ぶ・公園」（タイル・ピッカーで統一）', () => {
+    const g = CATEGORY_GROUPS.find((x) => x.ids.includes('park'))
+    expect(g.name).toBe('遊ぶ・公園')
   })
 
   it('グループ名とグループ内順序がCATEGORY_GROUPS定義（広い→狭い）と一致する', () => {
@@ -122,42 +129,89 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     }
   })
 
-  it('(#44) getCategoriesForPurpose: 目的名からカテゴリ一覧を取得、未知の目的はnull', () => {
+  it('getCategoriesForPurpose: 目的名からカテゴリ一覧を取得、未知の目的はnull', () => {
     const eat = getCategoriesForPurpose('食べる')
     expect(eat.map((c) => c.id)).toEqual(['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'])
-    const live = getCategoriesForPurpose('暮らす')
-    expect(live.map((c) => c.id)).toEqual(['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets', 'company_office'])
+    const publicFac = getCategoriesForPurpose('公共施設')
+    expect(publicFac.map((c) => c.id)).toEqual(['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'])
     const bf = getCategoriesForPurpose('バリアフリー')
     expect(bf.map((c) => c.id)).toEqual(['barrier_free'])
     expect(getCategoriesForPurpose('存在しない目的')).toBeNull()
   })
 
-  it('(#44) getPurposeOfCategory: カテゴリ→目的グループ名を解決できる', () => {
+  it('getPurposeOfCategory: カテゴリ→唯一の所属種別名を解決できる', () => {
     expect(getPurposeOfCategory('cafe')).toBe('食べる')
     expect(getPurposeOfCategory('convenience')).toBe('買う')
-    expect(getPurposeOfCategory('park')).toBe('遊ぶ')
-    expect(getPurposeOfCategory('hospital')).toBe('暮らす')
+    expect(getPurposeOfCategory('park')).toBe('遊ぶ・公園')
+    expect(getPurposeOfCategory('accommodation')).toBe('遊ぶ・公園')
+    expect(getPurposeOfCategory('hospital')).toBe('病院・薬局')
+    expect(getPurposeOfCategory('public_facility')).toBe('役所・手続き')
+    expect(getPurposeOfCategory('bank')).toBe('役所・手続き')
     expect(getPurposeOfCategory('school')).toBe('学ぶ')
     expect(getPurposeOfCategory('kindergarten')).toBe('学ぶ')
     expect(getPurposeOfCategory('primary_school')).toBe('学ぶ')
     expect(getPurposeOfCategory('university')).toBe('学ぶ')
     expect(getPurposeOfCategory('prep_school')).toBe('学ぶ')
-    expect(getPurposeOfCategory('transport')).toBe('その他')
+    expect(getPurposeOfCategory('toilets')).toBe('公共施設')
+    expect(getPurposeOfCategory('telephone')).toBe('公共施設')
+    expect(getPurposeOfCategory('drinking_water')).toBe('公共施設')
+    expect(getPurposeOfCategory('aed')).toBe('公共施設')
+    expect(getPurposeOfCategory('post_box')).toBe('公共施設')
+    expect(getPurposeOfCategory('company_office')).toBe('会社・事務所')
+    expect(getPurposeOfCategory('transport')).toBe('移動・交通')
     expect(getPurposeOfCategory('barrier_free')).toBe('バリアフリー')
     expect(getPurposeOfCategory('ramen')).toBeNull()
   })
 
-  it('(#44) すべての目的グループにicon（emoji）が付与されている', () => {
+  it('すべての目的グループにicon（emoji）が付与されていて、重複しない', () => {
+    const icons = CATEGORY_GROUPS.map((g) => g.icon)
     for (const g of CATEGORY_GROUPS) {
       expect(g.icon).toBeTruthy()
       expect(g.icon.length).toBeGreaterThan(0)
     }
+    expect(new Set(icons).size).toBe(icons.length)
+  })
+})
+
+describe('新規の種別詳細（公衆電話・水飲み場・AED・郵便ポスト）', () => {
+  it('CATEGORIES に4件存在し、正しいタグ・ラベル・所属種別を持つ', () => {
+    const expected = [
+      { id: 'telephone', label: '公衆電話', filter: 'amenity=telephone' },
+      { id: 'drinking_water', label: '水飲み場', filter: 'amenity=drinking_water' },
+      { id: 'aed', label: 'AED', filter: 'emergency=defibrillator' },
+      { id: 'post_box', label: '郵便ポスト', filter: 'amenity=post_box' }
+    ]
+    for (const e of expected) {
+      const cat = getCategoryById(e.id)
+      expect(cat).toBeTruthy()
+      expect(cat.label).toBe(e.label)
+      expect(categoryToQueryFilter(cat).unionFilters).toEqual([e.filter])
+      expect(getPurposeOfCategory(e.id)).toBe('公共施設')
+    }
+  })
+})
+
+describe('既存カテゴリの変更（ラベル・transportタグ）', () => {
+  it('public_facility のラベルは「役所・公共機関」（新種別「公共施設」との名前衝突回避。IDはそのまま）', () => {
+    const cat = getCategoryById('public_facility')
+    expect(cat.id).toBe('public_facility')
+    expect(cat.label).toBe('役所・公共機関')
+  })
+
+  it('transport の取得タグに bicycle_rental・bicycle_parking が追加されている（既存タグはそのまま）', () => {
+    const f = categoryToQueryFilter(getCategoryById('transport'))
+    expect(f.unionFilters).toEqual([
+      'railway~"^(station|subway_entry|tram_stop)$"',
+      'highway~"^(bus_stop|platform)$"',
+      'amenity~"^(fuel|parking|bicycle_rental|bicycle_parking)$"'
+    ])
+    expect(getCategoryById('transport').label).toBe('交通・駅')
   })
 })
 
 describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabelList）', () => {
   it('getPurposeUnionFilters: グループ内全カテゴリのタグ条件を重複除去してunion化できる', () => {
-    const filters = getPurposeUnionFilters('遊ぶ')
+    const filters = getPurposeUnionFilters('遊ぶ・公園')
     // 公園2 + スポーツ1 + 博物館1 + 寺院神社2 + 宿泊2 = 8条件
     expect(filters).toHaveLength(8)
     expect(filters).toContain('leisure~"^(park|playground|garden|pitch)$"')
@@ -174,8 +228,8 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
   })
 
   it('getPurposeLabelList: グループ内カテゴリラベルを「・」区切りで返す', () => {
-    expect(getPurposeLabelList('遊ぶ')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設')
-    expect(getPurposeLabelList('暮らす')).toBe('公共施設・病院・クリニック・薬局・ドラッグストア・銀行・ATM・トイレ・会社・事務所')
+    expect(getPurposeLabelList('遊ぶ・公園')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設')
+    expect(getPurposeLabelList('公共施設')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト')
     expect(getPurposeLabelList('バリアフリー')).toBe('バリアフリー')
     expect(getPurposeLabelList('存在しない目的')).toBe('')
   })
@@ -185,7 +239,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     expect(filters).toEqual([])
   })
 
-  it('getPurposeUnionFilters: (#63) 病院・薬局 = 病院・クリニック + 薬局・ドラッグストア のunion', () => {
+  it('getPurposeUnionFilters: 病院・薬局 = 病院・クリニック + 薬局・ドラッグストア のunion', () => {
     expect(getPurposeUnionFilters('病院・薬局')).toEqual([
       'amenity~"^(hospital|clinic|doctors|dentist)$"',
       'amenity=pharmacy',
@@ -193,7 +247,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     ])
   })
 
-  it('getPurposeUnionFilters: (#63) 役所・手続き = 公共施設 + 銀行・ATM のunion', () => {
+  it('getPurposeUnionFilters: 役所・手続き = 役所・公共機関 + 銀行・ATM のunion', () => {
     expect(getPurposeUnionFilters('役所・手続き')).toEqual([
       'amenity~"^(townhall|post_office|police|fire_station|library|community_centre|recycling|shelter)$"',
       'office~"^(government|municipality)$"',
@@ -201,13 +255,23 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     ])
   })
 
-  it('getPurposeLabelList: (#63) クイックグループの案内文', () => {
+  it('getPurposeUnionFilters: 公共施設 = トイレ・公衆電話・水飲み場・AED・郵便ポスト のunion', () => {
+    expect(getPurposeUnionFilters('公共施設')).toEqual([
+      'amenity=toilets',
+      'amenity=telephone',
+      'amenity=drinking_water',
+      'emergency=defibrillator',
+      'amenity=post_box'
+    ])
+  })
+
+  it('getPurposeLabelList: クイックグループの案内文', () => {
     expect(getPurposeLabelList('病院・薬局')).toBe('病院・クリニック・薬局・ドラッグストア')
-    expect(getPurposeLabelList('役所・手続き')).toBe('公共施設・銀行・ATM')
+    expect(getPurposeLabelList('役所・手続き')).toBe('役所・公共機関・銀行・ATM')
   })
 
   it('getPurposeUnionFilters: 他の目的グループに barrier_free フィルタが混入しない', () => {
-    for (const name of ['食べる', '買う', '遊ぶ', '暮らす', '病院・薬局', '役所・手続き', '学ぶ', 'その他']) {
+    for (const name of GROUP_NAMES.filter((n) => n !== 'バリアフリー')) {
       const filters = getPurposeUnionFilters(name)
       for (const f of filters) {
         expect(f).not.toContain('footway')
@@ -271,8 +335,8 @@ describe('会社・事務所カテゴリ', () => {
     expect(f.unionFilters[0]).toBe('office~"^(company|coworking|lawyer|financial|it|research|accounting|marketing|telecommunication|accountant|advertising_agency|airline|architect|association|broadcaster|charity|construction_company|consulting|courier|employment_agency|energy_supplier|engineer|estate_agent|event_management|financial_advisor|foundation|graphic_design|insurance|logistics|moving_company|newspaper|ngo|notary|publisher|property_management|security|surveyor|tax_advisor|transport|travel_agent|union|visa|water_utility|yes)$"')
   })
 
-  it('「暮らす」目的グループに属する（基本7グループ内の単一グループ）', () => {
-    expect(getPurposeOfCategory('company_office')).toBe('暮らす')
+  it('「会社・事務所」種別に属する（唯一の所属グループ）', () => {
+    expect(getPurposeOfCategory('company_office')).toBe('会社・事務所')
   })
 
   it('categoryToReadableTags: office の値が表示される', () => {

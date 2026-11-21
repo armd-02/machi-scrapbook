@@ -482,3 +482,35 @@ describe('MobileFacilityCard: 作業スペース系 電源・Wi-Fi', () => {
     expect(screen.queryByText(/^2$/)).toBeNull()
   })
 })
+
+// ===== 施設名の左のアイコン（コミュニティマップメーカー由来の対応表） =====
+describe('MobileFacilityCard: 施設名の左のアイコン', () => {
+  const iconImg = (container) => container.querySelector('img')
+
+  it('OSMタグから対応表で決まったアイコン画像が名前の左に表示される（cafe → cafe.png）', () => {
+    const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    const img = iconImg(container)
+    expect(img).toBeTruthy()
+    expect(img.alt).toBe('')
+    expect(img.getAttribute('src')).toBe(`${import.meta.env.BASE_URL}icons/cafe.png`)
+    // 名前の左側（h3 の前に DOM 上にある）
+    const h3 = container.querySelector('h3')
+    expect(img.compareDocumentPosition(h3) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 高さ 24px（h-6）
+    expect(img.className).toContain('h-6')
+  })
+
+  it('subtag 判定が効く（寺院+religion=buddhist → buddhist.png）', () => {
+    const { container } = render(
+      <MobileFacilityCard result={{ type: 'node', id: 60, tags: { name: '某寺', amenity: 'place_of_worship', religion: 'buddhist' } }} onOpen={vi.fn()} />
+    )
+    expect(iconImg(container).getAttribute('src')).toBe(`${import.meta.env.BASE_URL}icons/buddhist.png`)
+  })
+
+  it('タグが無い・対応表に無い場合は fallback アイコン（marker-stroked.png）を表示する', () => {
+    const { container } = render(
+      <MobileFacilityCard result={{ type: 'node', id: 61, tags: { name: '謎の施設', foo: 'bar' } }} onOpen={vi.fn()} />
+    )
+    expect(iconImg(container).getAttribute('src')).toBe(`${import.meta.env.BASE_URL}icons/marker-stroked.png`)
+  })
+})

@@ -25,7 +25,7 @@ describe('#44 buildPoiQuery', () => {
   })
 
   it('目的のみ指定時: その目的の施設種類unionに絞る（#44 目的スコープ）', () => {
-    const { query } = buildPoiQuery(testBbox, '', '', '', '遊ぶ')
+    const { query } = buildPoiQuery(testBbox, '', '', '', '遊ぶ・公園')
     // 遊ぶグループのフィルタが含まれる
     expect(query).toContain('[leisure~"^(park|playground|garden|pitch)$"]')
     expect(query).toContain('[amenity=plaza]')
@@ -37,7 +37,7 @@ describe('#44 buildPoiQuery', () => {
   })
 
   it('カテゴリ+目的指定時: カテゴリが優先される（目的unionは使わない）', () => {
-    const { query } = buildPoiQuery(testBbox, 'cafe', '', '', '遊ぶ')
+    const { query } = buildPoiQuery(testBbox, 'cafe', '', '', '遊ぶ・公園')
     expect(query).toContain('[amenity=cafe]')
     expect(query).not.toContain('[amenity=place_of_worship]')
     expect(query).not.toContain('[shop]')
@@ -110,15 +110,19 @@ describe('#44 buildPoiQuery', () => {
     expect(query).not.toContain('traffic_signals')
   })
 
-  it('バリアフリーカテゴリ未選択・目的「暮らす」選択時: バリアフリーフィルタは混入しない', () => {
-    const { query } = buildPoiQuery(testBbox, '', '', '', '暮らす')
-    // 暮らすにはバリアフリーフィルタが含まれない
+  it('バリアフリーカテゴリ未選択・目的「公共施設」選択時: バリアフリーフィルタは混入しない', () => {
+    const { query } = buildPoiQuery(testBbox, '', '', '', '公共施設')
+    // 公共施設にはバリアフリーフィルタが含まれない
     expect(query).not.toContain('footway')
     expect(query).not.toContain('barrier=kerb')
     expect(query).not.toContain('traffic_signals')
-    // 暮らすのカテゴリは含まれる
-    expect(query).toContain('amenity=pharmacy')
-    expect(query).toContain('bank')
+    // 公共施設のカテゴリは含まれる
+    expect(query).toContain('amenity=toilets')
+    expect(query).toContain('amenity=post_box')
+    expect(query).toContain('emergency=defibrillator')
+    // 役所・手続き・病院系のフィルタは混入しない
+    expect(query).not.toContain('amenity=pharmacy')
+    expect(query).not.toContain('amenity=bank')
   })
 
   it('会社・事務所カテゴリ指定時: office の民間値 regex を使い、役所系・教育系は含まれない', () => {

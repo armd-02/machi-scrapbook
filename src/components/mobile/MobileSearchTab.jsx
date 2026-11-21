@@ -4,7 +4,7 @@ import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, viewboxAround } from '../../utils/geo'
+import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround } from '../../utils/geo'
 import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
@@ -264,9 +264,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   //   Nominatim のレート制限・候補提示ループの防止）
   // - 自治体の完全一致が1件: その自治体の範囲をエリアに設定（Nominatim 呼ばない）
   // - 完全一致が2件以上: 自治体候補だけ複数提示（Nominatim 呼ばない）
-  // - それ以外: Nominatim で geocode（1リクエスト/秒の制限）。現在位置が
-  //   取得できていれば viewbox（現在地中心 ±0.15度）を付けて近傍の結果を
-  //   優先する（bounded=1 は付けない）
+  // - それ以外: Nominatim で geocode（1リクエスト/秒の制限）。Nominatim 問い合わせ
+  //   前に現在位置の取得確定を待つ（未取得ならその場で取得を開始して待つ、
+  //   失敗なら viewbox なしで従来どおり）。位置が取れていれば viewbox（現在地中心
+  //   ±0.15度）を付けて近傍の結果を優先する（bounded=1 は付けない）。viewbox
+  //   付きでは limit=20 で取得し、現在位置からの距離順に並べ替えて先頭5件を使う
   //   ・候補1件: エリア設定（成功で入力欄が緑＋フィードバック）
   //   ・候補複数: 候補リストを提示（タップでエリア設定）
   //   ・0件・広すぎる: 入力欄の下にエラー表示
@@ -310,9 +312,22 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         setPendingCandidates(exact.map(municipalityToCandidate))
         return
       }
-      // 完全一致なし: Nominatim の流れ。現在位置が取得できていれば viewbox を
-      // 付けて近傍の結果を優先する
-      const cands = await geocodeCandidates(q, { viewbox: viewboxAround(nearby.center) })
+      // 完全一致なし: Nominatim の流れ。Nominatim を問い合わせる前に現在位置
+      // の取得が確定するのを待つ（既に取れていれば即決。進行中なら確定を待ち、
+      // 未開始ならその場で取得を開始して待つ。拒否・失敗・タイムアウトなら
+      // viewbox なしで従来どおり問い合わせる — ユーザーをブロックしない）
+      const pos = await nearby.awaitPosition()
+      const viewbox = viewboxAround(pos)
+      // viewbox 付きのときは多めに取得（limit=20）して現在位置からの距離順に
+      // 並び替え、先頭5件を候補として使う（Nominatim は距離順に並べないため）。
+      // viewbox なしは従来どおり limit=5・Nominatim の順序のまま
+      const cands = viewbox
+        ? sortCandidatesByDistance(
+            await geocodeCandidates(q, { viewbox, limit: 20 }),
+            pos,
+            5
+          )
+        : await geocodeCandidates(q, { limit: 5 })
       if (cands.length === 0) {
         setSearchError('場所が見つかりませんでした。別の表記で試してください。')
         return

@@ -1250,8 +1250,8 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
 
-    // 目的タイル10種が揃って表示される
-    for (const label of ['食べる', '買う', '病院・薬局', '役所・手続き', '遊ぶ・公園', '泊まる', '駅・交通', 'トイレ', '学ぶ', 'バリアフリー']) {
+    // 目的（種別）タイル9種＋バリアフリー特別枠が揃って表示される
+    for (const label of ['食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き', '公共施設', '会社・事務所', '移動・交通', 'バリアフリー']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
 
@@ -1441,18 +1441,22 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
   }, IT_TIMEOUT)
 
-  it('単一カテゴリタイル（トイレ）: そのカテゴリで検索が実行される', async () => {
+  it('目的タイル（公共施設）: グループ内5カテゴリのunionで検索が実行される', async () => {
     renderApp()
     // (#63) タイル選択前に検索エリアを設定（ジオコード）する
     await setAreaByGeocode()
 
     // タイルを選択して「検索する」で検索を実行
-    fireEvent.click(screen.getByRole('button', { name: 'トイレ' }))
+    fireEvent.click(screen.getByRole('button', { name: '公共施設' }))
     fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
-    // 単一カテゴリタイル: カテゴリのタグ条件（amenity=toilets）で検索エリアを検索
+    // 目的タイル: グループ内カテゴリ（トイレ・公衆電話・水飲み場・AED・郵便ポスト）のunionで検索
     expect(overpassCalls[0]).toContain('amenity=toilets')
+    expect(overpassCalls[0]).toContain('amenity=telephone')
+    expect(overpassCalls[0]).toContain('amenity=drinking_water')
+    expect(overpassCalls[0]).toContain('emergency=defibrillator')
+    expect(overpassCalls[0]).toContain('amenity=post_box')
     expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
   }, IT_TIMEOUT)
 

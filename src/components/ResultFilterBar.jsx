@@ -99,7 +99,7 @@ export const FILTER_META = {
   wifi:        { icon: '📶', heading: 'Wi-Fi' },
   power:       { icon: '⚡', heading: '電源' },
   wheelchair:  { icon: '♿', heading: '車椅子' },
-  category:    { icon: '📁', heading: 'カテゴリ' },
+  category:    { icon: '📁', heading: '種別詳細' },
   cuisine:     { icon: '🍜', heading: '料理ジャンル' },
   rating:      { icon: '★', heading: '評価' },
   sort:        { icon: '↕️', heading: '並び順' },
@@ -522,8 +522,8 @@ export function CategorySelect({ items, value, onChange, className = 'w-full', f
   )
   const fmt = (n) => (n || 0).toLocaleString('ja-JP')
   return (
-    <FilterSelect label="カテゴリで絞り込む" value={value || ''} onChange={onChange} className={className} filter={filter}>
-      <option value="">{hasData ? `カテゴリ: すべて（${fmt(data.length)}件）` : 'カテゴリ: すべて'}</option>
+    <FilterSelect label="種別詳細で絞り込む" value={value || ''} onChange={onChange} className={className} filter={filter}>
+      <option value="">{hasData ? `種別詳細: すべて（${fmt(data.length)}件）` : '種別詳細: すべて'}</option>
       {groups.map((g) => (
         <optgroup key={g.group} label={g.group}>
           {g.categories.map((c) => (

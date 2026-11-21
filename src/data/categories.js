@@ -89,7 +89,7 @@ export const CATEGORIES = [
   },
   {
     id: 'public_facility',
-    label: '公共施設',
+    label: '役所・公共機関',
     tags: [
       { key: 'amenity', values: ['townhall', 'post_office', 'police', 'fire_station', 'library', 'community_centre', 'recycling', 'shelter'] },
       { key: 'office', values: ['government', 'municipality'] }
@@ -200,10 +200,10 @@ export const CATEGORIES = [
     tags: [
       { key: 'railway', values: ['station', 'subway_entry', 'tram_stop'] },
       { key: 'highway', values: ['bus_stop', 'platform'] },
-      { key: 'amenity', values: ['fuel', 'parking'] }
+      { key: 'amenity', values: ['fuel', 'parking', 'bicycle_rental', 'bicycle_parking'] }
     ],
     logic: 'or',
-    description: '駅・バス停・ガソリンスタンド・駐車場'
+    description: '駅・バス停・ガソリンスタンド・駐車場・レンタサイクル・駐輪場'
   },
   {
     id: 'accommodation',
@@ -230,6 +230,34 @@ export const CATEGORIES = [
     tags: [{ key: 'amenity', values: ['toilets'] }],
     logic: 'or',
     description: '公共トイレ・トイレ'
+  },
+  {
+    id: 'telephone',
+    label: '公衆電話',
+    tags: [{ key: 'amenity', values: ['telephone'] }],
+    logic: 'or',
+    description: '公衆電話'
+  },
+  {
+    id: 'drinking_water',
+    label: '水飲み場',
+    tags: [{ key: 'amenity', values: ['drinking_water'] }],
+    logic: 'or',
+    description: '水飲み場'
+  },
+  {
+    id: 'aed',
+    label: 'AED',
+    tags: [{ key: 'emergency', values: ['defibrillator'] }],
+    logic: 'or',
+    description: 'AED（自動体外式除細動器）'
+  },
+  {
+    id: 'post_box',
+    label: '郵便ポスト',
+    tags: [{ key: 'amenity', values: ['post_box'] }],
+    logic: 'or',
+    description: '郵便ポスト'
   },
   {
     id: 'worship',
@@ -286,28 +314,30 @@ export function getCategoryById(id) {
 }
 
 /**
- * (#44 改訂 2026-10-28) 目的ベースの施設グループ — 「生活者目線UI」
+ * (#44 改訂 2026-10-28、再編) 目的ベースの施設グループ — 「生活者目線UI」
  *
  * OSMタグキー（amenity=…など）を上位カテゴリにしない代わりに、利用目的で
- * グループ化する: 食べる／買う／遊ぶ／暮らす／学ぶ／その他。
- * PCのカテゴリselectの <optgroup> ラベルと、モバイルの目的チップで同じ
- * 定義を共有する（単一データソース）。基本7グループは各カテゴリがちょうど
- * 1つの主グループに属する（分区）。icon はモバイルの目的チップ表示用（emoji）。
+ * グループ化する: 食べる／買う／遊ぶ・公園／学ぶ／病院・薬局／役所・手続き／
+ * 公共施設／会社・事務所／移動・交通／バリアフリー。
+ * PCのカテゴリselectの <optgroup> ラベル、モバイルの目的チップ、トップ画面の
+ * タイルで同じ定義を共有する（単一データソース）。
+ * 各カテゴリはちょうど1つのグループにだけ所属する（重複所属はない）。
+ * icon は目的チップ・タイル表示用（emoji）。
  * グループ内の順序はここで制御する（CATEGORIES 配列の順序に依存しない）。
- * (#63) モバイル「一般向けトップ」用のクイックグループ（病院・薬局／役所・手続き）は
- * 「暮らす」のサブセットで意図的に重複する。複合タイル用のもので、
- * getPurposeOfCategory は主グループ（配列内で最初に見つかる側）に解決される。
+ * 表示順は「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系
+ * （病院・薬局・役所・手続き・公共施設・会社・事務所・移動・交通）で、
+ * チップ・セレクト・タイルすべてでこの定義順をそのまま使う。
  */
 export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
   { name: '買う', icon: '🛍️', ids: ['retail', 'convenience'] },
-  { name: '遊ぶ', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
-  { name: '暮らす', icon: '🏠', ids: ['public_facility', 'hospital', 'pharmacy', 'bank', 'toilets', 'company_office'] },
-  // (#63) モバイル一般向けトップのクイックグループ（複合タイル。「暮らす」との重複は意図的）
+  { name: '遊ぶ・公園', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
+  { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'] },
   { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
   { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },
-  { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'] },
-  { name: 'その他', icon: '🧭', ids: ['transport'] },
+  { name: '公共施設', icon: '🚻', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'] },
+  { name: '会社・事務所', icon: '🏢', ids: ['company_office'] },
+  { name: '移動・交通', icon: '🚉', ids: ['transport'] },
   { name: 'バリアフリー', icon: '♿', ids: ['barrier_free'] }
 ]
 
@@ -348,7 +378,7 @@ export function isFoodCategory(id) {
 
 /**
  * (#44) 目的グループ名（'食べる'など）からカテゴリ一覧を取得
- * @param {string} purposeName - '食べる' | '買う' | '遊ぶ' | '暮らす' | '学ぶ' | 'その他'
+ * @param {string} purposeName - '食べる' | '買う' | '遊ぶ・公園' | '学ぶ' | '病院・薬局' | '役所・手続き' | '公共施設' | '会社・事務所' | '移動・交通' | 'バリアフリー'
  * @returns {Array<object>|null} カテゴリ配列、未知の目的ならnull
  */
 export function getCategoriesForPurpose(purposeName) {
@@ -359,6 +389,7 @@ export function getCategoriesForPurpose(purposeName) {
 
 /**
  * (#44) 指定カテゴリが属する目的グループ名を返す（'食べる'など）、属さない場合は null
+ * 各カテゴリはちょうど1つのグループにだけ所属するため、ここが「唯一の所属グループ」を返す
  */
 export function getPurposeOfCategory(categoryId) {
   const group = CATEGORY_GROUPS.find((g) => g.ids.includes(categoryId))
@@ -372,7 +403,7 @@ export function getPurposeOfCategory(categoryId) {
  * タグ条件を1つのOR unionにまとめる。カテゴリ未選択のまま検索すると、
  * 「その目的の施設種類」に絞ったOverpassクエリが生成される。
  *
- * @param {string} purposeName - '食べる' | '買う' | '遊ぶ' | '暮らす' | '学ぶ' | 'その他'
+ * @param {string} purposeName - CATEGORY_GROUPS のグループ名（'食べる'など）
  * @returns {Array<string>} Overpass QLフィルタ文字列の配列（角括弧なし）。
  *   未知の目的・カテゴリが空の場合は空配列。
  */
@@ -397,7 +428,7 @@ export function getPurposeUnionFilters(purposeName) {
 
 /**
  * (#44) 目的グループの施設種類ラベルを「・」区切りで返す（UI案内文用）
- * 例: getPurposeLabelList('遊ぶ') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設'
+ * 例: getPurposeLabelList('遊ぶ・公園') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設'
  */
 export function getPurposeLabelList(purposeName) {
   const cats = getCategoriesForPurpose(purposeName)

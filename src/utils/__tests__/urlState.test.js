@@ -116,16 +116,16 @@ describe('encodeStateToURL / decodeURLToState', () => {
     const state = {
       searchSource: 'map',
       searchMode: 'simple',
-      simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '遊ぶ' },
+      simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '遊ぶ・公園' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       municipalitySearch: { category: '', cuisine: '', purpose: '' },
       selectedMunicipality: null,
       bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 }
     }
     const qs = encodeStateToURL(state)
-    expect(qs).toContain('p=' + encodeURIComponent('遊ぶ'))
+    expect(qs).toContain('p=' + encodeURIComponent('遊ぶ・公園'))
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.simpleSearch.purpose).toBe('遊ぶ')
+    expect(decoded.simpleSearch.purpose).toBe('遊ぶ・公園')
   })
 
   it('自治体モードの目的スコープも復元される (#44)', () => {
@@ -134,14 +134,14 @@ describe('encodeStateToURL / decodeURLToState', () => {
       searchMode: 'simple',
       simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
-      municipalitySearch: { category: '', cuisine: '', purpose: '暮らす' },
+      municipalitySearch: { category: '', cuisine: '', purpose: '公共施設' },
       selectedMunicipality: { code: '272078', name: '高槻市', bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 } },
       bbox: null
     }
     const qs = encodeStateToURL(state)
-    expect(qs).toContain('p=' + encodeURIComponent('暮らす'))
+    expect(qs).toContain('p=' + encodeURIComponent('公共施設'))
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.municipalitySearch.purpose).toBe('暮らす')
+    expect(decoded.municipalitySearch.purpose).toBe('公共施設')
   })
 })
 

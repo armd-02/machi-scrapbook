@@ -37,7 +37,7 @@ beforeEach(() => cleanup())
 describe('StatisticsPanel: カテゴリ別タブ', () => {
   it('「カテゴリ別」タブがあり、クリックするとカテゴリ集計テーブルが表示される', () => {
     renderPanel()
-    const tab = screen.getByRole('button', { name: 'カテゴリ別' })
+    const tab = screen.getByRole('button', { name: '種別詳細別' })
     fireEvent.click(tab)
     expect(screen.getByTestId('category-summary-table')).toBeTruthy()
     // カテゴリラベル（CATEGORIESの日本語ラベル）と件数

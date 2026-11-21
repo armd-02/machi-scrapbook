@@ -22,13 +22,22 @@ const POSITION_MAX_AGE_MS = 5 * 60 * 1000
  * 動作する（status: 'denied'）。Overpass の取得失敗時は前のキャッシュが
  * あるならそれを維持する（劣化して動作し続ける）。
  *
+ * 現在位置の取得は Overpass 周辺取得の成否・完了とは切り離して保持される
+ * （positionRef）。位置が取れていても周辺取得が未完了・失敗の場合に
+ * 「位置が取れているのに center が null」になるのを防ぐ（viewbox 付け）。
+ *
  * @returns {object}
  *   status: 'idle' | 'locating' | 'fetching' | 'ready' | 'denied' | 'error'
  *   candidates: キャッシュされた周辺候補（取得不能なら空配列）
  *   error: 周辺候補取得失敗の理由（status 'error' のとき）
- *   center: キャッシュに使った現在位置 { lat, lon }（無ければ null）。
- *     「地名検索」の viewbox 付けに使う
+ *   center: 現在位置 { lat, lon }（無ければ null）。「地名検索」の viewbox
+ *     付けに使う。キャッシュ位置があればそれを、なければ最後に取得した
+ *     位置を使う
  *   request: () => Promise<void> — 入力欄フォーカス時に呼ぶ
+ *   awaitPosition: () => Promise<{ lat, lon }|null> — 「地名検索」押下時に
+ *     位置取得の確定を待つ（既に取れていれば即返す。進行中なら確定を待ち、
+ *     未開始ならその場で取得を開始して待つ。失敗確定なら即 null。ユーザーを
+ *     ブロックしない）
  */
 export function useNearbyPlaceCandidates() {
   const [status, setStatus] = useState('idle')
@@ -36,6 +45,15 @@ export function useNearbyPlaceCandidates() {
   const [error, setError] = useState(null)
   // キャッシュ（再レンダリングで失われないように ref）。{ lat, lon, candidates }
   const cacheRef = useRef(null)
+  // 最後に取得した現在位置（Overpass 取得の成否・完了と切り離して保持）。
+  // { lat, lon }
+  const positionRef = useRef(null)
+  // 位置取得進行中の Promise（request と awaitPosition が共有する）
+  const pendingRef = useRef(null)
+  // 位置取得が失敗した（拒否・非対応・タイムアウト）かのフラグ。
+  // 失敗確定後は awaitPosition が新しい取得を開始せず即 null を返す
+  // （ユーザーをブロックしない）
+  const failedRef = useRef(false)
   // 取得中のフラグ（フォーカスが連続して起きても重複リクエストを防ぐ）
   const busyRef = useRef(false)
 
@@ -57,13 +75,48 @@ export function useNearbyPlaceCandidates() {
       )
     })
 
+  // 現在位置の取得を開始する（進行中の取得があればその Promise を共有する）。
+  // 成功なら positionRef に保存、失敗なら failedRef を立てる
+  const startPosition = () => {
+    if (pendingRef.current) return pendingRef.current
+    const p = (async () => {
+      const pos = await getPosition()
+      pendingRef.current = null
+      if (pos) {
+        positionRef.current = pos
+        failedRef.current = false
+      } else {
+        failedRef.current = true
+      }
+      return pos
+    })()
+    pendingRef.current = p
+    return p
+  }
+
+  /**
+   * 現在位置の取得が確定するまで待つ（「地名検索」の viewbox 付け用）。
+   * - 既に取れていれば即返す
+   * - 取得が進行中ならその成否を待つ
+   * - 過去の取得が失敗済みなら即 null（新しい取得は開始しない）
+   * - 未取得ならその場で取得を開始して確定を待つ
+   * @returns {Promise<{ lat: number, lon: number }|null>}
+   */
+  const awaitPosition = useCallback(() => {
+    if (positionRef.current) return Promise.resolve(positionRef.current)
+    if (pendingRef.current) return pendingRef.current
+    if (failedRef.current) return Promise.resolve(null)
+    return startPosition()
+  }, [])
+
   const request = useCallback(async () => {
     if (busyRef.current) return
     busyRef.current = true
     setError(null)
 
-    // ① 現在位置の取得
-    const pos = await getPosition()
+    // ① 現在位置の取得（awaitPosition と同じ Promise を共有する）
+    setStatus('locating')
+    const pos = await startPosition()
     if (!pos) {
       // 位置が得られない（拒否・非対応・タイムアウト）: 周辺候補なしで動作。
       // 以前のキャッシュがある場合はそれを維持する（劣化して動作し続ける）
@@ -109,9 +162,12 @@ export function useNearbyPlaceCandidates() {
     busyRef.current = false
   }, [])
 
-  const center = cacheRef.current
-    ? { lat: cacheRef.current.lat, lon: cacheRef.current.lon }
+  // center: キャッシュ位置があればそれを、なければ最後に取得した位置を使う
+  // （「位置が取れているのに center が null」にならないようにする）
+  const centerPos = cacheRef.current || positionRef.current
+  const center = centerPos
+    ? { lat: centerPos.lat, lon: centerPos.lon }
     : null
 
-  return { status, candidates, error, center, request }
+  return { status, candidates, error, center, request, awaitPosition }
 }

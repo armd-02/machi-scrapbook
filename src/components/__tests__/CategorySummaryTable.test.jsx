@@ -46,14 +46,14 @@ describe('CategorySummaryTable', () => {
     expect(screen.getByText('+ 4件')).toBeTruthy()
   })
 
-  it('空のsummaryは「カテゴリに分類できる結果がありません」を表示する', () => {
+  it('空のsummaryは「種別詳細に分類できる結果がありません」を表示する', () => {
     render(<CategorySummaryTable summary={[]} />)
-    expect(screen.getByText(/カテゴリに分類できる結果がありません/)).toBeTruthy()
+    expect(screen.getByText(/種別詳細に分類できる結果がありません/)).toBeTruthy()
     expect(screen.queryByTestId('category-summary-table')).toBeNull()
   })
 
   it('summaryがundefinedでもエラーにならない', () => {
     render(<CategorySummaryTable />)
-    expect(screen.getByText(/カテゴリに分類できる結果がありません/)).toBeTruthy()
+    expect(screen.getByText(/種別詳細に分類できる結果がありません/)).toBeTruthy()
   })
 })

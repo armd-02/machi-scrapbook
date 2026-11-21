@@ -80,6 +80,47 @@ const OSAKA_UEMACHI_ROW = {
   address: { state: '大阪府', county: '北区', city: '大阪市' },
 }
 
+// 「上本町」複数候補（viewbox 付きの距離順再ソート検証用）。同名で座標・
+// 住所ラベルを変えている（重複除去されない）。現在位置 mock（34.7, 135.5）
+// からの距離: 大阪市北区 0km < 吹田市 約1.5km < 香芝市 約14km <
+// 桑名市 約178km < 東京都新宿区 約397km < 鹿児島市 約564km
+const UEMACHI_SUITA_ROW = {
+  lat: '34.710000',
+  lon: '135.510000',
+  display_name: '上本町, 吹田市, 大阪府, 日本',
+  name: '上本町',
+  type: 'suburb',
+  boundingbox: ['34.70', '34.72', '135.50', '135.52'],
+  address: { state: '大阪府', city: '吹田市' },
+}
+const UEMACHI_KASUGANO_ROW = {
+  lat: '34.800000',
+  lon: '135.600000',
+  display_name: '上本町, 香芝市, 奈良県, 日本',
+  name: '上本町',
+  type: 'suburb',
+  boundingbox: ['34.79', '34.81', '135.59', '135.61'],
+  address: { state: '奈良県', city: '香芝市' },
+}
+const UEMACHI_KUWANA_ROW = {
+  lat: '33.200000',
+  lon: '134.900000',
+  display_name: '上本町, 桑名市, 三重県, 日本',
+  name: '上本町',
+  type: 'suburb',
+  boundingbox: ['33.19', '33.21', '134.89', '134.91'],
+  address: { state: '三重県', city: '桑名市' },
+}
+const UEMACHI_TOKYO_ROW = {
+  lat: '35.700000',
+  lon: '139.700000',
+  display_name: '上本町, 新宿区, 東京都, 日本',
+  name: '上本町',
+  type: 'suburb',
+  boundingbox: ['35.69', '35.71', '139.69', '139.71'],
+  address: { state: '東京都', city: '新宿区' },
+}
+
 // 「大阪府」（都道府県レベル・広すぎる）ジオコード候補
 const OSAKA_PREFECTURE_ROW = {
   lat: '34.600000',
@@ -110,6 +151,12 @@ let nominatimRows = [UEDA_ROW]
 // (place) Nominatim の fetch を「未解決」に保てる deferred（スピナー表示検証用）。
 // null のときは従来どおり nominatimRows を即返す（既存テストへの影響なし）
 let nominatimDeferred = null
+// 「地名検索」の viewbox・limit 付け検証用に Nominatim リクエストURLを記録
+let nominatimUrls = []
+// 周辺候補取得の Overpass を失敗（500）にできるステータス
+let overpassStatus = 200
+// 周辺候補取得の Overpass fetch を「未解決」に保てる deferred
+let nearbyDeferred = null
 
 function createDeferred() {
   let resolveFn
@@ -140,13 +187,25 @@ function setupMatchMedia() {
 }
 
 // Geolocation API のモック（jsdom には実装が無い）。現在位置は固定値
-// （34.7, 135.5）。周辺候補の取得と「地名検索」の viewbox 付けに使う
+// （34.7, 135.5）。周辺候補の取得と「地名検索」の viewbox 付けに使う。
+// geoMode: 'ok'（既定・即返す）| 'fail'（拒否）| 'deferred'（テストが
+// geoOkCb を呼ぶまで未解決。位置取得進行中の再現）
+let geoMode = 'ok'
+let geoOkCb = null
 function setupGeolocationMock() {
+  geoMode = 'ok'
+  geoOkCb = null
   Object.defineProperty(navigator, 'geolocation', {
     configurable: true,
     value: {
-      getCurrentPosition: (ok) => {
-        setTimeout(() => ok({ coords: { latitude: 34.7, longitude: 135.5 } }), 0)
+      getCurrentPosition: (ok, err) => {
+        if (geoMode === 'fail') {
+          setTimeout(() => err(new Error('denied')), 0)
+        } else if (geoMode === 'deferred') {
+          geoOkCb = ok
+        } else {
+          setTimeout(() => ok({ coords: { latitude: 34.7, longitude: 135.5 } }), 0)
+        }
       },
       watchPosition: () => 0,
       clearWatch: () => {},
@@ -161,6 +220,7 @@ function setupFetchMock() {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
     }
     if (u.includes('nominatim')) {
+      nominatimUrls.push(u)
       if (nominatimDeferred) {
         // (place) リクエストを実際に Pending 状態に保ち、スピナー表示を検証する
         return {
@@ -183,6 +243,18 @@ function setupFetchMock() {
       overpassCalls.push(q)
       // 周辺候補取得クエリ（around:5000 を含む）と施設検索クエリで返す要素を変える
       const isNearby = q.includes('around:5000')
+      if (isNearby && nearbyDeferred) {
+        // 周辺取得を Pending 状態に保つ（位置は取れているが Overpass 未完了の再現）
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: () => nearbyDeferred.promise,
+        }
+      }
+      if (overpassStatus !== 200) {
+        return { ok: false, status: overpassStatus, headers: new Map(), json: async () => ({}) }
+      }
       return {
         ok: true,
         status: 200,
@@ -305,6 +377,9 @@ beforeEach(() => {
   overpassCalls = []
   nominatimRows = [UEDA_ROW]
   nominatimDeferred = null
+  nominatimUrls = []
+  overpassStatus = 200
+  nearbyDeferred = null
   setupGeolocationMock()
   setupFetchMock()
   clearCache()
@@ -601,5 +676,188 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     await waitFor(() => {
       expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
     }, { timeout: 8000 })
+  }, 15000)
+})
+
+// 「地名検索」の viewbox 付け（位置取得の確定待ち・距離順再ソート）
+//
+// 背景: viewbox が付かないと Nominatim が全国から返すため、現在地（摂津富田）
+// 付近の店舗が候補に入らなかった。修正後は:
+// - 位置が取れていれば（周辺 Overpass 取得の成否・完了に関係なく）viewbox を付ける
+// - 「地名検索」押下時に位置取得が進行中・未取得なら確定を待ってから問い合わせる
+// - viewbox 付きでは limit=20 で取得し、現在位置からの距離順に並べ替えて
+//   先頭5件を候補とする（Nominatim は距離順に並べないため）
+// - 位置が取れない（拒否・失敗）場合は viewbox なしで従来どおり（limit=5）
+describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
+  // 現在位置（34.7, 135.5）中心 ±0.15度の viewbox パラメータ値
+  const EXPECTED_VIEWBOX = '135.35,34.85,135.65,34.55'
+
+  // Nominatim リクエストURLのパラメータを解析する
+  function nominatimParams() {
+    return new URLSearchParams(nominatimUrls[0].split('?')[1] || '')
+  }
+
+  // 周辺取得クエリ（around:5000）が発行されたのを待つ（位置取得完了の確証）
+  async function awaitNearbyQuerySent() {
+    await waitFor(() => {
+      expect(overpassCalls.some((q) => q.includes('around:5000'))).toBe(true)
+    }, { timeout: 8000 })
+  }
+
+  // 「地名検索」ボタンを押下する（フォームの場所入力欄）
+  function clickGeocode() {
+    const section = screen.getByRole('region', { name: '検索範囲' })
+    fireEvent.click(within(section).getByRole('button', { name: '地名検索' }))
+  }
+
+  it('位置取得に成功した直後（周辺 Overpass 取得が未完了）でも viewbox 付きで問い合わせされる', async () => {
+    // 周辺取得を Pending に保つ（位置は取れている・Overpass は未完了）
+    nearbyDeferred = createDeferred()
+    renderApp()
+    await openMapMode()
+
+    fireEvent.focus(getLocationInput())
+    await awaitNearbyQuerySent()
+
+    fireEvent.change(getLocationInput(), { target: { value: '梅田' } })
+    clickGeocode()
+
+    // Nominatim リクエストに viewbox・limit=20 が付いている
+    await waitFor(() => {
+      expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
+    }, { timeout: 8000 })
+    expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
+    expect(nominatimParams().get('limit')).toBe('20')
+
+    // 単一候補でエリアが設定される
+    await waitFor(() => {
+      expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+    }, { timeout: 8000 })
+  }, 15000)
+
+  it('周辺 Overpass 取得が失敗しても、位置が取れていれば viewbox が付く', async () => {
+    overpassStatus = 500
+    renderApp()
+    await openMapMode()
+
+    fireEvent.focus(getLocationInput())
+    // 周辺取得クエリが発行された = 位置取得が成功した（Overpass は失敗する）
+    await awaitNearbyQuerySent()
+
+    fireEvent.change(getLocationInput(), { target: { value: '梅田' } })
+    clickGeocode()
+
+    await waitFor(() => {
+      expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
+    }, { timeout: 8000 })
+    expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
+    expect(nominatimParams().get('limit')).toBe('20')
+  }, 15000)
+
+  it('「地名検索」押下時に位置取得が進行中なら、確定を待ってから viewbox 付きで問い合わせされる', async () => {
+    // 位置取得が未解決のまま（フォーカスで開始した取得が Pending）
+    geoMode = 'deferred'
+    renderApp()
+    await openMapMode()
+
+    const input = getLocationInput()
+    fireEvent.focus(input)
+    // 位置取得の ok コールバックが保持されている = 取得が進行中
+    await waitFor(() => {
+      expect(geoOkCb).toBeTruthy()
+    }, { timeout: 8000 })
+
+    fireEvent.change(input, { target: { value: '梅田' } })
+    clickGeocode()
+
+    // 位置取得が確定するまで Nominatim への問い合わせは送られない
+    await new Promise((r) => setTimeout(r, 50))
+    expect(nominatimUrls.length).toBe(0)
+
+    // 位置取得が確定（34.7, 135.5）→ viewbox 付きで問い合わせされる
+    act(() => {
+      geoOkCb({ coords: { latitude: 34.7, longitude: 135.5 } })
+    })
+    await waitFor(() => {
+      expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
+    }, { timeout: 8000 })
+    expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
+    expect(nominatimParams().get('limit')).toBe('20')
+    await waitFor(() => {
+      expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+    }, { timeout: 8000 })
+  }, 15000)
+
+  it('viewbox 付きの場合は limit=20 で取得し、距離順に並べて先頭5件が提示される', async () => {
+    // Nominatim の返却順（距離順とは異なる）に6件。東京（約397km）は5位、
+    // 鹿児島（約564km）は6位で先頭5件から落ちる
+    nominatimRows = [
+      UEMACHI_TOKYO_ROW,
+      KAGOSHI_UEMACHI_ROW,
+      OSAKA_UEMACHI_ROW,
+      UEMACHI_SUITA_ROW,
+      UEMACHI_KUWANA_ROW,
+      UEMACHI_KASUGANO_ROW,
+    ]
+    renderApp()
+    await openMapMode()
+
+    fireEvent.focus(getLocationInput())
+    await awaitNearbyQuerySent()
+
+    fireEvent.change(getLocationInput(), { target: { value: '上本町' } })
+    clickGeocode()
+
+    await waitFor(() => {
+      expect(screen.getByText('候補が複数あります。選んでください。')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // limit=20 で取得されている
+    expect(nominatimParams().get('limit')).toBe('20')
+    expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
+
+    // 現在位置（34.7, 135.5）からの距離順で先頭5件だけが提示される
+    const options = getSuggestOptions()
+    expect(options).toHaveLength(5)
+    expect(options.map((o) => o.textContent)).toEqual([
+      '上本町（大阪府大阪市）',
+      '上本町（大阪府吹田市）',
+      '上本町（奈良県香芝市）',
+      '上本町（三重県桑名市）',
+      '上本町（東京都新宿区）',
+    ])
+    // 6位の鹿児島は提示されない
+    expect(screen.queryByRole('option', { name: /鹿児島/ })).toBeNull()
+  }, 15000)
+
+  it('viewbox なし（位置取得失敗）の場合は従来どおり limit=5・Nominatim の順序のまま', async () => {
+    // 位置取得が拒否される
+    geoMode = 'fail'
+    nominatimRows = [KAGOSHI_UEMACHI_ROW, OSAKA_UEMACHI_ROW]
+    renderApp()
+    await openMapMode()
+
+    const input = getLocationInput()
+    fireEvent.focus(input)
+    // 位置取得の失敗が確定するのを待つ
+    await new Promise((r) => setTimeout(r, 50))
+
+    fireEvent.change(input, { target: { value: '上本町' } })
+    clickGeocode()
+
+    await waitFor(() => {
+      expect(screen.getByText('候補が複数あります。選んでください。')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // viewbox は付かず、limit=5 のまま
+    expect(nominatimParams().get('viewbox')).toBeNull()
+    expect(nominatimParams().get('limit')).toBe('5')
+
+    // 距離順の並び替えは行われない（Nominatim の返却順のまま）
+    const options = getSuggestOptions()
+    expect(options.map((o) => o.textContent)).toEqual([
+      '上本町（鹿児島県鹿児島市）',
+      '上本町（大阪府大阪市）',
+    ])
   }, 15000)
 })

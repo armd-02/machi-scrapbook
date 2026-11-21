@@ -54,12 +54,12 @@ describe('MobileListTab: カテゴリ選択=検索フォームと同期 (#44)', 
     render(<Harness preActions={[{ type: 'SET_SEARCH_SOURCE', payload: 'map' }, { type: 'SET_RESULTS', payload: [cafeWithWeb, park] }, { type: 'SET_STATUS', payload: 'success' }]} log={log} />)
 
     expect(screen.getByText('中央公園')).toBeTruthy()
-    const select = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const select = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     fireEvent.change(select, { target: { value: 'cafe' } })
 
     expect(log.some(a => a.type === 'SET_SIMPLE_SEARCH' && a.payload.category === 'cafe')).toBe(true)
     expect(screen.queryByText('中央公園')).toBeNull()
-    expect(screen.getByRole('combobox', { name: 'カテゴリで絞り込む' }).value).toBe('cafe')
+    expect(screen.getByRole('combobox', { name: '種別詳細で絞り込む' }).value).toBe('cafe')
   })
 
   it('自治体モード: ドロップダウンの操作はSET_MUNICIPALITY_SEARCHにdispatchされる', () => {
@@ -72,12 +72,12 @@ describe('MobileListTab: カテゴリ選択=検索フォームと同期 (#44)', 
       ]}
       log={log}
     />)
-    const select = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const select = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     fireEvent.change(select, { target: { value: 'park' } })
 
     expect(log.some(a => a.type === 'SET_MUNICIPALITY_SEARCH' && a.payload.category === 'park')).toBe(true)
     expect(log.some(a => a.type === 'SET_SIMPLE_SEARCH')).toBe(false)
-    expect(screen.getByRole('combobox', { name: 'カテゴリで絞り込む' }).value).toBe('park')
+    expect(screen.getByRole('combobox', { name: '種別詳細で絞り込む' }).value).toBe('park')
   })
 
   it('「フィルタをリセット」で検索フォームのカテゴリ・目的も解除される', async () => {
@@ -138,7 +138,7 @@ describe('MobileListTab: 属性の充足率表示 (B1)', () => {
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
 
-    const select = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const select = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     fireEvent.change(select, { target: { value: 'cafe' } })
 
     // park が絞られて 2 件ベースに再計算される
@@ -161,9 +161,9 @@ describe('MobileListTab: カテゴリ選択肢は取得データに基づいて�
       { type: 'SET_RESULTS', payload: [cafeWithWeb, park] },
       { type: 'SET_STATUS', payload: 'success' }
     ]} />)
-    const select = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const select = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     const optTexts = [...select.options].map((o) => o.textContent)
-    expect(optTexts).toContain('カテゴリ: すべて（2件）')
+    expect(optTexts).toContain('種別詳細: すべて（2件）')
     expect(optTexts).toContain('カフェ（1件）')
     expect(optTexts).toContain('公園・広場（1件）')
     expect(optTexts.some((t) => t.startsWith('レストラン'))).toBe(false)
@@ -171,7 +171,7 @@ describe('MobileListTab: カテゴリ選択肢は取得データに基づいて�
 
   it('結果なしときはカテゴリセレクト自体が表示されない（フィルタバー非表示）', () => {
     render(<Harness />)
-    expect(screen.queryByRole('combobox', { name: 'カテゴリで絞り込む' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '種別詳細で絞り込む' })).toBeNull()
   })
 })
 
@@ -305,7 +305,7 @@ describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
 
   it('施設向けのコントロール（カテゴリ選択・Webサイトチェック）は表示しない', () => {
     render(<Harness preActions={bfMobileActions()} />)
-    expect(screen.queryByRole('combobox', { name: 'カテゴリで絞り込む' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '種別詳細で絞り込む' })).toBeNull()
     expect(screen.queryByText('Webサイトがあるものだけ')).toBeNull()
     expect(screen.queryByRole('combobox', { name: '属性の欠落で絞る' })).toBeNull()
   })
@@ -920,7 +920,7 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
     expect(wp.previousElementSibling.textContent).toContain('📶')
   })
 
-  it('id 27: 入力・セレクト系行（キーワード🔍/カテゴリ📁/並び順↕️）にもアイコン＋見出しが付く（キーワードは文言なし・アイコンのみ）', () => {
+  it('id 27: 入力・セレクト系行（キーワード🔍/種別詳細📁/並び順↕️）にもアイコン＋見出しが付く（キーワードは文言なし・アイコンのみ）', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
@@ -936,10 +936,10 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
     expect(kwHeading.className).toContain('min-h-[44px]')
 
     // カテゴリ（📁）
-    const catSelect = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const catSelect = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     const catHeading = catSelect.previousElementSibling
     expect(catHeading.textContent).toContain('📁')
-    expect(catHeading.textContent).toContain('カテゴリ')
+    expect(catHeading.textContent).toContain('種別詳細')
 
     // 並び順（↕️）
     const sortSelect = screen.getByRole('combobox', { name: '並び順' })
@@ -1029,9 +1029,9 @@ describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1
     expect(kw.parentElement.lastElementChild.className).toContain('w-9')
 
     // カテゴリ・並び順セレクト: 見出し（アイコン＋文言）がセレクトの右隣に並ぶ
-    const cat = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const cat = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     expect(cat.parentElement.className).toContain('flex')
-    expect(cat.previousElementSibling.textContent).toContain('カテゴリ')
+    expect(cat.previousElementSibling.textContent).toContain('種別詳細')
     expect(cat.previousElementSibling.textContent).toContain('📁')
     const sort = screen.getByRole('combobox', { name: '並び順' })
     expect(sort.parentElement.className).toContain('flex')
@@ -1043,7 +1043,7 @@ describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1
     render(<Harness preActions={bfMobileActions()} />)
 
     // バリアフリー一覧には施設向けのカテゴリ・未登録セレクトは出ない
-    expect(screen.queryByRole('combobox', { name: 'カテゴリで絞り込む' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '種別詳細で絞り込む' })).toBeNull()
     expect(screen.queryByRole('combobox', { name: '属性の欠落で絞る' })).toBeNull()
 
     const type = screen.getByRole('combobox', { name: '要素種別で絞り込む' })

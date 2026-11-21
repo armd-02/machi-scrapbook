@@ -7,6 +7,8 @@ const USER_AGENT = 'Machi-Scrapbook/0.1 (https://armd-02.github.io/machi-scrapbo
 
 // (#63) 検索エリア判定（searchAreaFromGeocode）でBBOXの妥当性を確認するのに使う
 import { isValidBbox } from './searchBbox'
+// 距離計算（viewbox 付きジオコード候補の距離順再ソートに使う）
+import { haversineKm } from './nearbyCandidates'
 
 /**
  * Nominatimの boundingbox（文字列配列 [south,north,west,east]）を
@@ -75,7 +77,9 @@ function viewboxParam(bbox) {
   if (![south, west, north, east].every((n) => typeof n === 'number' && Number.isFinite(n))) {
     return null
   }
-  return `${west},${north},${east},${south}`
+  // 小数点以下6桁に丸めて末尾の0を除く（浮点誤差の混入を防ぐ）
+  const r = (n) => n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
+  return [west, north, east, south].map(r).join(',')
 }
 
 /**
@@ -247,6 +251,25 @@ export async function geocodeCandidates(query, { viewbox = null, limit = 5 } = {
     }
     throw error
   }
+}
+
+/**
+ * ジオコード候補を指定点からの距離（km）の近い順に並び替え、先頭 N 件を返す。
+ * Nominatim は結果を距離順に並べないため、viewbox を付けて現在地付近を優先
+ * しても最寄りの候補が下位に沈み得る（例: limit=5 だと最寄りが候補に入らない）。
+ * そのため viewbox 付きの「地名検索」では多めに取得（limit=20）してから本関数で
+ * 距離順に並べ替えて先頭5件を使う。
+ * @param {Array} candidates geocodeCandidates() の戻り値
+ * @param {{ lat: number, lon: number }} center 現在位置
+ * @param {number} [maxCount=5] 保持する候補数
+ * @returns {Array} 距離順に並び替えた候補（先頭 maxCount 件）
+ */
+export function sortCandidatesByDistance(candidates, center, maxCount = 5) {
+  const list = Array.isArray(candidates) ? candidates : []
+  if (!center || !list.length) return list
+  const { lat, lon } = center
+  const dist = (c) => haversineKm(lat, lon, c.lat, c.lon)
+  return [...list].sort((a, b) => dist(a) - dist(b)).slice(0, maxCount)
 }
 
 /**

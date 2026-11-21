@@ -6,8 +6,10 @@
  *
  * - QuickTopIntro: 一文の説明 ＋ 場所指定（地名・駅名入力）
  *   （トップ画面には地図を描画しない #63。「地図で見る」は結果側の導線）
- * - QuickTopTiles: 目的タイル11種（カテゴリタイル10＋バリアフリーの特別枠1）
+ * - QuickTopTiles: 種別（目的グループ）タイル9種＋バリアフリーの特別枠1
  *   → タップで「選択」だけ（タップで検索しない）。
+ *   タイルはすべて目的（purpose）単位で、詳しく探すの種別選択
+ *   （CATEGORY_GROUPS）と同一の体系・表示順を使う（単一データソース）。
  *   バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと
  *   同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離する。
  *   選択中のタイルはハイライト（枠・背景色）で表示され、同時に選べるのは1つだけ
@@ -46,41 +48,33 @@
  * が常時マウントした単一インスタンスとして保持し、フォーム表示の地図モードで
  * のみ表示される（位置・範囲はトップ⇄フォーム切替時に引き継がれる）。
  *
- * 複合タイル（病院・薬局／役所・手続き）は目的グループ名として渡され、
- * getPurposeUnionFilters でグループ内カテゴリの union として解決される
- * （CATEGORY_GROUPS の #63 クイックグループ）。
+ * タイルはすべて目的グループ名として渡され、getPurposeUnionFilters で
+ * グループ内カテゴリの union として解決される（CATEGORY_GROUPS）。
  */
 
 import GeocodeCandidateList from '../GeocodeCandidateList'
 import PlaceNameInput from '../PlaceNameInput'
+import { CATEGORY_GROUPS } from '../../data/categories'
 
-// 目的タイル（10種）＋バリアフリー特別枠（1種）。purpose → 目的グループ検索、
-// category → 単一カテゴリ検索。
-// 並びは種類ごとにまとめる（このピース）: 「すること」系（食べる・買う・
-// 遊ぶ・公園・学ぶ・泊まる）→「生活の施設」系（病院・薬局・役所・手続き・
-// 会社・事務所・駅・交通・トイレ）。
+// 種別（目的グループ）タイル9種＋バリアフリー特別枠（1種）。
+// CATEGORY_GROUPS から組み立てる（単一データソース）: ラベル・表示順・アイコン・
+// 所属はすべて groups 側の定義に由来し、タイル側に複製した定義を持たない。
+// すべて purpose（グループ名）単位（単一カテゴリのタイルは廃止）。
 // バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと同格に
 // 並べず、グリッドの下に横長（全幅）1行の特別枠として分離する（BARRIER_FREE_TILE）。
-export const QUICK_TILES = [
-  // 「すること」系
-  { id: 'eat', label: '食べる', icon: '🍜', purpose: '食べる' },
-  { id: 'buy', label: '買う', icon: '🛍️', purpose: '買う' },
-  { id: 'play', label: '遊ぶ・公園', icon: '🎠', purpose: '遊ぶ' },
-  { id: 'learn', label: '学ぶ', icon: '📚', purpose: '学ぶ' },
-  { id: 'stay', label: '泊まる', icon: '🏨', category: 'accommodation' },
-  // 「生活の施設」系
-  { id: 'medical', label: '病院・薬局', icon: '🏥', purpose: '病院・薬局' },
-  { id: 'government', label: '役所・手続き', icon: '🏛️', purpose: '役所・手続き' },
-  { id: 'company', label: '会社・事務所', icon: '🏢', category: 'company_office' },
-  { id: 'traffic', label: '駅・交通', icon: '🚉', category: 'transport' },
-  { id: 'toilet', label: 'トイレ', icon: '🚻', category: 'toilets' }
-]
+// id はグループ名（CATEGORY_GROUPS 内で一意）を使い、選択ハイライトのキーにする。
+const toTile = (group) => ({ id: group.name, label: group.name, icon: group.icon, purpose: group.name })
 
-// バリアフリー: 場所の種類ではなく見方のモードなので、QUICK_TILES（カテゴリ
-// タイル）から外し、グリッドの下に横長（全幅）1行の特別枠として分離表示する。
-// QUICK_TILES の要素と同じ形（purpose 持ち）なので、親のタイル処理はそのまま
-// 通用する。
-export const BARRIER_FREE_TILE = { id: 'barrierFree', label: 'バリアフリー', icon: '♿', purpose: 'バリアフリー' }
+export const QUICK_TILES = CATEGORY_GROUPS
+  .filter((g) => g.name !== 'バリアフリー')
+  .map(toTile)
+
+// バリアフリー: QUICK_TILES から外し、グリッドの下に横長（全幅）1行の特別枠として
+// 分離表示する。QUICK_TILES の要素と同じ形（purpose 持ち）なので、親のタイル処理は
+// そのまま通用する。
+export const BARRIER_FREE_TILE = toTile(
+  CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー')
+)
 
 /**
  * トップ冒頭ブロック: 説明一行 ＋ 場所指定（地名・駅名入力）。

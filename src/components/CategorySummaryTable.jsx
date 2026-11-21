@@ -15,7 +15,7 @@ export default function CategorySummaryTable({ summary = [] }) {
   if (!Array.isArray(summary) || summary.length === 0) {
     return (
       <p className="text-xs text-slate-400 text-center py-4">
-        カテゴリに分類できる結果がありません
+        種別詳細に分類できる結果がありません
       </p>
     )
   }
@@ -25,7 +25,7 @@ export default function CategorySummaryTable({ summary = [] }) {
   return (
     <div className="space-y-2" data-testid="category-summary-table">
       <p className="text-[11px] text-slate-500">
-        アプリのカテゴリ体系での集計（1つの施設が複数のカテゴリに属する場合は両方に計上）。
+        アプリの種別詳細体系での集計（1つの施設が複数の種別詳細に属する場合は両方に計上）。
         内訳は brand タグ、brand が無い場合は名称で集計しています。
       </p>
       <div className="space-y-1.5">

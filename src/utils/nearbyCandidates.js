@@ -118,10 +118,15 @@ export function parseNearbyResponse(data) {
  * - 重複除去: 同一の種別・同一名前で約110m以内（0.001°）の要素をまとめる
  *   （同一駅の複数要素: ノード＋関係など）
  * - distanceKm（現在位置からの距離）・displayName を付ける
- * - 距離順に並び替え、MAX_NEARBY_SUGGEST 件に絞る
+ * - 距離順に並び替える
+ * 重複除去後の全件を返す（キャッシュには全件保持する）。表示する候補数の
+ * 上限（MAX_NEARBY_SUGGEST）は matchNearbyCandidates（入力照合）側で適用
+ * する — ここで切り捨てると、近くだが照合されない地区・公園が8件以上
+ * あるときに、それより遠い駅がキャッシュから落ちる（「富田」で摂津富田駅
+ * が出ない、等の原因）
  * @param {Array} raw parseNearbyResponse の戻り値
  * @param {{ lat: number, lon: number }} center 現在位置
- * @returns {Array} サジェスト用の候補
+ * @returns {Array} サジェスト用の候補（全件・距離順）
  */
 export function prepareNearbyCandidates(raw, center) {
   const dist = (c) => haversineKm(center.lat, center.lon, c.lat, c.lon)
@@ -138,7 +143,7 @@ export function prepareNearbyCandidates(raw, center) {
     if (!dup) kept.push(c)
   }
 
-  return kept.slice(0, MAX_NEARBY_SUGGEST).map((c) => ({
+  return kept.map((c) => ({
     ...c,
     distanceKm: dist(c),
     displayName: c.name,
@@ -172,10 +177,12 @@ export async function fetchNearbyCandidates(lat, lon) {
  * 入力中のネットワーク問い合わせは行わない。
  * - 名前の部分一致で絞り込む（大小文字無視・両方向の包含）
  * - 駅は入力に「駅」が無くても当たる（「大阪」で「大阪駅」）
- * 引数の候補は既に距離順・重複除去・件数上限済みのため、そのまま返す
- * @param {Array} candidates 周辺候補（fetchNearbyCandidates 由来）
+ * - 一致した候補は距離順のまま、表示上限（MAX_NEARBY_SUGGEST 件）に絞る。
+ *   上限は「表示する候補」の上限であり、キャッシュ全体の上限ではない
+ *   （キャッシュには全件保持する。prepareNearbyCandidates 参照）
+ * @param {Array} candidates 周辺候補（fetchNearbyCandidates 由来・全件）
  * @param {string} query 入力テキスト
- * @returns {Array} 一致した候補（距離順）
+ * @returns {Array} 一致した候補（距離順・最大 MAX_NEARBY_SUGGEST 件）
  */
 export function matchNearbyCandidates(candidates, query) {
   const q = (query || '').trim()
@@ -184,10 +191,12 @@ export function matchNearbyCandidates(candidates, query) {
   // 駅名の「駅」を外した入力（「大阪駅」→「大阪」）でも駅に当たるようにする
   const qNoStation = qLower.replace(/駅$/, '')
 
-  return (candidates || []).filter((c) => {
-    const name = (c.name || '').toLowerCase()
-    if (name.includes(qLower) || qLower.includes(name)) return true
-    if (c.kind === '駅' && qNoStation.length >= 2 && name.includes(qNoStation)) return true
-    return false
-  })
+  return (candidates || [])
+    .filter((c) => {
+      const name = (c.name || '').toLowerCase()
+      if (name.includes(qLower) || qLower.includes(name)) return true
+      if (c.kind === '駅' && qNoStation.length >= 2 && name.includes(qNoStation)) return true
+      return false
+    })
+    .slice(0, MAX_NEARBY_SUGGEST)
 }

@@ -617,7 +617,7 @@ describe('MemochoSection: フィルタバー', () => {
     expect(ratingGroup().previousElementSibling.textContent).toContain('★')
   })
 
-  it('id 27: 入力・セレクト系行（キーワード🔍/カテゴリ📁）にもアイコン＋見出しが付く（キーワードは文言なし・アイコンのみ）', () => {
+  it('id 27: 入力・セレクト系行（キーワード🔍/種別詳細📁）にもアイコン＋見出しが付く（キーワードは文言なし・アイコンのみ）', () => {
     seedFilterItems()
     renderSection()
 
@@ -631,10 +631,10 @@ describe('MemochoSection: フィルタバー', () => {
     expect(kwHeading.className).toContain('min-h-[44px]')
 
     // カテゴリ（📁）
-    const catSelect = screen.getByRole('combobox', { name: 'カテゴリで絞り込む' })
+    const catSelect = screen.getByRole('combobox', { name: '種別詳細で絞り込む' })
     const catHeading = catSelect.previousElementSibling
     expect(catHeading.textContent).toContain('📁')
-    expect(catHeading.textContent).toContain('カテゴリ')
+    expect(catHeading.textContent).toContain('種別詳細')
 
   })
 

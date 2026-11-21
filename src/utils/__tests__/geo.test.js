@@ -13,7 +13,7 @@
  *   旧都道府県名ベースのガード（isPrefectureCandidate）を置き換える
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { geocode, geocodeCandidates, geocodeCandidateLabel, calculateBboxAreaKm2, isBboxTooLarge, isMunicipalityCandidate, MAX_SEARCH_AREA_KM2, searchAreaFromGeocode } from '../geo'
+import { geocode, geocodeCandidates, geocodeCandidateLabel, calculateBboxAreaKm2, isBboxTooLarge, isMunicipalityCandidate, MAX_SEARCH_AREA_KM2, searchAreaFromGeocode, sortCandidatesByDistance } from '../geo'
 
 // ---------- モックヘルパー ----------
 
@@ -440,5 +440,65 @@ describe('geocodeCandidates — 同名候補の区別と重複除去', () => {
     mockNominatimFetch([nomiRow({ class: 'place', type: 'quarter' })])
     const cs = await geocodeCandidates('上本町')
     expect(geocodeCandidateLabel(cs[0])).toBe('上本町（鹿児島県鹿児島市）')
+  })
+})
+
+// ---------- sortCandidatesByDistance（viewbox 付きジオコードの距離順再ソート） ----------
+
+describe('sortCandidatesByDistance（viewbox 付きの距離順再ソート）', () => {
+  const UMEMO = { lat: 34.7, lon: 135.5 }
+
+  const cand = (name, lat, lon, prefecture) => ({
+    lat,
+    lon,
+    name,
+    displayName: `${name}, ${prefecture}`,
+    prefecture,
+    city: '',
+    kind: '',
+    boundingbox: null
+  })
+
+  it('現在位置からの距離が近い順に並び替える', () => {
+    // 距離: B 約0.15km < C 約14km < A（東京）約397km < D（鹿児島）約564km
+    const cands = [
+      cand('遠いA', 35.7, 139.7, '東京都'),      // 東京（約397km）
+      cand('近いB', 34.701, 135.501, '大阪府'),  // 約0.15km
+      cand('中C', 34.8, 135.6, '大阪府'),        // 約14km
+      cand('遠いD', 31.5916, 130.6975, '鹿児島県') // 約564km
+    ]
+    const sorted = sortCandidatesByDistance(cands, UMEMO, 5)
+    expect(sorted.map((c) => c.name)).toEqual(['近いB', '中C', '遠いA', '遠いD'])
+  })
+
+  it('maxCount を超える場合は先頭 N 件のみ残す', () => {
+    // 距離: 1番目 0km < 2番目 約1.5km < 3番目 約14km < 4番目 約178km <
+    // 6番目（東京）約397km < 5番目（鹿児島）約564km
+    const cands = [
+      cand('5番目', 31.5916, 130.6975, '鹿児島県'),
+      cand('2番目', 34.71, 135.51, '大阪府'),
+      cand('3番目', 34.8, 135.6, '大阪府'),
+      cand('1番目', 34.7, 135.5, '大阪府'),
+      cand('4番目', 33.2, 134.9, '三重県'),
+      cand('6番目', 35.7, 139.7, '東京都')
+    ]
+    const sorted = sortCandidatesByDistance(cands, UMEMO, 5)
+    expect(sorted).toHaveLength(5)
+    expect(sorted.map((c) => c.name)).toEqual(['1番目', '2番目', '3番目', '4番目', '6番目'])
+  })
+
+  it('入力を原地で並べ替えない（コピーして返す）', () => {
+    const cands = [
+      cand('遠いA', 35.7, 139.7, '東京都'),
+      cand('近いB', 34.701, 135.501, '大阪府')
+    ]
+    sortCandidatesByDistance(cands, UMEMO, 5)
+    expect(cands.map((c) => c.name)).toEqual(['遠いA', '近いB'])
+  })
+
+  it('center が null・空配列の場合はそのまま返す', () => {
+    const cands = [cand('A', 34.7, 135.5, '大阪府')]
+    expect(sortCandidatesByDistance(cands, null, 5)).toEqual(cands)
+    expect(sortCandidatesByDistance([], UMEMO, 5)).toEqual([])
   })
 })

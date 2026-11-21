@@ -48,7 +48,7 @@ function renderControlledPickerLegacy(initialValue, onChange = vi.fn()) {
 }
 
 describe('CategoryPicker（mobile: 目的チップ）', () => {
-  it('9つの目的チップ（基本7＋(#63)クイック2）を表示する', () => {
+  it('10の種別グループ（グリッド内のチップ9＋バリアフリーの特別枠1）を表示する', () => {
     renderPicker()
     for (const g of CATEGORY_GROUPS) {
       const btn = screen.getByRole('button', { name: g.name })
@@ -79,8 +79,8 @@ describe('CategoryPicker（mobile: 目的チップ）', () => {
   it('選択中カテゴリと異なる目的を展開すると旧選択がクリアされる（stale条件の防止）', () => {
     const onChange = vi.fn()
     renderControlledPickerLegacy('cafe', onChange) // カフェ（目的: 食べる）が選択中
-    // 「遊ぶ」目的チップをタップ → 選択中バッジが消え、遊ぶカテゴリが展開
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
+    // 「遊ぶ・公園」目的チップをタップ → 選択中バッジが消え、遊ぶ・公園カテゴリが展開
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
     expect(onChange).toHaveBeenCalledWith('')
     expect(screen.queryByRole('button', { name: '解除' })).toBeNull()
     expect(screen.getByRole('button', { name: '公園・広場' })).toBeTruthy()
@@ -92,16 +92,16 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
   it('目的チップをタップ（展開）すると onPurposeChange(目的名) が呼ばれる', () => {
     const onPurposeChange = vi.fn()
     renderPicker('', vi.fn(), onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
-    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ')
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ・公園')
   })
 
   it('同じ目的チップを再タップ（閉じる）すると onPurposeChange(null) が呼ばれる', () => {
     const onPurposeChange = vi.fn()
     renderPicker('', vi.fn(), onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
     onPurposeChange.mockClear()
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
     expect(onPurposeChange).toHaveBeenCalledWith(null)
   })
 
@@ -109,8 +109,8 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
     const onChange = vi.fn()
     const onPurposeChange = vi.fn()
     renderPicker('', onChange, onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
-    expect(onPurposeChange).toHaveBeenLastCalledWith('遊ぶ')
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    expect(onPurposeChange).toHaveBeenLastCalledWith('遊ぶ・公園')
     onPurposeChange.mockClear()
     fireEvent.click(screen.getByRole('button', { name: '公園・広場' }))
     expect(onChange).toHaveBeenCalledWith('park')
@@ -130,9 +130,9 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
     const onChange = vi.fn()
     const onPurposeChange = vi.fn()
     renderControlledPicker('cafe', onChange, onPurposeChange) // カフェ（食べる）選択中
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ' }))
+    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
     expect(onChange).toHaveBeenCalledWith('')
-    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ')
+    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ・公園')
   })
 
   it('同じ目的のカテゴリ選択中は目的チップ展開でスコープがセットされない', () => {
@@ -180,10 +180,10 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
 
   it('選択中カテゴリのバッジ（アイコン+ラベル）を表示する', () => {
     renderPicker('park')
-    expect(screen.getByText(/公園/)).toBeTruthy()
+    expect(screen.getByText(/公園・広場/)).toBeTruthy()
     expect(screen.getByRole('button', { name: '解除' })).toBeTruthy()
-    // 遊ぶ 目的チップに選択インジケータ
-    expect(screen.getByRole('button', { name: '遊ぶ' }).getAttribute('aria-pressed')).toBe('true')
+    // 遊ぶ・公園 目的チップに選択インジケータ
+    expect(screen.getByRole('button', { name: '遊ぶ・公園' }).getAttribute('aria-pressed')).toBe('true')
   })
 })
 
@@ -211,13 +211,13 @@ describe('CategoryPicker（pc: グループ付きselect）', () => {
 })
 
 describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー分離）', () => {
-  it('目的チップは「すること」系（食べる・買う・遊ぶ・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・暮らす・その他）の順で表示される', () => {
+  it('目的チップは「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・公共施設・会社・事務所・移動・交通）の順で表示される', () => {
     const { container } = renderPicker()
     const grid = container.querySelector('div.grid')
     const chips = [...grid.querySelectorAll('button')]
     expect(chips.map((b) => b.textContent)).toEqual([
-      '🍜食べる', '🛍️買う', '🎠遊ぶ', '📚学ぶ',
-      '🏥病院・薬局', '🏛️役所・手続き', '🏠暮らす', '🧭その他'
+      '🍜食べる', '🛍️買う', '🎠遊ぶ・公園', '📚学ぶ',
+      '🏥病院・薬局', '🏛️役所・手続き', '🚻公共施設', '🏢会社・事務所', '🚉移動・交通'
     ])
   })
 

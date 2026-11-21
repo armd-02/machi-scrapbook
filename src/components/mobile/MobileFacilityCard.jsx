@@ -11,6 +11,7 @@ import { formatOpeningHoursJa } from '../../utils/openingHours'
 import { memochoKeyOf } from '../../utils/memocho'
 import { useMemocho } from '../../hooks/useMemocho'
 import { powerWifiStatus, isWorkspaceFacility } from '../../utils/powerWifi'
+import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
 
 // テスト・他コンポーネントの互換のために再エクスポート
 export { facilityName, formatAddress, safeWebsite }
@@ -78,6 +79,10 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
   )
   const wcBadge = wheelchairBadge(tags)
 
+  // 施設アイコン（コミュニティマップメーカー由来の対応表で判定。詳細は facilityIcon.js）
+  // タグが無い・対応表に無い場合は fallback アイコン（表示は常に保証）
+  const iconUrl = facilityIconUrl(getFacilityIcon(tags))
+
   // (作業スペース系 電源・Wi-Fi) 対象施設（cafe/library/internet_cafe/coworking）のみ
   // 電源・Wi-Fi の3状態を表示する。対象外は行ごとに出さない。
   const pwStatus = isWorkspaceFacility(tags) ? powerWifiStatus(tags) : null
@@ -105,9 +110,19 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
         : "w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5"}
     >
       {/* 施設名（大きめ・太字）＋カテゴリラベル＋「🔎詳細」ボタン。
-          カード本体のタップでは詳細は開かず、ボタンの押下のみで開く */}
+          カード本体のタップでは詳細は開かず、ボタンの押下のみで開く。
+          名前の左に施設種別アイコン（高さ24px）を表示 */}
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-base font-bold text-slate-800 min-w-0 break-words">{name}</h3>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <img
+            src={iconUrl}
+            alt=""
+            aria-hidden="true"
+            className="h-6 w-6 shrink-0"
+            loading="lazy"
+          />
+          <h3 className="min-w-0 break-words text-base font-bold text-slate-800">{name}</h3>
+        </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="text-[11px] text-primary-700 bg-primary-50 rounded-md px-2 py-0.5">
             {typeLabel}
