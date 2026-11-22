@@ -9,6 +9,7 @@ const USER_AGENT = 'Machi-Scrapbook/0.1 (https://armd-02.github.io/machi-scrapbo
 import { isValidBbox } from './searchBbox'
 // 距離計算（viewbox 付きジオコード候補の距離順再ソートに使う）
 import { haversineKm } from './nearbyCandidates'
+import { executeOverpassQuery } from './overpass'
 
 /**
  * Nominatimの boundingbox（文字列配列 [south,north,west,east]）を
@@ -423,6 +424,194 @@ const EARTH_RADIUS_KM = 6371
  * @param {number} [sideKm=1.5] 一辺の長さ（km）
  * @returns {{south: number, west: number, north: number, east: number}}
  */
+
+// ---------- 地名検索の Overpass 名前検索補完 ----------
+//
+// Nominatim は「検索語と完全に同名の要素」しか返さないため、名称が正確に
+// 存在しない POI（例: 「岡山大学」→「岡山大学 津島キャンパス」）はどんなに
+// 絞り込んでも候補にならない。そこで「Nominatim 候補のどれも name に検索語
+// を含まない」場合だけ、Overpass の全国名前検索で補完する。
+//
+// - クエリ: nwr["name"~"<検索語>"]（範囲指定なし＝全国）。検索語は正規表現
+//   として安全にエスケープする
+// - エンドポイント: アプリ既定の一次エンドポイント（armd-01）のみ。フォール
+//   バック連鎖（公共サーバー）には乗せない
+// - タイムアウト: 周辺候補取得と同じく約25秒（[timeout:25]）
+// - 候補の形状は geocodeCandidates の戻り値と互換（lat/lon・boundingbox・
+//   name・displayName・kind・prefecture・city）。way/relation は bounds
+//   中心を lat/lon にする（out bb）
+// - 同名の候補は1件に集約（現在位置があるなら最近接・なければ先頭）。
+//   件数は5件上限。現在位置がある場合は距離順にソートする
+
+/**
+ * 検索語を Overpass QL の正規表現マッチ（["name"~"..."]）用にエスケープする。
+ * 1) 正規表現メタ文字をエスケープ（検索語をリテラル文字列として扱う）
+ * 2) 二重引用符で囲む Overpass QL 値としてエスケープ（バックスラッシュ・
+ *    二重引用符）
+ * @param {string} str 検索語
+ * @returns {string} エスケープ済み文字列
+ */
+function escapeNameRegex(str) {
+  return String(str)
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+}
+
+/**
+ * 全国名前検索（地名ジオコード補完）の Overpass QL を生成する。
+ * 範囲指定なし（全国）。`out bb` で way/relation の bounds を取得する。
+ * @param {string} query 検索語
+ * @returns {string} Overpass QL クエリ
+ */
+export function buildNameSearchQuery(query) {
+  const escaped = escapeNameRegex((query || '').trim())
+  return `[out:json][timeout:25];nwr["name"~"${escaped}"];out bb;`
+}
+
+// タグキー → kind ラベル（候補表示用）。leisure=park のみ「公園」に
+// （候補選択時の公園専用拡大ロジック kind==='公園' と整合させる）
+const NAME_SEARCH_KIND_LABELS = {
+  public_transport: '停留所',
+  railway: '駅',
+  highway: '道路',
+  amenity: '施設',
+  tourism: '施設',
+  leisure: '施設',
+  building: '建物',
+  natural: '自然',
+  waterway: '水路',
+  place: '地域',
+  landuse: '地域'
+}
+
+function nameSearchKind(tags) {
+  if (tags.leisure === 'park') return '公園'
+  for (const key of Object.keys(NAME_SEARCH_KIND_LABELS)) {
+    if (tags[key]) return NAME_SEARCH_KIND_LABELS[key]
+  }
+  return ''
+}
+
+/**
+ * 全国名前検索の Overpass 応答をジオコード候補に変換する
+ * （geocodeCandidates の戻り値と互換の形状）。
+ * - node: 自身の座標。boundingbox は null
+ * - way/relation: bounds 中心を lat/lon に（out bb）。boundingbox は bounds
+ * - name タグが無い要素は除外
+ * @param {object} data Overpass の生 JSON
+ * @returns {Array} 候補
+ */
+export function parseNameSearchResponse(data) {
+  const elements = (data && data.elements) || []
+  const out = []
+  for (const el of elements) {
+    const tags = el.tags || {}
+    const name = (tags.name || '').trim()
+    if (!name) continue
+
+    if (el.type === 'node') {
+      if (typeof el.lat !== 'number' || typeof el.lon !== 'number') continue
+      out.push({
+        lat: el.lat,
+        lon: el.lon,
+        name,
+        kind: nameSearchKind(tags),
+        boundingbox: null
+      })
+    } else if ((el.type === 'way' || el.type === 'relation') && el.bounds) {
+      const b = el.bounds
+      const valid = [b.minlat, b.minlon, b.maxlat, b.maxlon].every(
+        (n) => typeof n === 'number' && Number.isFinite(n)
+      )
+      if (!valid) continue
+      out.push({
+        lat: (b.minlat + b.maxlat) / 2,
+        lon: (b.minlon + b.maxlon) / 2,
+        name,
+        kind: nameSearchKind(tags),
+        boundingbox: { south: b.minlat, west: b.minlon, north: b.maxlat, east: b.maxlon }
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * 全国名前検索の結果を提示用候補に整える。
+ * - 同名の候補を1件に集約（現在位置があるなら最近接・なければ先頭）。
+ *   例: 「岡山大学筋」が複数の要素（停留所等）として返っても1件になる
+ * - displayName（= name）・type・addresstype・prefecture・city・distanceKm
+ *   を付与
+ * - 現在位置がある場合は距離順にソートし、maxCount 件で切り詰める
+ * @param {Array} raw parseNameSearchResponse の戻り値
+ * @param {{ lat: number, lon: number }|null} center 現在位置（未取得なら null）
+ * @param {number} [maxCount=5] 提示する候補の最大件数
+ * @returns {Array} 候補（geocodeCandidates の戻り値と互換の形状）
+ */
+export function prepareNameSearchCandidates(raw, center, maxCount = 5) {
+  const list = Array.isArray(raw) ? raw : []
+  if (!list.length) return []
+
+  // 同名の候補を1件に集約（現在位置があるなら最近接・なければ先頭）
+  const byName = new Map()
+  for (const c of list) {
+    const prev = byName.get(c.name)
+    if (!prev) {
+      byName.set(c.name, c)
+      continue
+    }
+    if (
+      center &&
+      haversineKm(center.lat, center.lon, c.lat, c.lon) <
+      haversineKm(center.lat, center.lon, prev.lat, prev.lon)
+    ) {
+      byName.set(c.name, c)
+    }
+  }
+
+  const withMeta = [...byName.values()].map((c) => ({
+    ...c,
+    type: '',
+    addresstype: '',
+    displayName: c.name,
+    prefecture: '',
+    city: '',
+    distanceKm: center ? haversineKm(center.lat, center.lon, c.lat, c.lon) : undefined
+  }))
+
+  if (!center) return withMeta.slice(0, maxCount)
+  return sortCandidatesByDistance(withMeta, center, maxCount)
+}
+
+/**
+ * Overpass 全国名前検索（地名ジオコード補完）。
+ * Nominatim 候補のどれも name に検索語を含まない場合に呼ばれる。
+ * geocodeCandidates と互換の形状で候補を返す。
+ *
+ * 一次エンドポイントのみを使う（フォールバック連鎖に乗せない）— 全国規模の
+ * 名前正規表現検索を公共サーバーに投げないため。失敗（タイムアウト・通信
+ * エラー等）は例外を投げずに空配列を返す — 呼び出し側は Nominatim 通常
+ * フローに戻れる
+ * @param {string} query 検索語
+ * @param {{ center?: { lat: number, lon: number }|null, maxCount?: number }} [options]
+ * @returns {Promise<Array>} 候補（見つからなかった・失敗時は空配列）
+ */
+export async function overpassNameSearch(query, { center = null, maxCount = 5 } = {}) {
+  const q = (query || '').trim()
+  if (!q) return []
+  try {
+    const { results } = await executeOverpassQuery(buildNameSearchQuery(q), {
+      parse: parseNameSearchResponse,
+      fallback: false
+    })
+    return prepareNameSearchCandidates(results, center, maxCount)
+  } catch (error) {
+    console.warn('[geocode] Overpass 名前検索に失敗しました:', error.message)
+    return []
+  }
+}
+
 export function squareBboxAround(center, sideKm = 1.5) {
   const { lat, lon } = center
   const KM_PER_DEG = (Math.PI / 180) * EARTH_RADIUS_KM

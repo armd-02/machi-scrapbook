@@ -223,6 +223,17 @@ function setupFetchMock() {
       const body = options.body || ''
       const q = new URLSearchParams(body).get('data') || body
       overpassCalls.push(q)
+      // (geocode-fb) 地名検索の補完: 全国名前検索（nwr["name"~ を含む）。実際の
+      // Overpass は検索語に一致する name の要素のみ返すが、このファイルの施設
+      // 要素（OVERPASS_ELEMENTS 等）は名前検索と無関係のため常に空を返す
+      if (q.includes('nwr["name"~')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: [] }),
+        }
+      }
       // 周辺候補取得クエリ（around:5000 を含む）と施設検索クエリで返す要素を変える
       const isNearby = q.includes('around:5000')
       if (isNearby && nearbyDeferred) {
@@ -1268,8 +1279,8 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
     expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
 
-    // 目的（種別）タイル9種＋バリアフリー特別枠が揃って表示される
-    for (const label of ['食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き', '公共施設', '会社・事務所', '移動・交通', 'バリアフリー']) {
+    // 目的（種別）タイル10種（バリアフリー含む）が揃って表示される
+    for (const label of ['食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き', '公共設備', '会社・事務所', '移動・交通', 'バリアフリー']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
 
@@ -1359,8 +1370,11 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     // 地名を入力して「地名検索」を押す。旧仕様では巨大bboxが検索エリアに設定
     // され、後段のcriteria検証（checkBboxSize）で弾かれたが、新仕様では
     // BBOX面積ベースの「広すぎる」ガード（isSearchAreaTooLarge: 1,000 km²以上）が
-    // 地名検索段階で遮断し、検索エリアは設定されない
-    fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
+    // 地名検索段階で遮断し、検索エリアは設定されない。
+    // 検索語は「日本」にしている: Nominatim 候補の name（「日本」）が検索語を
+    // 含むため Overpass 名前検索補完（geocode-fb）が発動せず、ガード単体の
+    // 検証になる
+    fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '日本' } })
     fireEvent.click(getGeocodeButton())
 
     // 検証エラー（統一エラー文）が表示され、検索エリアは設定されない
@@ -1368,7 +1382,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
       expect(screen.getByText(/『日本』の範囲が広すぎるため検索できません/)).toBeTruthy()
     }, { timeout: 8000 })
     // 入力欄は入力文字のまま（緑にならない）
-    expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').value).toBe('梅田')
+    expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').value).toBe('日本')
     expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').className).not.toContain('border-green-500')
 
     // Overpassクエリは送出されない
@@ -1461,13 +1475,13 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
   }, IT_TIMEOUT)
 
-  it('目的タイル（公共施設）: グループ内5カテゴリのunionで検索が実行される', async () => {
+  it('目的タイル（公共設備）: グループ内5カテゴリのunionで検索が実行される', async () => {
     renderApp()
     // (#63) タイル選択前に検索エリアを設定（ジオコード）する
     await setAreaByGeocode()
 
     // タイルを選択して「検索する」で検索を実行
-    fireEvent.click(screen.getByRole('button', { name: '公共施設' }))
+    fireEvent.click(screen.getByRole('button', { name: '公共設備' }))
     fireEvent.click(getTopSearchButton())
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
@@ -1775,7 +1789,10 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
   }, IT_TIMEOUT)
 
   it('場所が見つからなかった場合（エラー表示時）: 場所入力欄は緑にならない', async () => {
-    // Nominatimが空配列を返す（結果なし → 「場所が見つかりませんでした」）
+    // Nominatimが空配列を返す（結果なし → 「場所が見つかりませんでした」）。
+    // Nominatim 候補がゼロのため Overpass 名前検索補完（geocode-fb）が発動するが、
+    // 実際の Overpass は「zzz見つからない」という名称の要素を持たないため、
+    // 補完は空を返す（モックも同じく空を返す）
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
       const u = String(url)
       if (u.includes('nominatim')) {
@@ -1786,6 +1803,14 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
         const body = options.body || ''
         const q = new URLSearchParams(body).get('data') || body
         overpassCalls.push(q)
+        if (q.includes('nwr["name"~')) {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Map(),
+            json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: [] }),
+          }
+        }
         return {
           ok: true,
           status: 200,
@@ -1821,7 +1846,9 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     }, { timeout: 8000 })
     // ジオコードのエラーメッセージもそのまま残る（両方表示）
     expect(screen.getByText(/場所が見つかりませんでした/)).toBeTruthy()
-    expect(overpassCalls).toHaveLength(0)
+    // 施設検索クエリは送出されない（地名検索補完の名前検索 nwr["name"~ は
+    // 補完経路なのでカウントしない。補完は空返りして「見つからない」に戻る）
+    expect(overpassCalls.filter((q) => !q.includes('nwr["name"~'))).toHaveLength(0)
   }, IT_TIMEOUT)
 
   it('都道府県から探すで自治体を選んだ場合: 場所入力欄は緑にならない（既存の地名入力の緑も解除）', async () => {

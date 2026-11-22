@@ -4,7 +4,7 @@ import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround } from '../../utils/geo'
+import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround, overpassNameSearch } from '../../utils/geo'
 import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
 import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates, unifySuggestCandidates } from '../../utils/stationCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
@@ -385,6 +385,21 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             5
           )
         : await geocodeCandidates(q, { limit: 5 })
+
+      // Nominatim 候補のどれも name に検索語を含まない場合、Overpass の全国
+      // 名前検索で補完する（Nominatim は検索語と完全に同名の要素しか返さず、
+      // 例: 「岡山大学」→「岡山大学 津島キャンパス」は候補にならない）。補完が
+      // 候補を返したら Nominatim 部分一致候補（検索語を含まないもの）は提示せず、
+      // 補完候補のみを提示する。補完が空（・失敗）なら従来どおりの流れ
+      // （Nominatim 結果／「見つからない」）に戻る
+      if (!cands.some((c) => (c.name || '').includes(q))) {
+        const fallbackCands = await overpassNameSearch(q, { center: pos })
+        if (fallbackCands.length > 0) {
+          setPendingCandidates(fallbackCands)
+          return
+        }
+      }
+
       if (cands.length === 0) {
         setSearchError('場所が見つかりませんでした。別の表記で試してください。')
         return

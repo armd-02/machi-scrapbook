@@ -318,14 +318,14 @@ export function getCategoryById(id) {
  *
  * OSMタグキー（amenity=…など）を上位カテゴリにしない代わりに、利用目的で
  * グループ化する: 食べる／買う／遊ぶ・公園／学ぶ／病院・薬局／役所・手続き／
- * 公共施設／会社・事務所／移動・交通／バリアフリー。
+ * 公共設備／会社・事務所／移動・交通／バリアフリー。
  * PCのカテゴリselectの <optgroup> ラベル、モバイルの目的チップ、トップ画面の
  * タイルで同じ定義を共有する（単一データソース）。
  * 各カテゴリはちょうど1つのグループにだけ所属する（重複所属はない）。
  * icon は目的チップ・タイル表示用（emoji）。
  * グループ内の順序はここで制御する（CATEGORIES 配列の順序に依存しない）。
  * 表示順は「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系
- * （病院・薬局・役所・手続き・公共施設・会社・事務所・移動・交通）で、
+ * （病院・薬局・役所・手続き・公共設備・会社・事務所・移動・交通）で、
  * チップ・セレクト・タイルすべてでこの定義順をそのまま使う。
  */
 export const CATEGORY_GROUPS = [
@@ -335,7 +335,7 @@ export const CATEGORY_GROUPS = [
   { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'] },
   { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
   { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },
-  { name: '公共施設', icon: '🚻', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'] },
+  { name: '公共設備', icon: '🚻', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'] },
   { name: '会社・事務所', icon: '🏢', ids: ['company_office'] },
   { name: '移動・交通', icon: '🚉', ids: ['transport'] },
   { name: 'バリアフリー', icon: '♿', ids: ['barrier_free'] }
@@ -378,7 +378,7 @@ export function isFoodCategory(id) {
 
 /**
  * (#44) 目的グループ名（'食べる'など）からカテゴリ一覧を取得
- * @param {string} purposeName - '食べる' | '買う' | '遊ぶ・公園' | '学ぶ' | '病院・薬局' | '役所・手続き' | '公共施設' | '会社・事務所' | '移動・交通' | 'バリアフリー'
+ * @param {string} purposeName - '食べる' | '買う' | '遊ぶ・公園' | '学ぶ' | '病院・薬局' | '役所・手続き' | '公共設備' | '会社・事務所' | '移動・交通' | 'バリアフリー'
  * @returns {Array<object>|null} カテゴリ配列、未知の目的ならnull
  */
 export function getCategoriesForPurpose(purposeName) {

@@ -6,12 +6,11 @@
  *
  * - QuickTopIntro: 一文の説明 ＋ 場所指定（地名・駅名入力）
  *   （トップ画面には地図を描画しない #63。「地図で見る」は結果側の導線）
- * - QuickTopTiles: 種別（目的グループ）タイル9種＋バリアフリーの特別枠1
+ * - QuickTopTiles: 種別（目的グループ）タイル10種
  *   → タップで「選択」だけ（タップで検索しない）。
  *   タイルはすべて目的（purpose）単位で、詳しく探すの種別選択
  *   （CATEGORY_GROUPS）と同一の体系・表示順を使う（単一データソース）。
- *   バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと
- *   同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離する。
+ *   バリアフリーも通常のタイルとしてグリッド内に入る（「移動・交通」の右隣）。
  *   選択中のタイルはハイライト（枠・背景色）で表示され、同時に選べるのは1つだけ
  *   （別のタイルを押すと選択が移る）。
  * - タイルの下に「検索する」ボタン: 押下（または場所入力欄で Enter）で初めて
@@ -56,25 +55,15 @@ import GeocodeCandidateList from '../GeocodeCandidateList'
 import PlaceNameInput from '../PlaceNameInput'
 import { CATEGORY_GROUPS } from '../../data/categories'
 
-// 種別（目的グループ）タイル9種＋バリアフリー特別枠（1種）。
+// 種別（目的グループ）タイル10種。
 // CATEGORY_GROUPS から組み立てる（単一データソース）: ラベル・表示順・アイコン・
 // 所属はすべて groups 側の定義に由来し、タイル側に複製した定義を持たない。
 // すべて purpose（グループ名）単位（単一カテゴリのタイルは廃止）。
-// バリアフリーは場所の種類ではなく見方のモードなので、カテゴリタイルと同格に
-// 並べず、グリッドの下に横長（全幅）1行の特別枠として分離する（BARRIER_FREE_TILE）。
+// バリアフリーも通常のタイルとしてグリッド内に入る（「移動・交通」の右隣）。
 // id はグループ名（CATEGORY_GROUPS 内で一意）を使い、選択ハイライトのキーにする。
 const toTile = (group) => ({ id: group.name, label: group.name, icon: group.icon, purpose: group.name })
 
-export const QUICK_TILES = CATEGORY_GROUPS
-  .filter((g) => g.name !== 'バリアフリー')
-  .map(toTile)
-
-// バリアフリー: QUICK_TILES から外し、グリッドの下に横長（全幅）1行の特別枠として
-// 分離表示する。QUICK_TILES の要素と同じ形（purpose 持ち）なので、親のタイル処理は
-// そのまま通用する。
-export const BARRIER_FREE_TILE = toTile(
-  CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー')
-)
+export const QUICK_TILES = CATEGORY_GROUPS.map(toTile)
 
 /**
  * トップ冒頭ブロック: 説明一行 ＋ 場所指定（地名・駅名入力）。
@@ -228,26 +217,6 @@ export function QuickTopTiles({
             )
           })}
         </div>
-
-        {/* バリアフリー: 場所の種類ではなく見方のモードなので、カテゴリタイルと
-            同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離表示。
-            他のタイルと同じくタップで「選択」だけを行い、「指定した場所と種別で検索」で検索する */}
-        <button
-          type="button"
-          onClick={() => onTileTap(BARRIER_FREE_TILE)}
-          disabled={disabled}
-          aria-pressed={selectedTileId === BARRIER_FREE_TILE.id}
-          className={
-            selectedTileId === BARRIER_FREE_TILE.id
-              ? // 選択中: 他のタイルと同じハイライト（実線・プライマリ色）
-                'w-full min-h-[48px] rounded-xl border-2 border-primary-600 bg-primary-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-primary-700 disabled:opacity-50'
-              : // 枠線は他のタイルと同一（実線・slate-200）に統一
-                'w-full min-h-[48px] rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center gap-1.5 px-3 text-sm font-medium text-slate-700 active:bg-primary-50 disabled:opacity-50'
-          }
-        >
-          <span aria-hidden="true" className="text-xl leading-none">{BARRIER_FREE_TILE.icon}</span>
-          {BARRIER_FREE_TILE.label}
-        </button>
 
         {/* 「指定した場所と種別で検索」: 施設検索を実行する唯一のエントリ
             （設定済みエリア＋タイルで検索→一覧切替。ジオコードは行わない）。

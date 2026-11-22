@@ -1249,3 +1249,44 @@ describe('MemochoSection: メモマップ（保存済み施設を地図で表示
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 })
+
+// ===== レイアウト: 検索結果画面（MobileListTab）に揃える =====
+describe('MemochoSection: レイアウト（メモマップを画面一番上に固定・リストは独立スクロール）', () => {
+  it('メモマップは画面一番上（見出しより上）に固定され、見出し・フィルタ・カードリストは下の独立スクロールエリアにある', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+    renderSection()
+
+    // フル高さの縦flex（MobileListTabと同じ骨格）
+    const section = document.querySelector('section[aria-label="まちメモ帳"]')
+    expect(section.className).toContain('h-full')
+    expect(section.className).toContain('flex')
+    expect(section.className).toContain('flex-col')
+
+    // メモマップブロックは画面一番上（見出しより前・shrink-0でスクロールしない）
+    const mapBlock = screen.getByRole('button', { name: /メモマップ/ }).closest('.shrink-0')
+    const heading = screen.getByRole('heading', { name: 'まちメモ帳' })
+    expect(mapBlock).toBeTruthy()
+    expect(mapBlock.className).toContain('shrink-0')
+    expect(mapBlock.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // 見出し・フィルタ・カードリストは flex-1 の独立スクロールエリア内
+    const scrollArea = heading.closest('.flex-1')
+    expect(scrollArea.className).toContain('overflow-y-auto')
+    expect(scrollArea.className).toContain('min-h-0')
+    const card = document.getElementById('memocho-card-node/1001')
+    expect(scrollArea.contains(card)).toBe(true)
+  })
+
+  it('座標を持つアイテムが0件のときは地図ブロックが無く、見出しが section の先頭に来る', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ lat: null, lon: null }),
+    ]))
+    renderSection()
+
+    const section = document.querySelector('section[aria-label="まちメモ帳"]')
+    // 先頭の子要素はスクロールエリア（見出しが最上部・地図なし）
+    expect(section.firstElementChild.className).toContain('flex-1')
+    expect(section.firstElementChild.className).toContain('overflow-y-auto')
+    expect(screen.queryByRole('button', { name: /メモマップ/ })).toBeNull()
+  })
+})

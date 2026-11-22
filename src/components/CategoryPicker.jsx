@@ -3,23 +3,19 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose, getCategoryById, getPurposeOf
 
 // 目的グループの表示順は CATEGORY_GROUPS の定義順そのままを使う: 「すること」系
 // （食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・
-// 公共施設・会社・事務所・移動・交通）。モバイルクイックトップ（QUICK_TILES）と
+// 公共設備・会社・事務所・移動・交通）。モバイルクイックトップ（QUICK_TILES）と
 // 同一のグループ分け・順序（単一データソース）。
-// チップグリッドに載せるグループ（バリアフリーは除外して特別枠で表示）
-const GRID_GROUPS = CATEGORY_GROUPS.filter((g) => g.name !== 'バリアフリー')
-
-// バリアフリーグループ（グリッドの下に横長特別枠として表示）
-const BARRIER_FREE_GROUP = CATEGORY_GROUPS.find((g) => g.name === 'バリアフリー') || null
+// チップグリッドに載せるグループ（バリアフリーを含む全グループ）
+const GRID_GROUPS = CATEGORY_GROUPS
 
 /**
  * (#44 生活者目線UI) カテゴリピッカー
  *
  * variant='pc'    : 従来どおりのグループ付き <select>（PC検索パネル用）
  * variant='mobile': 目的ベースのアイコンチップ。「すること」系→「生活の施設」系の順で表示
- *                  （食べる／買う／遊ぶ・公園／学ぶ → 病院・薬局／役所・手続き／公共施設／
+ *                  （食べる／買う／遊ぶ・公園／学ぶ → 病院・薬局／役所・手続き／公共設備／
  *                  会社・事務所／移動・交通）。
- *                  バリアフリーは場所の種類ではなく見方のモードなので、グリッドの下に
- *                  横長（全幅）1行の特別枠として分離表示する。
+ *                  バリアフリーも通常のチップとしてグリッド内に入る（「移動・交通」の直後）。
  *                  → タップするとその目的の具体カテゴリチップが展開する
  *                  （段階的開示 = progressive disclosure）
  */
@@ -110,7 +106,7 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
 
   return (
     <div>
-      {/* 目的チップ: CATEGORY_GROUPS の定義順（バリアフリーは除外） */}
+      {/* 目的チップ: CATEGORY_GROUPS の定義順（バリアフリーを含む全10種） */}
       <div className="grid grid-cols-3 gap-1.5">
         {GRID_GROUPS.map((g) => {
           const isSel = selectedCat && purposeOf(selectedCat.id) === g.name
@@ -136,28 +132,6 @@ function MobileChips({ value, onChange, onPurposeChange = () => {} }) {
           )
         })}
       </div>
-
-      {/* バリアフリー: 場所の種類ではなく見方のモードなので、目的チップと
-          同格に並べず、グリッドの下に横長（全幅）1行の特別枠として分離表示。
-          挙動は目的チップと同じ（タップで目的スコープ設定＋カテゴリ展開） */}
-      {BARRIER_FREE_GROUP && (
-        <button
-          type="button"
-          onClick={() => tapPurpose(BARRIER_FREE_GROUP.name)}
-          aria-expanded={openPurpose === BARRIER_FREE_GROUP.name}
-          aria-pressed={!!(selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name)}
-          className={`w-full mt-1.5 min-h-[48px] rounded-xl border flex flex-row items-center justify-center gap-1.5 px-2 text-sm font-medium transition-colors ${
-            selectedCat && purposeOf(selectedCat.id) === BARRIER_FREE_GROUP.name
-              ? 'bg-primary-50 border-primary-400 text-primary-700'
-              : openPurpose === BARRIER_FREE_GROUP.name
-                ? 'bg-primary-50 border-primary-300'
-                : 'bg-white border-slate-200 text-slate-600 active:bg-slate-50'
-          }`}
-        >
-          <span className="text-lg leading-none" aria-hidden="true">{BARRIER_FREE_GROUP.icon}</span>
-          <span>{BARRIER_FREE_GROUP.name}</span>
-        </button>
-      )}
 
       {/* 展開された具体カテゴリチップ */}
       {openPurpose && openCategories.length > 0 && (

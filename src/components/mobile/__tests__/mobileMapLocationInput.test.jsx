@@ -174,6 +174,10 @@ let nominatimUrls = []
 let overpassStatus = 200
 // 周辺候補取得の Overpass fetch を「未解決」に保てる deferred
 let nearbyDeferred = null
+// (geocode-fb) 地名検索の Overpass 全国名前検索（nwr["name"~...]）で返す要素
+let nameSearchElements = []
+// 名前検索の Overpass を失敗（500）にできるステータス
+let nameSearchStatus = 200
 
 function createDeferred() {
   let resolveFn
@@ -261,6 +265,18 @@ function setupFetchMock() {
       const body = options.body || ''
       const q = new URLSearchParams(body).get('data') || body
       overpassCalls.push(q)
+      // (geocode-fb) 地名検索の補完: 全国名前検索（nwr["name"~ を含む）
+      if (q.includes('nwr["name"~')) {
+        if (nameSearchStatus !== 200) {
+          return { ok: false, status: nameSearchStatus, headers: new Map(), json: async () => ({}) }
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          json: async () => ({ version: 0.6, generator: 'Overpass API', osm3s: {}, elements: nameSearchElements }),
+        }
+      }
       // 周辺候補取得クエリ（around:5000 を含む）と施設検索クエリで返す要素を変える
       const isNearby = q.includes('around:5000')
       if (isNearby && nearbyDeferred) {
@@ -401,6 +417,8 @@ beforeEach(() => {
   nominatimUrls = []
   overpassStatus = 200
   nearbyDeferred = null
+  nameSearchElements = []
+  nameSearchStatus = 200
   setupGeolocationMock()
   setupFetchMock()
   clearCache()
@@ -986,4 +1004,141 @@ describe('サジェストの距離順統一（自治体＋駅・周辺）', () =
       ])
     }, { timeout: 8000 })
   }, 15000)
+})
+
+// ---------- Overpass 名前検索補完（地名検索フォールバック） ----------
+//
+// 背景: Nominatim は「検索語と完全に同名の要素」しか返さないため、名称が
+// 正確に存在しない POI（例: 「岡山大学」→「岡山大学 津島キャンパス」）は
+// どんなに絞り込んでも候補にならない。そこで「Nominatim 候補のどれも
+// name に検索語を含まない」場合だけ、Overpass の全国名前検索で補完する。
+//
+// - 補完が候補を返したら、補完候補のみを提示する（Nominatim 部分一致
+//   候補は提示しない）
+// - 補完が空・失敗なら従来どおりの流れ（Nominatim 結果／「見つからない」）
+// - 補完クエリは一次エンドポイント（armd-01）のみに送る（フォールバック
+//   連鎖に乗せない）
+
+describe('Overpass 名前検索補完（地名検索フォールバック）', () => {
+  // 「岡山大学 津島キャンパス」（relation、bounds）。BBOX面積は約1.4km²
+  // （既定閾値1km²以上）のため、選択時にそのまま検索エリアに採用される
+  const TSUSHIMA_ELEMENT = {
+    type: 'relation', id: 6605128,
+    bounds: { minlat: 34.683, minlon: 133.912, maxlat: 34.692, maxlon: 133.927 },
+    tags: { name: '岡山大学 津島キャンパス', amenity: 'university' },
+  }
+  // 「岡山大学病院」（node）。現在位置 mock（34.7, 135.5）から津島キャンパスより
+  // 明確に遠い（約147km vs 約145km）
+  const HOSPITAL_ELEMENT = {
+    type: 'node', id: 1423610169, lat: 34.651, lon: 133.9,
+    tags: { name: '岡山大学病院', amenity: 'hospital' },
+  }
+
+  it('Nominatim 候補のどれも name に検索語を含まない場合、Overpass 全国名前検索で補完し補完候補のみを提示する', async () => {
+    // Nominatim は name に「岡山大学」を含まない候補（梅田）を返す
+    nominatimRows = [UEDA_ROW]
+    nameSearchElements = [HOSPITAL_ELEMENT, TSUSHIMA_ELEMENT]
+    renderApp()
+    await openMapMode()
+
+    fireEvent.change(getLocationInput(), { target: { value: '岡山大学' } })
+    fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
+
+    // 候補リストが補完候補のみを提示する（Nominatim の「梅田」は提示されない）
+    await waitFor(() => {
+      expect(screen.getByText('候補が複数あります。選んでください。')).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // 距離順: 津島キャンパス（約145km）< 病院（約146km）。
+    // 現在位置があるためラベルに距離表示（「約Nkm」）が付く
+    const options = getSuggestOptions()
+    expect(options.map((o) => o.textContent)).toEqual([
+      expect.stringMatching(/^岡山大学 津島キャンパス（施設・約\d+km）$/),
+      expect.stringMatching(/^岡山大学病院（施設・約\d+km）$/),
+    ])
+    expect(screen.queryByRole('option', { name: /梅田/ })).toBeNull()
+
+    // 名前検索クエリは範囲指定なしで全国規模に発行される
+    expect(overpassCalls).toContain('[out:json][timeout:25];nwr["name"~"岡山大学"];out bb;')
+
+    // 津島キャンパス候補をタップ → エリアが設定される（relation の bounds が bbox に）
+    await selectAndAwaitArea(options[0])
+    expect(getLocationInput().value).toBe('岡山大学 津島キャンパス')
+    expect(overlayCoords()).toEqual([
+      [133.912, 34.683],
+      [133.927, 34.683],
+      [133.927, 34.692],
+      [133.912, 34.692],
+      [133.912, 34.683],
+    ])
+  }, 20000)
+
+  it('Nominatim 候補のいずれかが name に検索語を含む場合、Overpass 名前検索は行われない', async () => {
+    // Nominatim は name に「岡山大学」を含む候補（津島キャンパス）を返す
+    nominatimRows = [
+      {
+        lat: '34.687500',
+        lon: '133.919500',
+        display_name: '岡山大学 津島キャンパス, 岡山市, 岡山県, 日本',
+        name: '岡山大学 津島キャンパス',
+        type: 'university',
+        boundingbox: ['34.683', '34.692', '133.912', '133.927'],
+        address: { state: '岡山県', city: '岡山市' },
+      },
+    ]
+    // （参照されるべきではない）
+    nameSearchElements = [TSUSHIMA_ELEMENT]
+    renderApp()
+    await openMapMode()
+
+    fireEvent.change(getLocationInput(), { target: { value: '岡山大学' } })
+    fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
+
+    // 単一候補 → 候補リストなしで直接エリアが設定される
+    await waitFor(() => {
+      expect(getLocationInput().className).toContain('border-green-500')
+    }, { timeout: 8000 })
+    expect(getLocationInput().value).toBe('岡山大学 津島キャンパス, 岡山市, 岡山県, 日本')
+
+    // 名前検索クエリは発行されない
+    expect(overpassCalls.some((q) => q.includes('nwr["name"~'))).toBe(false)
+  }, 20000)
+
+  it('Overpass 名前検索が何も見つけない場合、従来どおりの流れ（Nominatim 結果）に戻る', async () => {
+    // Nominatim は name に「岡山大学」を含まない候補（梅田）を返す
+    nominatimRows = [UEDA_ROW]
+    nameSearchElements = [] // 補完は空
+    renderApp()
+    await openMapMode()
+
+    fireEvent.change(getLocationInput(), { target: { value: '岡山大学' } })
+    fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
+
+    // 補完が空 → Nominatim 結果（単一候補 梅田）でエリアが設定される
+    await waitFor(() => {
+      expect(getLocationInput().className).toContain('border-green-500')
+    }, { timeout: 8000 })
+    expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
+
+    // 名前検索クエリは発行されていた
+    expect(overpassCalls.some((q) => q.includes('nwr["name"~'))).toBe(true)
+  }, 20000)
+
+  it('Overpass 名前検索が失敗した場合、従来どおりの流れ（「場所が見つかりませんでした」）に戻る', async () => {
+    // Nominatim は候補を一切返さない → 補完が発行される
+    nominatimRows = []
+    nameSearchStatus = 500 // 補完が失敗
+    renderApp()
+    await openMapMode()
+
+    fireEvent.change(getLocationInput(), { target: { value: '存在しない町' } })
+    fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
+
+    // 補完が失敗 → 「場所が見つかりませんでした」
+    await waitFor(() => {
+      expect(findAlertText(/場所が見つかりませんでした/)).toBe(true)
+    }, { timeout: 8000 })
+    expect(getLocationInput().className).not.toContain('border-green-500')
+    expect(overlayCoords()).toBeNull()
+  }, 20000)
 })

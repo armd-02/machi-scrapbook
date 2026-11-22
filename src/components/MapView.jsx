@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../context/AppContext'
 import { setMapInstance } from '../hooks/useMapRef'
 import { isValidBbox } from '../utils/searchBbox'
+import { facilityName } from '../utils/facilityLabels'
 import { BASEMAP_STYLE } from '../utils/mapStyle'
 import { wheelchairBadge } from '../utils/accessibility'
 import { buildOsmElementUrl } from '../utils/editLinks'
@@ -183,7 +184,7 @@ function buildPopupElement(result) {
 
   const nameEl = document.createElement('div')
   nameEl.className = 'map-popup-name'
-  nameEl.textContent = result.name || '（名称不明）'
+  nameEl.textContent = facilityName(result)
   root.appendChild(nameEl)
 
   const metaEl = document.createElement('div')

@@ -91,6 +91,14 @@ describe('sortResultsDefault', () => {
     expect(out.map((r) => r.id)).toEqual([2, 1])
   })
 
+  it('種別名で表示される名前のない施設も名前なし側にする（表示名の変化に追随しない）', () => {
+    // 名前の無いカフェは表示上「カフェ」（種別名）になるが、並びでは名前なし側
+    const unnamedCafe = { type: 'node', id: 1, lat: 34.71, lon: 135.51, tags: { amenity: 'cafe' } }
+    const results = [unnamedCafe, named(2, '遠いカフェ', 34.719, 135.519)]
+    const out = sortResultsDefault(results, BBOX)
+    expect(out.map((r) => r.id)).toEqual([2, 1])
+  })
+
   it('bbox が無い・不正な場合は元の順を保持する', () => {
     const results = [unnamed(1, 34.719, 135.519), named(2, 'カフェ', 34.71, 135.51)]
     expect(sortResultsDefault(results, null).map((r) => r.id)).toEqual([1, 2])

@@ -196,22 +196,41 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   }
 
   return (
-    <section aria-label="まちメモ帳" className="@container bg-white border-b border-slate-200">
-      {/* 見出し＋件数（#79: ☰メニューはヘッダーの HeaderMenu に統一） */}
-      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-        <h2 className="text-sm font-bold text-slate-800">まちメモ帳</h2>
-        <span className="text-xs text-slate-500">
-          {filtersActive
-            ? `全${active.length.toLocaleString()}件中、${filtered.length.toLocaleString()}件を表示`
-            : `${active.length}件`}
-        </span>
-      </div>
+    // レイアウトは検索結果画面（MobileListTab）に合わせる: フル高さ flex（h-full flex flex-col）で
+    // メモマップを画面一番上に固定（shrink-0）、その下の flex-1 overflow-y-auto エリアで
+    // 見出し・件数・フィルタ・カードリストが独立スクロールする（地図はスクロールしない）
+    <section aria-label="まちメモ帳" className="h-full flex flex-col bg-slate-100 [container-type:size]">
+      {/* (メモマップ) 画面一番上に固定（見出し・フィルタより上）。検索結果マップと同じ
+          折りたたみ式。ピンタップで対応カードへスクロール＋選択。座標を持つアイテムが
+          1件以上あるときだけ表示される（ごみ箱ビューには地図を出さない） */}
+      {mapItems.length > 0 && (
+        <div className="shrink-0 px-3 pt-3 [--results-map-max-height:max(0px,calc(100cqh_-_12rem))]">
+          <CollapsibleResultsMap
+            title="メモマップ"
+            results={mapItems}
+            onMarkerClick={handlePinSelect}
+            selection={selection}
+            heightStorageKey="mapHeight.memocho"
+          />
+        </div>
+      )}
 
-      {/* (共通フィルタバー) コントロール・選択肢・CSSクラス構成は ResultFilterBar に集約
-          （検索一覧と共用）。状態はメモ帳ローカルで、検索結果の resultFilters とは
-          独立している（キー名は resultFilters と統一） */}
-      {active.length > 0 && (
-        <div className="px-3 pb-2">
+      {/* 見出し・件数・フィルタ・カードリスト: 独立スクロール（地図は上部に固定される） */}
+      <div className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 px-3 py-3 space-y-3">
+        {/* 見出し＋件数（#79: ☰メニューはヘッダーの HeaderMenu に統一） */}
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-slate-800">まちメモ帳</h2>
+          <span className="text-xs text-slate-500">
+            {filtersActive
+              ? `全${active.length.toLocaleString()}件中、${filtered.length.toLocaleString()}件を表示`
+              : `${active.length}件`}
+          </span>
+        </div>
+
+        {/* (共通フィルタバー) コントロール・選択肢・CSSクラス構成は ResultFilterBar に集約
+            （検索一覧と共用）。状態はメモ帳ローカルで、検索結果の resultFilters とは
+            独立している（キー名は resultFilters と統一） */}
+        {active.length > 0 && (
           <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
             {/* キーワード行: 見出し文言「キーワード」は除去（プレースホルダで意味が
                 伝わるため）。右側はフィルタ全クリアシンボル（✕）の固定スロットを
@@ -263,27 +282,9 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
               onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
             />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* (メモマップ) 現在表示中のアイテム（フィルタ適用後）を施設アイコンピンで表示。
-          検索結果マップと同じ折りたたみ式（既定は折りたたみ・地図非表示）。
-          ピンタップで対応カードへスクロール＋選択。座標を持つアイテムが
-          1件以上あるときだけ表示される（ごみ箱ビューには地図を出さない） */}
-      {mapItems.length > 0 && (
-        <div className="px-3 pb-2">
-          <CollapsibleResultsMap
-            title="メモマップ"
-            results={mapItems}
-            onMarkerClick={handlePinSelect}
-            selection={selection}
-            heightStorageKey="mapHeight.memocho"
-          />
-        </div>
-      )}
-
-      {/* 一覧（0件のときは案内文、絞り込みで0件のときはリセット案内） */}
-      <div className="px-3 pb-3">
+        {/* 一覧（0件のときは案内文、絞り込みで0件のときはリセット案内） */}
         {active.length === 0 ? (
           <p className="text-sm text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-4 text-center">
             {EMPTY_TEXT}

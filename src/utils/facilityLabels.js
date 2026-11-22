@@ -29,16 +29,36 @@ export const NAME_FALLBACK = '（名称不明）'
 const NAME_SENTINELS = new Set(['名称なし'])
 
 /**
- * 施設名を取得（name → name:ja → フォールバック）
- * 名前の無い施設は NAME_FALLBACK（（名称不明））を返す。
- * データ側のセンチネル（名称なし）は「名前がない」として扱い、表示では NAME_FALLBACK を使う。
+ * 施設に実名（name または name:ja）があるかを返す。
+ * データ側のセンチネル（名称なし）は「名前がない」として扱う。
+ * 並び順の「名前あり優先」判定（resultSort.js）で使う。種別名で表示される
+ * 施設は実名を持たないので「名前なし側」のまま（表示名の変化に追随させない）。
+ */
+export function hasFacilityName(result) {
+  if (!result) return false
+  const name = result.name
+  if (typeof name === 'string' && name !== '' && !NAME_SENTINELS.has(name)) return true
+  const nameJa = result.tags && result.tags['name:ja']
+  return typeof nameJa === 'string' && nameJa !== ''
+}
+
+/**
+ * 施設名を取得（name → name:ja → 種別名 → フォールバック）
+ * 名前の無い施設は、タグから導ける種別名（公共トイレ・レストラン等の
+ * 日本語ラベル）を返す。種別名が導けない場合（facilityTypeLabel が生値や
+ * 「施設」に落ちるケース）はフォールバック（既定 NAME_FALLBACK＝（名称不明））。
+ * データ側のセンチネル（名称なし）は「名前がない」として扱う。
+ * データ側の name 値は変更しない（表示だけの解決）。
  */
 export function facilityName(result, fallback = NAME_FALLBACK) {
   if (!result) return fallback
-  const name = result.name
-  const realName =
-    typeof name === 'string' && name !== '' && !NAME_SENTINELS.has(name) ? name : null
-  return realName || result.tags?.['name:ja'] || fallback
+  if (hasFacilityName(result)) {
+    const name = result.name
+    const realName =
+      typeof name === 'string' && name !== '' && !NAME_SENTINELS.has(name) ? name : null
+    return realName || result.tags['name:ja']
+  }
+  return derivedTypeLabel(result) || fallback
 }
 
 /**
@@ -288,11 +308,13 @@ export function facilityCategoryId(result) {
 }
 
 /**
- * 要素の施設タイプを日本語ラベルで返す（#44）
+ * 要素の施設タイプを日本語ラベルで返す（導出できた場合のみ）。
+ * 辞書・カテゴリ照合のどちらにも一致しなければ null を返す。
+ * facilityName（名前の無い施設の表示名）が種別名を使う判定に使う。
  * @param {object} result - Overpass result（{ type, id, tags }）
- * @returns {string} 例: 'カフェ' / '公園' / '駅'
+ * @returns {string|null} 例: 'カフェ' / '公園' / '駅'（導出不能なら null）
  */
-export function facilityTypeLabel(result) {
+function derivedTypeLabel(result) {
   const tags = (result && result.tags) || {}
 
   // 1. 主要タグ値を辞書で日本語化
@@ -311,7 +333,20 @@ export function facilityTypeLabel(result) {
     }
   }
 
-  // 3. フォールバック: 生値（稀）
+  return null
+}
+
+/**
+ * 要素の施設タイプを日本語ラベルで返す（#44）
+ * @param {object} result - Overpass result（{ type, id, tags }）
+ * @returns {string} 例: 'カフェ' / '公園' / '駅'
+ */
+export function facilityTypeLabel(result) {
+  const derived = derivedTypeLabel(result)
+  if (derived) return derived
+
+  // 3. フォールバック: 生値（稀）。英語の生タグ値は表示名（facilityName）では使わない
+  const tags = (result && result.tags) || {}
   const raw = tags.amenity || tags.shop || tags.tourism || tags.leisure ||
     tags.healthcare || tags.office || tags.craft || tags.sport ||
     tags.railway || tags.aeroway

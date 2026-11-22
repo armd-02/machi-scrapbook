@@ -12,8 +12,9 @@
  *   「広すぎる」しきい値判定（MAX_SEARCH_AREA_KM2 = 1,000 km² 以上）。
  *   旧都道府県名ベースのガード（isPrefectureCandidate）を置き換える
  */
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { geocode, geocodeCandidates, geocodeCandidateLabel, calculateBboxAreaKm2, isBboxTooLarge, isMunicipalityCandidate, MAX_SEARCH_AREA_KM2, searchAreaFromGeocode, sortCandidatesByDistance } from '../geo'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { geocode, geocodeCandidates, geocodeCandidateLabel, calculateBboxAreaKm2, isBboxTooLarge, isMunicipalityCandidate, MAX_SEARCH_AREA_KM2, searchAreaFromGeocode, sortCandidatesByDistance, buildNameSearchQuery, parseNameSearchResponse, prepareNameSearchCandidates, overpassNameSearch } from '../geo'
+import { clearCache } from '../overpass'
 
 // ---------- モックヘルパー ----------
 
@@ -533,5 +534,263 @@ describe('sortCandidatesByDistance（viewbox 付きの距離順再ソート）',
     const cands = [cand('A', 34.7, 135.5, '大阪府')]
     expect(sortCandidatesByDistance(cands, null, 5)).toEqual(cands)
     expect(sortCandidatesByDistance([], UMEMO, 5)).toEqual([])
+  })
+})
+
+// ---------- Overpass 名前検索補完（地名検索のフォールバック） ----------
+//
+// 背景: Nominatim は「検索語と完全に同名の要素」しか返さないため、名称が
+// 正確に存在しない POI（例: 「岡山大学」→「岡山大学 津島キャンパス」）は
+// どんなに絞り込んでも候補にならない。そこで「Nominatim 候補のどれも
+// name に検索語を含まない」場合だけ、Overpass の全国名前検索で補完する。
+//
+// - 補完のトリガ判定（name 部分一致チェック）は MobileSearchTab 側で行う
+// - エンドポイントは一次（armd-01）のみ（フォールバック連鎖に乗せない）
+// - 候補は geocodeCandidates と互換の形状（way/relation は bounds 中心）
+// - 同名候補は1件に集約・5件上限・現在位置がある場合は距離順
+
+describe('buildNameSearchQuery（全国名前検索）', () => {
+  it('範囲指定なし（全国）のクエリを [timeout:25] で生成する', () => {
+    expect(buildNameSearchQuery('岡山大学'))
+      .toBe('[out:json][timeout:25];nwr["name"~"岡山大学"];out bb;')
+  })
+
+  it('正規表現メタ文字をエスケープする（検索語をリテラル文字列として扱う）', () => {
+    expect(buildNameSearchQuery('A.B')).toContain('nwr["name"~"A\\\\.B"]')
+    expect(buildNameSearchQuery('A+B')).toContain('nwr["name"~"A\\\\+B"]')
+    expect(buildNameSearchQuery('A(B)')).toContain('nwr["name"~"A\\\\(B\\\\)"]')
+  })
+
+  it('バックスラッシュ・二重引用符は QL 引用符値用にエスケープする', () => {
+    expect(buildNameSearchQuery('A"B')).toContain('nwr["name"~"A\\"B"]')
+    expect(buildNameSearchQuery('A\\B')).toContain('nwr["name"~"A\\\\\\\\B"]')
+  })
+
+  it('検索語を trim する', () => {
+    expect(buildNameSearchQuery('  岡山大学  '))
+      .toBe('[out:json][timeout:25];nwr["name"~"岡山大学"];out bb;')
+  })
+})
+
+describe('parseNameSearchResponse（Overpass 応答の解析）', () => {
+  it('node: 自身の座標を使い、boundingbox は null', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        { type: 'node', id: 1, lat: 34.651, lon: 133.921, tags: { name: '岡山大学病院', amenity: 'hospital' } }
+      ]
+    })
+    expect(out).toEqual([
+      { lat: 34.651, lon: 133.921, name: '岡山大学病院', kind: '施設', boundingbox: null }
+    ])
+  })
+
+  it('way: bounds 中心を lat/lon にし、bounds を boundingbox にする', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        {
+          type: 'way', id: 2,
+          bounds: { minlat: 34.64, minlon: 133.91, maxlat: 34.65, maxlon: 133.92 },
+          tags: { name: '岡山大学 鹿田キャンパス', amenity: 'university' }
+        }
+      ]
+    })
+    expect(out).toEqual([
+      {
+        lat: (34.64 + 34.65) / 2,
+        lon: (133.91 + 133.92) / 2,
+        name: '岡山大学 鹿田キャンパス',
+        kind: '施設',
+        boundingbox: { south: 34.64, west: 133.91, north: 34.65, east: 133.92 }
+      }
+    ])
+  })
+
+  it('relation: way と同じ（bounds 中心）', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        {
+          type: 'relation', id: 3,
+          bounds: { minlat: 34.6837964, minlon: 133.9120218, maxlat: 34.6908282, maxlon: 133.9269967 },
+          tags: { name: '岡山大学 津島キャンパス', amenity: 'university' }
+        }
+      ]
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0].name).toBe('岡山大学 津島キャンパス')
+    expect(out[0].lat).toBeCloseTo((34.6837964 + 34.6908282) / 2)
+    expect(out[0].boundingbox).toEqual({
+      south: 34.6837964, west: 133.9120218, north: 34.6908282, east: 133.9269967
+    })
+  })
+
+  it('name タグが無い要素は除外する', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        { type: 'node', id: 1, lat: 34.65, lon: 133.92, tags: { amenity: 'hospital' } },
+        { type: 'way', id: 2, bounds: { minlat: 34.6, minlon: 133.9, maxlat: 34.7, maxlon: 134.0 }, tags: { building: 'yes' } }
+      ]
+    })
+    expect(out).toEqual([])
+  })
+
+  it('座標が無い node・bounds が無い way は除外する', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        { type: 'node', id: 1, tags: { name: '無座標ノード' } },
+        { type: 'way', id: 2, tags: { name: '無Boundsウェイ' } }
+      ]
+    })
+    expect(out).toEqual([])
+  })
+
+  it('kind マッピング: amenity→施設、public_transport→停留所、building→建物、leisure=park→公園、タグ無し→空', () => {
+    const out = parseNameSearchResponse({
+      elements: [
+        { type: 'node', id: 1, lat: 34.7, lon: 135.5, tags: { name: 'A', amenity: 'cafe' } },
+        { type: 'node', id: 2, lat: 34.7, lon: 135.5, tags: { name: 'B', highway: 'bus_stop', public_transport: 'platform' } },
+        { type: 'node', id: 3, lat: 34.7, lon: 135.5, tags: { name: 'C', building: 'yes' } },
+        { type: 'way', id: 4, bounds: { minlat: 34.7, minlon: 135.5, maxlat: 34.71, maxlon: 135.51 }, tags: { name: 'D', leisure: 'park' } },
+        { type: 'node', id: 5, lat: 34.7, lon: 135.5, tags: { name: 'E' } }
+      ]
+    })
+    expect(out.map((c) => c.kind)).toEqual(['施設', '停留所', '建物', '公園', ''])
+  })
+})
+
+describe('prepareNameSearchCandidates（同名集約と上限）', () => {
+  // 「岡山大学筋」が2つの要素（停留所等）として返るケースを再現するフィクスチャ
+  const rawFixture = () => [
+    { lat: 34.681, lon: 133.921, name: '岡山大学筋', kind: '停留所', boundingbox: null },
+    { lat: 34.682, lon: 133.922, name: '岡山大学筋', kind: '停留所', boundingbox: null },
+    { lat: 34.651, lon: 133.921, name: '岡山大学病院', kind: '施設', boundingbox: null },
+    { lat: 34.69, lon: 133.915, name: '岡山大学 津島キャンパス', kind: '施設', boundingbox: { south: 34.68, west: 133.91, north: 34.69, east: 133.93 } }
+  ]
+
+  it('同名の候補を1件に集約する（現在位置がないなら先頭を残す）', () => {
+    const out = prepareNameSearchCandidates(rawFixture(), null)
+    expect(out).toHaveLength(3)
+    const shiro = out.find((c) => c.name === '岡山大学筋')
+    expect(shiro.lon).toBe(133.921)
+  })
+
+  it('同名の候補を1件に集約する（現在位置があるなら最近接を残す）', () => {
+    // 現在位置（34.682, 133.922）は2つ目の「岡山大学筋」に近い
+    const out = prepareNameSearchCandidates(rawFixture(), { lat: 34.682, lon: 133.922 })
+    const shiro = out.find((c) => c.name === '岡山大学筋')
+    expect(shiro.lon).toBe(133.922)
+  })
+
+  it('displayName（= name）・空のprefecture/city・distanceKm を付与する', () => {
+    const out = prepareNameSearchCandidates(rawFixture(), { lat: 34.7, lon: 135.5 })
+    for (const c of out) {
+      expect(c.displayName).toBe(c.name)
+      expect(c.prefecture).toBe('')
+      expect(c.city).toBe('')
+      expect(c.distanceKm).toBeGreaterThan(0)
+    }
+  })
+
+  it('現在位置がある場合は距離順にソートして5件で切り詰める', () => {
+    const raw = []
+    for (let i = 1; i <= 7; i++) {
+      raw.push({ lat: 34.6 + 0.01 * i, lon: 133.9 + 0.01 * i, name: `施設${i}`, kind: '施設', boundingbox: null })
+    }
+    const center = { lat: 34.61, lon: 133.91 }
+    const out = prepareNameSearchCandidates(raw, center)
+    expect(out).toHaveLength(5)
+    expect(out.map((c) => c.name)).toEqual(['施設1', '施設2', '施設3', '施設4', '施設5'])
+  })
+
+  it('空の入力は空配列を返す', () => {
+    expect(prepareNameSearchCandidates([], { lat: 34.7, lon: 135.5 })).toEqual([])
+    expect(prepareNameSearchCandidates(null, null)).toEqual([])
+  })
+})
+
+describe('overpassNameSearch（Overpass 全国名前検索）', () => {
+  beforeEach(() => {
+    // 前テストの Overpass キャッシュが残らないようにする
+    clearCache()
+  })
+
+  // 「岡山大学」の Overpass 応答（実レスポンスの形状を再現）
+  const NAME_ELEMENTS = {
+    elements: [
+      { type: 'node', id: 101, lat: 34.651, lon: 133.921, tags: { name: '岡山大学病院', amenity: 'hospital' } },
+      { type: 'way', id: 202, bounds: { minlat: 34.648, minlon: 133.95, maxlat: 34.653, maxlon: 133.97 }, tags: { name: '岡山大学 鹿田キャンパス', amenity: 'university' } },
+      { type: 'relation', id: 303, bounds: { minlat: 34.684, minlon: 134.01, maxlat: 34.691, maxlon: 134.03 }, tags: { name: '岡山大学 津島キャンパス', amenity: 'university' } }
+    ]
+  }
+
+  function mockOverpassFetch(response, { fail = false } = {}) {
+    const calls = []
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
+      const u = String(url)
+      const q = new URLSearchParams(options.body || '').get('data') || (options.body || '')
+      calls.push({ url: u, q })
+      if (fail) throw new Error('network down')
+      if (!u.includes('interpreter')) {
+        return { ok: false, status: 404, json: async () => ({}) }
+      }
+      return { ok: true, status: 200, json: async () => response }
+    })
+    return { spy, calls }
+  }
+
+  it('全国名前検索クエリを一次エンドポイント（armd-01）にだけ送り、候補を返す', async () => {
+    const { calls } = mockOverpassFetch(NAME_ELEMENTS)
+    const cands = await overpassNameSearch('岡山大学', { center: { lat: 34.7, lon: 135.5 } })
+
+    // 1リクエストのみ（フォールバック連鎖に乗せない）
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://armd-01.sakura.ne.jp/api/interpreter')
+    expect(calls[0].q).toBe('[out:json][timeout:25];nwr["name"~"岡山大学"];out bb;')
+
+    // geocodeCandidates と互換の形状・距離順（津島 < 鹿田 < 病院）
+    expect(cands.map((c) => c.name)).toEqual([
+      '岡山大学 津島キャンパス',
+      '岡山大学 鹿田キャンパス',
+      '岡山大学病院'
+    ])
+    expect(cands[0]).toEqual({
+      lat: (34.684 + 34.691) / 2,
+      lon: (134.01 + 134.03) / 2,
+      name: '岡山大学 津島キャンパス',
+      kind: '施設',
+      boundingbox: { south: 34.684, west: 134.01, north: 34.691, east: 134.03 },
+      type: '',
+      addresstype: '',
+      displayName: '岡山大学 津島キャンパス',
+      prefecture: '',
+      city: '',
+      distanceKm: expect.any(Number)
+    })
+  })
+
+  it('現在位置がない場合は距離順にせず先頭5件を返す', async () => {
+    mockOverpassFetch(NAME_ELEMENTS)
+    const cands = await overpassNameSearch('岡山大学')
+    expect(cands.map((c) => c.name)).toEqual([
+      '岡山大学病院',
+      '岡山大学 鹿田キャンパス',
+      '岡山大学 津島キャンパス'
+    ])
+    expect(cands[0].distanceKm).toBeUndefined()
+  })
+
+  it('失敗時は例外を投げずに空配列を返す', async () => {
+    mockOverpassFetch(null, { fail: true })
+    await expect(overpassNameSearch('岡山大学')).resolves.toEqual([])
+  })
+
+  it('要素が見つからない場合は空配列を返す', async () => {
+    mockOverpassFetch({ elements: [] })
+    await expect(overpassNameSearch('存在しない名前ZZZ')).resolves.toEqual([])
+  })
+
+  it('空のクエリはリクエストを出さず空配列を返す', async () => {
+    const { spy } = mockOverpassFetch(NAME_ELEMENTS)
+    await expect(overpassNameSearch('   ')).resolves.toEqual([])
+    expect(spy).not.toHaveBeenCalled()
   })
 })

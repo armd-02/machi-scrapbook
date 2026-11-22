@@ -5,7 +5,7 @@
  * のまま表示されるため、名前のない施設が先頭に来て、探している施設（名前のある
  * 公園など）が下の方に埋もれる。そこでデフォルト並びを以下にする:
  *
- * - 名前のある施設を先に、名前のない施設（表示上「（名称不明）」）を後にする
+ * - 名前のある施設を先に、名前のない施設（表示上は種別名または「（名称不明）」）を後にする
  * - 同じグループの中では、検索に使った bbox の中心から近い順に並べる
  * - 座標を持たない結果は、そのグループの最後に置く
  *
@@ -19,14 +19,15 @@
  * まちメモ帳の一覧は検索結果とは別の並びなので影響を受けない。
  */
 import { haversineKm } from './nearbyCandidates'
-import { facilityName, NAME_FALLBACK } from './facilityLabels'
+import { hasFacilityName } from './facilityLabels'
 
 /**
  * 検索結果をデフォルト並び（名前あり優先＋bbox中心から近い順）に並べ直す。
  * 新しい配列を返す（元は変更しない）。
  *
- * - 名前のある施設（name / name:ja が実在。facilityName の判定を共用）を
- *   先に、名前のない施設を後にする
+ * - 名前のある施設（name / name:ja が実在。hasFacilityName の判定を共用）を
+ *   先に、名前のない施設を後にする。名前のない施設は表示上 種別名
+ *   （公共トイレ等）または「（名称不明）」で出るが、並びでは常に名前なし側
  * - グループ内は bbox 中心からの距離（haversineKm）の近い順。
  *   距離が同じ（または座標なし同士）場合は元の順を維持する（安定ソート）
  * - 座標を持たない結果（lat/lon が数値でない）は距離が無効なので
@@ -58,7 +59,7 @@ export function sortResultsDefault(results, bbox) {
   const named = []
   const unnamed = []
   for (const r of results) {
-    ;(facilityName(r) === NAME_FALLBACK ? unnamed : named).push(r)
+    ;(hasFacilityName(r) ? named : unnamed).push(r)
   }
   named.sort((a, b) => dist(a) - dist(b))
   unnamed.sort((a, b) => dist(a) - dist(b))

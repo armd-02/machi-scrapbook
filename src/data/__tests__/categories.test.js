@@ -17,7 +17,7 @@ import {
 // 新構成（再編）の10種別: 「すること」系→「生活の施設」系の順
 const GROUP_NAMES = [
   '食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き',
-  '公共施設', '会社・事務所', '移動・交通', 'バリアフリー'
+  '公共設備', '会社・事務所', '移動・交通', 'バリアフリー'
 ]
 
 describe('カテゴリの目的ベースグループ化（#44 生活者目線UI・再編）', () => {
@@ -53,7 +53,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
       '学ぶ': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'],
       '病院・薬局': ['hospital', 'pharmacy'],
       '役所・手続き': ['public_facility', 'bank'],
-      '公共施設': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'],
+      '公共設備': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'],
       '会社・事務所': ['company_office'],
       '移動・交通': ['transport'],
       'バリアフリー': ['barrier_free']
@@ -132,7 +132,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
   it('getCategoriesForPurpose: 目的名からカテゴリ一覧を取得、未知の目的はnull', () => {
     const eat = getCategoriesForPurpose('食べる')
     expect(eat.map((c) => c.id)).toEqual(['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'])
-    const publicFac = getCategoriesForPurpose('公共施設')
+    const publicFac = getCategoriesForPurpose('公共設備')
     expect(publicFac.map((c) => c.id)).toEqual(['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'])
     const bf = getCategoriesForPurpose('バリアフリー')
     expect(bf.map((c) => c.id)).toEqual(['barrier_free'])
@@ -152,11 +152,11 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     expect(getPurposeOfCategory('primary_school')).toBe('学ぶ')
     expect(getPurposeOfCategory('university')).toBe('学ぶ')
     expect(getPurposeOfCategory('prep_school')).toBe('学ぶ')
-    expect(getPurposeOfCategory('toilets')).toBe('公共施設')
-    expect(getPurposeOfCategory('telephone')).toBe('公共施設')
-    expect(getPurposeOfCategory('drinking_water')).toBe('公共施設')
-    expect(getPurposeOfCategory('aed')).toBe('公共施設')
-    expect(getPurposeOfCategory('post_box')).toBe('公共施設')
+    expect(getPurposeOfCategory('toilets')).toBe('公共設備')
+    expect(getPurposeOfCategory('telephone')).toBe('公共設備')
+    expect(getPurposeOfCategory('drinking_water')).toBe('公共設備')
+    expect(getPurposeOfCategory('aed')).toBe('公共設備')
+    expect(getPurposeOfCategory('post_box')).toBe('公共設備')
     expect(getPurposeOfCategory('company_office')).toBe('会社・事務所')
     expect(getPurposeOfCategory('transport')).toBe('移動・交通')
     expect(getPurposeOfCategory('barrier_free')).toBe('バリアフリー')
@@ -186,13 +186,13 @@ describe('新規の種別詳細（公衆電話・水飲み場・AED・郵便ポ�
       expect(cat).toBeTruthy()
       expect(cat.label).toBe(e.label)
       expect(categoryToQueryFilter(cat).unionFilters).toEqual([e.filter])
-      expect(getPurposeOfCategory(e.id)).toBe('公共施設')
+      expect(getPurposeOfCategory(e.id)).toBe('公共設備')
     }
   })
 })
 
 describe('既存カテゴリの変更（ラベル・transportタグ）', () => {
-  it('public_facility のラベルは「役所・公共機関」（新種別「公共施設」との名前衝突回避。IDはそのまま）', () => {
+  it('public_facility のラベルは「役所・公共機関」（新種別「公共設備」との名前衝突回避。IDはそのまま）', () => {
     const cat = getCategoryById('public_facility')
     expect(cat.id).toBe('public_facility')
     expect(cat.label).toBe('役所・公共機関')
@@ -230,7 +230,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
 
   it('getPurposeLabelList: グループ内カテゴリラベルを「・」区切りで返す', () => {
     expect(getPurposeLabelList('遊ぶ・公園')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設')
-    expect(getPurposeLabelList('公共施設')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト')
+    expect(getPurposeLabelList('公共設備')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト')
     expect(getPurposeLabelList('バリアフリー')).toBe('バリアフリー')
     expect(getPurposeLabelList('存在しない目的')).toBe('')
   })
@@ -256,8 +256,8 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     ])
   })
 
-  it('getPurposeUnionFilters: 公共施設 = トイレ・公衆電話・水飲み場・AED・郵便ポスト のunion', () => {
-    expect(getPurposeUnionFilters('公共施設')).toEqual([
+  it('getPurposeUnionFilters: 公共設備 = トイレ・公衆電話・水飲み場・AED・郵便ポスト のunion', () => {
+    expect(getPurposeUnionFilters('公共設備')).toEqual([
       'amenity=toilets',
       'amenity=telephone',
       'amenity=drinking_water',

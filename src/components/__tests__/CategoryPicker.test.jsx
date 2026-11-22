@@ -48,7 +48,7 @@ function renderControlledPickerLegacy(initialValue, onChange = vi.fn()) {
 }
 
 describe('CategoryPicker（mobile: 目的チップ）', () => {
-  it('10の種別グループ（グリッド内のチップ9＋バリアフリーの特別枠1）を表示する', () => {
+  it('10の種別グループ（グリッド内のチップ10）を表示する', () => {
     renderPicker()
     for (const g of CATEGORY_GROUPS) {
       const btn = screen.getByRole('button', { name: g.name })
@@ -210,30 +210,29 @@ describe('CategoryPicker（pc: グループ付きselect）', () => {
   })
 })
 
-describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー分離）', () => {
-  it('目的チップは「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・公共施設・会社・事務所・移動・交通）の順で表示される', () => {
+describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー）', () => {
+  it('目的チップは「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・公共設備・会社・事務所・移動・交通・バリアフリー）の順で表示される', () => {
     const { container } = renderPicker()
     const grid = container.querySelector('div.grid')
     const chips = [...grid.querySelectorAll('button')]
     expect(chips.map((b) => b.textContent)).toEqual([
       '🍜食べる', '🛍️買う', '🎠遊ぶ・公園', '📚学ぶ',
-      '🏥病院・薬局', '🏛️役所・手続き', '🚻公共施設', '🏢会社・事務所', '🚉移動・交通'
+      '🏥病院・薬局', '🏛️役所・手続き', '🚻公共設備', '🏢会社・事務所', '🚉移動・交通', '♿バリアフリー'
     ])
   })
 
-  it('バリアフリーはチップグリッドの外に、グリッドの下に横長（全幅）特別枠として表示される', () => {
+  it('バリアフリーは通常のチップとしてグリッド内に表示され（「移動・交通」の直後）、タップで目的スコープが設定される', () => {
     const { container } = renderPicker()
     const grid = container.querySelector('div.grid')
     const bf = screen.getByRole('button', { name: 'バリアフリー' })
-    expect(grid.contains(bf)).toBe(false)
-    expect(bf.className).toContain('w-full')
-    expect(grid.compareDocumentPosition(bf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 枠線は目的チップと同一（実線）に統一されている（未選択時）
-    expect(bf.className).not.toContain('border-dashed')
+    // グリッド内に位置する
+    expect(grid.contains(bf)).toBe(true)
+    // 他のチップと同じスタイル
+    expect(bf.className).toContain('min-h-[48px]')
     expect(bf.className).toContain('border-slate-200')
   })
 
-  it('特別枠をタップすると目的スコープが設定される（目的チップと同じ挙動）', () => {
+  it('バリアフリーチップをタップすると目的スコープが設定される（目的チップと同じ挙動）', () => {
     const onPurposeChange = vi.fn()
     renderPicker('', vi.fn(), onPurposeChange)
     fireEvent.click(screen.getByRole('button', { name: 'バリアフリー' }))

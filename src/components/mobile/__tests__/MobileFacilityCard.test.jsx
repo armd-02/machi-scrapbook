@@ -48,16 +48,22 @@ describe('ユーティリティ関数（facilityLabels.js 経由の再エクス�
     expect(preferredFacilityLink(tags)).toMatchObject({ label, url })
   })
 
-  it('facilityName: name → name:ja → フォールバックの順で解決する', () => {
+  it('facilityName: name → name:ja → 種別名 → フォールバックの順で解決する', () => {
     expect(facilityName(COFFEE)).toBe('テスト珈琲店')
     expect(facilityName({ tags: { 'name:ja': '日本語名' } })).toBe('日本語名')
+    // 名前の無い施設は種別名（辞書ラベル）を表示
+    expect(facilityName({ tags: { amenity: 'toilets' } })).toBe('公共トイレ')
+    expect(facilityName({ tags: { amenity: 'restaurant' } })).toBe('レストラン')
+    // 種別名が導けない場合は従来どおり（名称不明）
     expect(facilityName({})).toBe('（名称不明）')
+    expect(facilityName({ tags: { amenity: 'bench' } })).toBe('（名称不明）')
   })
 
-  it('facilityName: データ側のセンチネル（名称なし）は「名前がない」として扱いフォールバックを返す', () => {
+  it('facilityName: データ側のセンチネル（名称なし）は「名前がない」として扱い、種別名またはフォールバックを返す', () => {
     // まちメモ帳のアイテムは名前の無い施設に name:'名称なし' を格納する（データ出力用）。
-    // 表示では（名称不明）を使う（データ出力には影響させない）。
+    // 表示では種別名を使う（データ出力には影響させない）。
     expect(facilityName({ name: '名称なし' })).toBe('（名称不明）')
+    expect(facilityName({ name: '名称なし', tags: { amenity: 'toilets' } })).toBe('公共トイレ')
     expect(facilityName({ name: '名称なし', tags: { 'name:ja': '日本語名' } })).toBe('日本語名')
     expect(facilityName({ name: 'テストカフェ' })).toBe('テストカフェ')
     expect(facilityName({ name: '' })).toBe('（名称不明）')
@@ -101,6 +107,8 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
   it('電話・公式サイト・営業時間が登録されていれば表示される', () => {
     const full = {
       type: 'way', id: 77, lat: 34.8, lon: 135.5,
+      // parseOverpassResponse は tags.name をトップレベルの name にも置く
+      name: 'みらい公園',
       tags: {
         name: 'みらい公園', leisure: 'park',
         phone: '06-1234-5678',

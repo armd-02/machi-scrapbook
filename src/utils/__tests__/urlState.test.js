@@ -134,14 +134,14 @@ describe('encodeStateToURL / decodeURLToState', () => {
       searchMode: 'simple',
       simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
-      municipalitySearch: { category: '', cuisine: '', purpose: '公共施設' },
+      municipalitySearch: { category: '', cuisine: '', purpose: '公共設備' },
       selectedMunicipality: { code: '272078', name: '高槻市', bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 } },
       bbox: null
     }
     const qs = encodeStateToURL(state)
-    expect(qs).toContain('p=' + encodeURIComponent('公共施設'))
+    expect(qs).toContain('p=' + encodeURIComponent('公共設備'))
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.municipalitySearch.purpose).toBe('公共施設')
+    expect(decoded.municipalitySearch.purpose).toBe('公共設備')
   })
 })
 

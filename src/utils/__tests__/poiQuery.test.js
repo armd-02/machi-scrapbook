@@ -110,13 +110,13 @@ describe('#44 buildPoiQuery', () => {
     expect(query).not.toContain('traffic_signals')
   })
 
-  it('バリアフリーカテゴリ未選択・目的「公共施設」選択時: バリアフリーフィルタは混入しない', () => {
-    const { query } = buildPoiQuery(testBbox, '', '', '', '公共施設')
-    // 公共施設にはバリアフリーフィルタが含まれない
+  it('バリアフリーカテゴリ未選択・目的「公共設備」選択時: バリアフリーフィルタは混入しない', () => {
+    const { query } = buildPoiQuery(testBbox, '', '', '', '公共設備')
+    // 公共設備にはバリアフリーフィルタが含まれない
     expect(query).not.toContain('footway')
     expect(query).not.toContain('barrier=kerb')
     expect(query).not.toContain('traffic_signals')
-    // 公共施設のカテゴリは含まれる
+    // 公共設備のカテゴリは含まれる
     expect(query).toContain('amenity=toilets')
     expect(query).toContain('amenity=post_box')
     expect(query).toContain('emergency=defibrillator')

@@ -343,11 +343,17 @@ export async function executeOverpassQuery(query, options = {}) {
     totalTimeout = timeout ?? APP_CONFIG.totalTimeoutMs,
     perAttemptTimeout = APP_CONFIG.perAttemptTimeoutMs,
     signal: externalSignal,
-    parse = parseOverpassResponse
+    parse = parseOverpassResponse,
+    fallback = true
   } = options
 
-  // 試行チェーン: 一次エンドポイント + フォールバック順（重複除去）
-  const chain = [endpoint, ...FALLBACK_ENDPOINT_ORDER.filter((ep) => ep !== endpoint)]
+  // 試行チェーン: 一次エンドポイント + フォールバック順（重複除去）。
+  // fallback=false の場合は一次エンドポイントのみ（フォールバック連鎖に乗せない）。
+  // 地名検索の補完（overpassNameSearch）が使う — 全国規模の名前正規表現検索を
+  // 公共サーバーに投げないため
+  const chain = fallback
+    ? [endpoint, ...FALLBACK_ENDPOINT_ORDER.filter((ep) => ep !== endpoint)]
+    : [endpoint]
 
   const startedAt = Date.now()
   let lastError = null
