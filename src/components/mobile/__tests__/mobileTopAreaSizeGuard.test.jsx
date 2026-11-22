@@ -155,6 +155,10 @@ function setupFetchMock() {
     if (u.includes('municipalities.json')) {
       return { ok: true, status: 200, headers: new Map(), json: async () => MUNI_DATA }
     }
+    if (u.includes('stations.json')) {
+      // 駅ファイルはトップ表示時に読み込まれる（空配列＝駅候補なし・エラーなし）
+      return { ok: true, status: 200, headers: new Map(), json: async () => [] }
+    }
     if (u.includes('nominatim')) {
       nominatimCalls += 1
       return { ok: true, status: 200, headers: new Map(), json: async () => nominatimRows }
@@ -260,9 +264,9 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
       expect(screen.getByRole('alert').textContent).toBe(TOO_LARGE_ERROR('大阪府'))
     }, { timeout: 8000 })
 
-    // 検索エリアは設定されていない（緑にならない・成功フィードバックなし）
+    // 検索エリアは設定されていない（緑にならない。入力欄は入力文字のまま）
     expect(screen.getByPlaceholderText(PLACE_INPUT).className).not.toContain('border-green-500')
-    expect(screen.queryByText(/検索エリアに「大阪府」を設定しました/)).toBeNull()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('大阪府')
     // サジェストリストは出ない（入力中はローカル照合のみ。大阪府に一致する候補なし）
     expect(screen.queryByRole('listbox')).toBeNull()
 
@@ -288,9 +292,9 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
 
     // 施設検索のクエリは発行されていない
     expect(overpassCalls).toHaveLength(0)
-    // 検索エリアも設定されていない（緑にならない・成功フィードバックなし）
+    // 検索エリアも設定されていない（緑にならない。入力欄は入力文字のまま）
     expect(screen.getByPlaceholderText(PLACE_INPUT).className).not.toContain('border-green-500')
-    expect(screen.queryByText(/検索エリアに「大阪府」を設定しました/)).toBeNull()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('大阪府')
     // 一覧タブには切替されていない
     expect(tabIsCurrent('検索')).toBe(true)
 
@@ -318,9 +322,9 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
 
     // 施設検索のクエリは発行されていない
     expect(overpassCalls).toHaveLength(0)
-    // 検索エリアも設定されていない
+    // 検索エリアも設定されていない（緑にならない。入力欄は入力文字のまま）
     expect(screen.getByPlaceholderText(PLACE_INPUT).className).not.toContain('border-green-500')
-    expect(screen.queryByText(/検索エリアに「日本」を設定しました/)).toBeNull()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('日本')
     // 一覧タブには切替されていない
     expect(tabIsCurrent('検索')).toBe(true)
   }, IT_TIMEOUT)
@@ -342,8 +346,8 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    // 成功フィードバックは候補のdisplayName（「高山市, 岐阜県, 日本」）で表示される
-    expect(screen.getByText(/検索エリアに「高山市, 岐阜県, 日本」を設定しました/)).toBeTruthy()
+    // 入力欄には候補の表示名（displayName「高山市, 岐阜県, 日本」）が入る
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('高山市, 岐阜県, 日本')
     // エラー表示は出ない
     expect(screen.queryByText(/広すぎるため検索できません/)).toBeNull()
 
@@ -371,11 +375,11 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '高山市' } })
     fireEvent.click(getGeocodeButton())
 
-    // 検索エリアが設定される（緑＋フィードバック。displayNameで表示される）
+    // 検索エリアが設定される（緑＋入力欄に候補の表示名が入る）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに「高山市, 岐阜県, 日本」を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('高山市, 岐阜県, 日本')
 
     // 「広すぎる」エラーは出ない（市区町村レベルの行政区域はガードの対象外）
     expect(screen.queryByText(/『高山市』の範囲が広すぎるため検索できません/)).toBeNull()
@@ -414,7 +418,7 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに「高山市, 岐阜県, 日本」を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('高山市, 岐阜県, 日本')
     expect(screen.queryByText(/広すぎるため検索できません/)).toBeNull()
     // 候補選択だけでは施設検索は実行されない（「指定した場所と種別で検索」で実行）
     expect(overpassCalls).toHaveLength(0)
@@ -437,11 +441,11 @@ describe('トップの「広すぎる」ガード（BBOX面積ベース判定）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: 'テスト市' } })
     fireEvent.click(getGeocodeButton())
 
-    // 検索エリアが設定される（緑＋フィードバック）
+    // 検索エリアが設定される（緑＋入力欄に候補の表示名「テスト市」が入る）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに「テスト市」を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('テスト市')
 
     // 「指定した場所と種別で検索」で、市サイズの範囲（元のBBOXがそのまま検索エリアになる）で施設検索が実行された
     fireEvent.click(getTopSearchButton())

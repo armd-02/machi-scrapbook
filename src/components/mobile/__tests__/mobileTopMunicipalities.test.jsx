@@ -12,7 +12,7 @@ import { clearCache } from '../../../utils/overpass'
  *   出る（ローカル計算なので即座に表示。公開 Nominatim の利用ポリシーにより
  *   入力中のジオコード問い合わせは行わない → Nominatim 候補は混ざらない）
  * - 候補を選ぶと自治体の bbox が検索エリアになる（handleCandidateSelect の流れ:
- *   入力欄が緑＋「検索エリアに「○○」を設定しました」。施設検索は実行されない）
+ *   入力欄が緑＋候補の表示名（displayName）が入る。施設検索は実行されない）
  * - 「宇治市」で「地名検索」と、自治体の完全一致で範囲が確定し、Nominatim を
  *   経由せずに自治体の範囲で施設検索（「指定した場所と種別で検索」）が進む
  * - 同名自治体（伊達市×2）の「地名検索」→ 自治体候補だけを複数候補として
@@ -215,11 +215,12 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     }, { timeout: 8000 })
     fireEvent.click(opt)
 
-    // エリア設定: 入力欄が緑＋成功フィードバック（既存の「地名が見つかった」流れと同じ）
+    // エリア設定: 入力欄が緑＋候補の表示名（displayName）が入る（既存の
+    // 「地名が見つかった」流れと同じ。「設定しました」文言は廃止）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに「宇治市」を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('宇治市')
     // リストは閉じる。施設検索はまだ実行されていない
     expect(screen.queryByRole('listbox')).toBeNull()
     expect(overpassCalls).toHaveLength(0)
@@ -244,11 +245,11 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '宇治市' } })
     fireEvent.click(getGeocodeButton())
 
-    // エリアが自治体のbboxで確定（緑＋フィードバック）
+    // エリアが自治体のbboxで確定（緑＋入力欄に候補の表示名が入る）
     await waitFor(() => {
       expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText(/検索エリアに「宇治市」を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('宇治市')
 
     // 「指定した場所と種別で検索」→ 施設検索が自治体の範囲で実行された
     fireEvent.click(getTopSearchButton())
@@ -290,10 +291,12 @@ describe('(#68) トップの地名入力サジェストに自治体候補を組�
     expect(tabIsCurrent('検索')).toBe(true)
 
     // 北海道側の候補を選ぶ → その自治体のbboxが検索エリアになる
+    // （入力欄が緑＋候補の表示名「伊達市」が入る）
     fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: '伊達市（自治体・北海道）' }))
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに「伊達市」を設定しました/)).toBeTruthy()
+      expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('伊達市')
     expect(overpassCalls).toHaveLength(0)
 
     // 「指定した場所と種別で検索」→ 選んだ自治体（北海道伊達市）の範囲で検索される

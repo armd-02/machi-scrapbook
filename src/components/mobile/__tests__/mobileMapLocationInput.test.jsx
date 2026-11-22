@@ -10,7 +10,7 @@
  *   ＋「地名検索」ボタン
  * - 地名入力でサジェスト（自治体ローカル計算＋Overpass 周辺キャッシュの
  *   端末内照合。Nominatim は入力中に叩かない）→ 候補タップで検索エリアを設定
- *   （入力が緑＋「検索エリアに「○○」を設定しました」＋ state.bbox に
+ *   （入力が緑＋候補の表示名（displayName）が入る＋ state.bbox に
  *    bboxSource: geocode で設定）
  * - 「地名検索」ボタン（または Enter）で Nominatim ジオコード → 単一候補で
  *   エリアが設定される（viewbox 付き。現在位置 mock が有効なら）
@@ -46,6 +46,10 @@ vi.mock('maplibre-gl', async () => {
 const MUNI_DATA = {
   municipalities: [
     { code: '271000', prefCode: '27', prefecture: '大阪府', name: '東大阪市', adminLevel: 8, bbox: { south: 34.56, west: 135.34, north: 34.72, east: 135.52 } },
+    // 距離順統一テスト用: 現在位置 mock（34.7, 135.5）から約88km離れた自治体。
+    // 「桑名」入力では自治体「桑名市」と駅「桑名駅」が同時に候補になる
+    // （クエリは2文字以上必要のため「桑名」を使う）
+    { code: '29208', prefCode: '29', prefecture: '三重県', name: '桑名市', adminLevel: 8, bbox: { south: 34.5, west: 136.3, north: 34.7, east: 136.6 } },
   ]
 }
 
@@ -57,6 +61,8 @@ const STATION_ROWS = [
   ['東京駅', 35.688, 139.766, 0],
   ['西長田ゆりの里', 34.702, 135.49, 1],
   ['美智駅', 34.29, 135.29, 2],
+  // 距離順統一テスト用: 現在位置 mock（34.7, 135.5）の約150m先に置く「桑名駅」
+  ['桑名駅', 34.701, 135.501, 0],
 ]
 
 // 「梅田」ジオコード候補（searchAreaFromGeocode による約1km²未満拡大の対象外:
@@ -326,19 +332,20 @@ async function typeAndAwaitSuggest(query, { optionCount = 1 } = {}) {
   }, { timeout: 8000 })
 }
 
-// 候補タップ → 検索エリア設定成功（緑＋フィードバック）を待つ
+// 候補タップ → 検索エリア設定成功（緑＋入力欄に候補名が入る）を待つ
+// （成功フィードバックの「設定しました」文言は廃止されたため、緑の枠線で判定する）
 async function selectAndAwaitArea(option) {
   fireEvent.click(option)
   await waitFor(() => {
-    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    expect(getLocationInput().className).toContain('border-green-500')
   }, { timeout: 8000 })
 }
 
-// 入力欄で Enter を押して確定し、成功フィードバックを待つ
+// 入力欄で Enter を押して確定し、成功（緑＋入力欄に候補名が入る）を待つ
 async function confirmAndAwaitArea() {
   fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
   await waitFor(() => {
-    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    expect(getLocationInput().className).toContain('border-green-500')
   }, { timeout: 8000 })
 }
 
@@ -447,7 +454,10 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     await openMapMode()
     // サジェストは端末内照合（自治体＋周辺 Overpass キャッシュ）。
     // Nominatim は入力中に叩かない
-    await typeAndAwaitSuggest('梅田')
+    // 2件の候補は独立した2つの非同期ソース（stations.json の読み込みと
+    // 周辺 Overpass 取得）から来る。どちらかが先に解決すると候補が1件の
+    // 状態で計数が取れてしまうタイミング依存を防ぐため、揃う（2件）まで待つ
+    await typeAndAwaitSuggest('梅田', { optionCount: 2 })
     // 梅田駅（駅・距離0）＋梅田（地区・約140m）の2件が距離順で出る
     const options = getSuggestOptions()
     expect(options).toHaveLength(2)
@@ -458,10 +468,11 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     // 駅候補をタップ（点候補: BBOXなし → 約1km正方形に拡大される）
     await selectAndAwaitArea(options[0])
 
-    // 緑＋成功フィードバック（周辺候補の displayName は名称）
+    // 緑＋入力欄に候補の表示名（displayName）が入る（「設定しました」文言は出ない）
     const input = getLocationInput()
     expect(input.className).toContain('border-green-500')
-    expect(screen.getByText('検索エリアに「梅田駅」を設定しました')).toBeTruthy()
+    expect(input.value).toBe('梅田駅')
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
 
     // 検索ボタンラベルが「この範囲で検索」に変わり、AreaCardは確定場所を表示
     expect(screen.getByRole('button', { name: 'この範囲で検索' })).toBeTruthy()
@@ -492,9 +503,11 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     await confirmAndAwaitArea()
 
     // Enter は Nominatim ジオコード（「地名検索」と同じ）。
-    // 単一候補（梅田: 範囲約4.3km²で拡大対象外）の範囲がそのまま採用される
+    // 単一候補（梅田: 範囲約4.3km²で拡大対象外）の範囲がそのまま採用される。
+    // 入力欄には候補の表示名（displayName＝display_name）が入る
     expect(getLocationInput().className).toContain('border-green-500')
-    expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+    expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
     expect(getMapInstance().getSource('bbox-overlay')).toBeTruthy()
   }, 15000)
 
@@ -533,9 +546,11 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     const spy = mockVisibleContainer()
     try {
       fireEvent.keyDown(getLocationInput(), { key: 'Enter' })
+      // 確定成功: 緑＋入力欄に候補の表示名（自治体名）が入る
       await waitFor(() => {
-        expect(screen.getByText('検索エリアに「東大阪市」を設定しました')).toBeTruthy()
+        expect(getLocationInput().className).toContain('border-green-500')
       }, { timeout: 8000 })
+      expect(getLocationInput().value).toBe('東大阪市')
 
       // 矩形は東大阪市の範囲で描画され、fitBounds もその範囲で呼ばれる
       expect(overlayCoords()).toEqual([
@@ -570,7 +585,8 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     const osakaOption = getSuggestOptions().find((o) => o.textContent.includes('大阪府'))
     await selectAndAwaitArea(osakaOption)
 
-    expect(screen.getByText('検索エリアに「上本町, 大阪市北区, 大阪府, 日本」を設定しました')).toBeTruthy()
+    // 入力欄には選ばれた候補の表示名（displayName＝display_name）が入る
+    expect(getLocationInput().value).toBe('上本町, 大阪市北区, 大阪府, 日本')
     expect(overlayCoords()).toEqual([
       [135.49, 34.69],
       [135.51, 34.69],
@@ -705,12 +721,13 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     expect(within(section).getByRole('button', { name: '地名検索' }).disabled).toBe(true)
 
     // リクエスト完了（単一候補返却）→ スピナー消滅 ＋ エリア設定
+    // （入力欄に候補の表示名が入る）
     nominatimDeferred.resolve([UEDA_ROW])
     await waitFor(() => {
       expect(screen.queryByTestId('place-input-spinner')).toBeNull()
     }, { timeout: 8000 })
     await waitFor(() => {
-      expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+      expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
     }, { timeout: 8000 })
   }, 15000)
 })
@@ -765,9 +782,9 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
     expect(nominatimParams().get('limit')).toBe('20')
 
-    // 単一候補でエリアが設定される
+    // 単一候補でエリアが設定される（入力欄に候補の表示名が入る）
     await waitFor(() => {
-      expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+      expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
     }, { timeout: 8000 })
   }, 15000)
 
@@ -820,7 +837,7 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
     expect(nominatimParams().get('limit')).toBe('20')
     await waitFor(() => {
-      expect(screen.getByText('検索エリアに「大阪府大阪市北区梅田1丁目」を設定しました')).toBeTruthy()
+      expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
     }, { timeout: 8000 })
   }, 15000)
 
@@ -894,6 +911,48 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
     expect(options.map((o) => o.textContent)).toEqual([
       '上本町（鹿児島県鹿児島市）',
       '上本町（大阪府大阪市）',
+    ])
+  }, 15000)
+})
+
+describe('サジェストの距離順統一（自治体＋駅・周辺）', () => {
+  // 「桑名」と入力すると、自治体「桑名市」（bbox 中心 34.6, 136.45・現在地から
+  // 約88km）と駅「桑名駅」（34.701, 135.501・現在地から約150m）が同時に候補に
+  // なる。現在地（34.7, 135.5）が分かっている場合は距離順に統一され、
+  // 分からない場合は従来の並び（自治体→駅・周辺）が保たれる
+
+  it('現在地がある場合: 遠い自治体より近い駅が上に来る（3種を距離順に統一）', async () => {
+    renderApp()
+    await openMapMode()
+    await typeAndAwaitSuggest('桑名', { optionCount: 2 })
+
+    // 現在地の確定（geolocation setTimeout 0）後に再導出・距離順再ソートされる
+    // ため、最終的に桑名駅（約150m）が桑名市（約88km）より先になる
+    await waitFor(() => {
+      const opts = getSuggestOptions()
+      expect(opts.map((o) => o.textContent)).toEqual([
+        expect.stringContaining('桑名駅'),
+        expect.stringContaining('桑名市'),
+      ])
+    }, { timeout: 8000 })
+  }, 15000)
+
+  it('現在地がない場合（geolocation 拒否）: 従来の並び（自治体→駅・周辺）が保たれる', async () => {
+    geoMode = 'fail'
+    renderApp()
+    await openMapMode()
+    await typeAndAwaitSuggest('桑名', { optionCount: 2 })
+
+    // geolocation 失敗の確定（setTimeout 0）を待つ
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+
+    // 現在地が分からないため並び替えなし: 自治体が先
+    const opts = getSuggestOptions()
+    expect(opts.map((o) => o.textContent)).toEqual([
+      expect.stringContaining('桑名市'),
+      expect.stringContaining('桑名駅'),
     ])
   }, 15000)
 })

@@ -22,9 +22,9 @@
  * ① 入力した地名を Nominatim でジオコードする（1リクエスト/秒の制限）。
  *    現在位置が取得できていれば viewbox（現在地中心 ±0.15度）を付けて
  *    近傍の結果を優先する。bounded=1 は付けない。
- * ② 結果が1件の場合は検索エリアを設定する（入力欄を緑にし
- *    「検索エリアに「○○」を設定しました」を表示）。複数なら候補リストを
- *    提示し、タップでエリアを設定する。
+ * ② 結果が1件の場合は検索エリアを設定する（入力欄を緑にし、候補の
+ *    表示名（displayName）を入力欄に入れる）。複数なら候補リストを
+ *    提示し、タップでエリアを設定する（入力欄に候補の表示名が入る）。
  * ③ 0件の場合は「見つからなかった」趣旨の案内を出す。
  *
  * 「指定した場所と種別で検索」押下時の流れ（親の handleTopSearch で実行）:
@@ -92,7 +92,8 @@ export const BARRIER_FREE_TILE = toTile(
  * @param {boolean} [geocodeDisabled] 「地名検索」ボタンを無効化（ジオコード実行中等）
  * @param {boolean} searching 施設検索実行中
  * @param {string | null} searchError 地名検索エラー
- * @param {string | null} areaName 設定した検索エリアの表示名（成功フィードバック）
+ * @param {string | null} [stationError] 駅ファイル（stations.json）の読み込み
+ *   失敗エラー。場所入力まわりに通信エラーとして表示（駅候補は出ない）
  * @param {boolean} areaSet 検索エリアが設定済み（成功）か。true の場合、
  *   場所入力欄を緑系（緑の枠線・薄い緑の背景）に表示する
  * @param {boolean} disabled 検索中などでの無効化
@@ -114,7 +115,7 @@ export function QuickTopIntro({
   geocodeDisabled = false,
   searching = false,
   searchError = null,
-  areaName = null,
+  stationError = null,
   areaSet = false,
   geocoding = false,
   disabled = false,
@@ -169,9 +170,11 @@ export function QuickTopIntro({
         {searchError && (
           <p role="alert" className="text-sm text-red-600">{searchError}</p>
         )}
-        {areaName && (
-          <p className="text-sm text-green-700">検索エリアに「{areaName}」を設定しました</p>
+        {stationError && (
+          <p role="alert" className="text-sm text-red-600">{stationError}</p>
         )}
+        {/* 成功フィードバック（「設定しました」文言）は廃止: 候補を選ぶと
+            入力欄に候補の表示名が入るため、何が設定されたか欄から分かる */}
       </section>
     </>
   )

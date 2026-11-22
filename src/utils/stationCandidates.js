@@ -8,11 +8,11 @@
  *
  * - stations.json の形式: [名前, 緯度, 経度, 種別] の配列の配列
  *   （種別: 0=駅・1=路面電車・2=ケーブルカー。緯度・経度は小数5桁）
- * - 読み込み: 地名入力欄のフォーカス時に fetch（import.meta.env.BASE_URL
+ * - 読み込み: サイト（トップ）表示時に1回だけ fetch（import.meta.env.BASE_URL
  *   付きで本番の GitHub Pages base を踏む）。モジュールレベルのキャッシュ
- *   （Promise）で再フォーカス時の再取得を防ぐ
- * - 読み込み失敗・形式不正時は空配列を返す（駅候補なしで従来どおり動作。
- *   エラー表示はしない）
+ *   （Promise）で二重取得を防ぐ。再試行はページ再読み込みのみ
+ * - 読み込み失敗・形式不正（配列でない）時は Error で reject する。
+ *   呼び出し側（MobileSearchTab）が通信エラーとして利用者に示す
  *
  * 照合ルールは周辺候補（matchNearbyCandidates）と同じ:
  *  - 名前の部分一致（大小文字無視・両方向の包含）
@@ -36,17 +36,24 @@ let cachePromise = null
  *
  * - URL 組み立ては municipalities.json と同じ方式
  *   （import.meta.env.BASE_URL + 'data/stations.json'）
- * - モジュールレベルのキャッシュ（Promise）で二重取得を防ぐ
- * - 取得失敗・形式不正時は空配列を返す（例外にしない・エラー表示しない）
- * @returns {Promise<Array>} 行（[名前, 緯度, 経度, 種別]）の配列（失敗時は []）
+ * - モジュールレベルのキャッシュ（Promise）で二重取得を防ぐ（失敗時も
+ *   キャッシュされるため再試行はページ再読み込みのみ）
+ * - 取得失敗（HTTPエラー・fetch例外）・形式不正（配列でない）時は
+ *   Error で reject する。呼び出し側が通信エラーとして表示する
+ * @returns {Promise<Array>} 行（[名前, 緯度, 経度, 種別]）の配列
  */
 export function loadStationFile() {
   if (!cachePromise) {
     const base = import.meta.env.BASE_URL || '/'
     cachePromise = fetch(base + 'data/stations.json')
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then((rows) => (Array.isArray(rows) ? rows : []))
-      .catch(() => [])
+      .then((r) => {
+        if (!r.ok) throw new Error(`stations.json の取得に失敗しました (HTTP ${r.status})`)
+        return r.json()
+      })
+      .then((rows) => {
+        if (!Array.isArray(rows)) throw new Error('stations.json の形式が不正です')
+        return rows
+      })
   }
   return cachePromise
 }
@@ -134,4 +141,40 @@ export function combineSuggestCandidates(stationMatches, nearbyMatches, center) 
       .slice(0, MAX_NEARBY_SUGGEST)
   }
   return [...stations, ...nearby].slice(0, MAX_NEARBY_SUGGEST)
+}
+
+/**
+ * 自治体候補と駅・周辺候補を1つのリストに統一して並べる。
+ *
+ * - 現在位置（center）が分かっている場合: 自治体・駅・周辺の3種を合せて
+ *   距離の近い順に並び替える。距離は候補の lat/lon（自治体は bbox 中心）から
+ *   現在位置までの haversineKm で測る（distanceKm を付与・更新する）。
+ *   座標を持たない候補は末尾に置く（安定ソートで同距離・末尾間の相対順は
+ *   維持される）
+ * - 分からない場合（center が null）: 現行の並び（自治体→駅・周辺）を
+ *   そのまま維持して並び替えしない
+ *
+ * 表示上限はここで変えない: 自治体側（matchMunicipalities が3件）・
+ * 駅・周辺側（combineSuggestCandidates が MAX_NEARBY_SUGGEST 件）の既存上限
+ * を維持したまま、統一リストの並び順だけを整える
+ *
+ * @param {Array} muniMatches matchMunicipalities(...).map(municipalityToCandidate)
+ * @param {Array} otherMatches combineSuggestCandidates(...) の戻り値（駅＋周辺）
+ * @param {{ lat: number, lon: number }|null} center 現在位置（無ければ null）
+ * @returns {Array} 統一したサジェスト候補
+ */
+export function unifySuggestCandidates(muniMatches, otherMatches, center) {
+  const list = [...(muniMatches || []), ...(otherMatches || [])]
+  if (!center) return list
+  return list
+    .map((c) =>
+      typeof c.lat === 'number' && typeof c.lon === 'number'
+        ? { ...c, distanceKm: haversineKm(center.lat, center.lon, c.lat, c.lon) }
+        : c
+    )
+    .sort((a, b) => {
+      const da = typeof a.distanceKm === 'number' ? a.distanceKm : Infinity
+      const db = typeof b.distanceKm === 'number' ? b.distanceKm : Infinity
+      return da - db
+    })
 }

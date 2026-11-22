@@ -2,7 +2,8 @@
  * stationCandidates.js のユニットテスト
  *
  * - loadStationFile: stations.json の読み込み（BASE_URL 付き）・モジュール
- *   キャッシュ（再フォーカス時の再取得防止）・失敗時の空配列（従来動作）
+ *   キャッシュ（二重取得防止・失敗時もキャッシュされる）・失敗・形式不正時の
+ *   Error reject（呼び出し側が通信エラーとして表示）
  * - stationFileToCandidates: [名前, 緯度, 経度, 種別] → 候補変換（種別ラベル・
  *   不正行の除外）
  * - matchStationCandidates: 部分一致・「駅」なし入力で駅名に一致・
@@ -62,30 +63,38 @@ describe('loadStationFile', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('読み込み失敗（404）時は空配列を返す（従来動作・例外にしない）', async () => {
+  it('読み込み失敗（404）時は Error で reject する（呼び出し側が通信エラーとして表示）', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
       status: 404,
       json: async () => ({}),
     })
     const { loadStationFile } = await import('../stationCandidates')
-    await expect(loadStationFile()).resolves.toEqual([])
+    await expect(loadStationFile()).rejects.toThrow('stations.json の取得に失敗しました')
   })
 
-  it('fetch 自体が例外を送出しても空配列を返す', async () => {
+  it('fetch 自体が例外を送出しても Error で reject する', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'))
     const { loadStationFile } = await import('../stationCandidates')
-    await expect(loadStationFile()).resolves.toEqual([])
+    await expect(loadStationFile()).rejects.toThrow()
   })
 
-  it('形式不正（配列でない）応答は空配列を返す', async () => {
+  it('形式不正（配列でない）応答は Error で reject する', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ stations: FIXTURE_ROWS }),
     })
     const { loadStationFile } = await import('../stationCandidates')
-    await expect(loadStationFile()).resolves.toEqual([])
+    await expect(loadStationFile()).rejects.toThrow('stations.json の形式が不正です')
+  })
+
+  it('失敗時もキャッシュされるため再呼び出しで再 fetch しない（再試行はページ再読み込みのみ）', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'))
+    const { loadStationFile } = await import('../stationCandidates')
+    await expect(loadStationFile()).rejects.toThrow()
+    await expect(loadStationFile()).rejects.toThrow()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -229,5 +238,71 @@ describe('combineSuggestCandidates', () => {
     expect(combineSuggestCandidates([station('大阪駅', 34.7, 135.49)], [], null).map((c) => c.name))
       .toEqual(['大阪駅'])
     expect(combineSuggestCandidates([], [], null)).toEqual([])
+  })
+})
+
+describe('unifySuggestCandidates', () => {
+  // 自治体候補（bbox 中心の lat/lon・distanceKm なし）
+  const muni = (name, lat, lon, prefecture = '') => ({
+    name, lat, lon, kind: '自治体', displayName: name, prefecture, city: ''
+  })
+  const station = (name, lat, lon, kind = '駅') => ({
+    name, lat, lon, kind, displayName: name, prefecture: '', city: ''
+  })
+  const area = (name, lat, lon) => ({
+    name, lat, lon, kind: '地区', displayName: name, prefecture: '', city: '', distanceKm: 0
+  })
+
+  it('現在地がある場合: 遠い自治体より近い駅が先に来る（3種を距離順に統一）', async () => {
+    const { unifySuggestCandidates } = await import('../stationCandidates')
+    const center = { lat: 34.7, lon: 135.5 }
+    const muniMatches = [muni('遠市', 34.6, 135.4)] // 現在地から約14km
+    const otherMatches = [station('近い駅', 34.701, 135.501)] // 約150m
+    const merged = unifySuggestCandidates(muniMatches, otherMatches, center)
+    expect(merged.map((c) => c.name)).toEqual(['近い駅', '遠市'])
+    // 距離は現在地から候補の lat/lon（自治体は bbox 中心）まで測る
+    expect(merged[0].distanceKm).toBeLessThan(1)
+    expect(merged[1].distanceKm).toBeGreaterThan(10)
+  })
+
+  it('現在地がある場合: 駅・周辺・自治体を合せて距離順に並び替える', async () => {
+    const { unifySuggestCandidates } = await import('../stationCandidates')
+    const center = { lat: 34.7, lon: 135.5 }
+    const muniMatches = [muni('中町市', 34.71, 135.52)] // 約2.8km
+    const otherMatches = [
+      station('東京駅', 35.688, 139.766), // 約400km
+      area('近い町', 34.701, 135.501) // 約150m
+    ]
+    const merged = unifySuggestCandidates(muniMatches, otherMatches, center)
+    expect(merged.map((c) => c.name)).toEqual(['近い町', '中町市', '東京駅'])
+  })
+
+  it('座標を持たない候補は末尾に置く', async () => {
+    const { unifySuggestCandidates } = await import('../stationCandidates')
+    const center = { lat: 34.7, lon: 135.5 }
+    const noCoord = { name: '謎町', lat: null, lon: null, kind: '地区', displayName: '謎町' }
+    const merged = unifySuggestCandidates([noCoord], [station('近い駅', 34.701, 135.501)], center)
+    expect(merged.map((c) => c.name)).toEqual(['近い駅', '謎町'])
+    // 座標なし候補には distanceKm を付与しない（ラベルの距離表示を汚さない）
+    expect(merged[1].distanceKm).toBeUndefined()
+  })
+
+  it('現在地がない場合: 現行の並び（自治体→駅・周辺）を維持する', async () => {
+    const { unifySuggestCandidates } = await import('../stationCandidates')
+    const muniMatches = [muni('遠市', 34.6, 135.4)]
+    const otherMatches = [station('近い駅', 34.701, 135.501)]
+    const merged = unifySuggestCandidates(muniMatches, otherMatches, null)
+    expect(merged.map((c) => c.name)).toEqual(['遠市', '近い駅'])
+    // 並び替えしないため distanceKm も付与しない
+    expect(merged[0].distanceKm).toBeUndefined()
+  })
+
+  it('入力が空・欠落でも安全に結合できる', async () => {
+    const { unifySuggestCandidates } = await import('../stationCandidates')
+    expect(unifySuggestCandidates([], [], { lat: 34.7, lon: 135.5 })).toEqual([])
+    expect(unifySuggestCandidates(null, [station('大阪駅', 34.7, 135.49)], null).map((c) => c.name))
+      .toEqual(['大阪駅'])
+    expect(unifySuggestCandidates([muni('宇治市', 34.9, 135.5)], null, null).map((c) => c.name))
+      .toEqual(['宇治市'])
   })
 })

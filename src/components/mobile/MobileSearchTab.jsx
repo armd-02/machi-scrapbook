@@ -6,7 +6,7 @@ import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
 import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround } from '../../utils/geo'
 import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
-import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates } from '../../utils/stationCandidates'
+import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates, unifySuggestCandidates } from '../../utils/stationCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
 import SimpleSearch from '../SimpleSearch'
@@ -41,8 +41,8 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *     ② 「都道府県から探す」セクションで自治体を選択（そのbboxをエリアに設定）
  *   操作の流れ:
  *     ① 地名・駅名を入力して「地名検索」を押す（または Enter。geocode で検索
- *        エリアを確定。成功で入力欄が緑・「検索エリアに「○○」を設定しました」
- *        表示）。または「都道府県から探す」で自治体を選ぶ。
+ *        エリアを確定。成功で入力欄が緑になり、候補の表示名（displayName）が
+ *        入力欄に入る）。または「都道府県から探す」で自治体を選ぶ。
  *     ② 目的タイルを1つ選択（タップは選択だけ。選択中はハイライト表示。
  *        別のタイルを押すと選択が移る）
  *     ③ タイル下の「指定した場所と種別で検索」ボタンで検索実行。
@@ -73,7 +73,7 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   地名・駅名の入力でサジェスト（自治体ローカル計算＋Overpass 周辺キャッシュ）が
  *   出る。候補タップまたは「地名検索」ボタン（または Enter）で geocode →
  *   確定場所を検索エリア（state.bbox）に設定し、入力欄が
- *   緑になり「検索エリアに「○○」を設定しました」が出る。確定時（bboxSource:
+ *   緑になり候補の表示名（displayName）が入る。確定時（bboxSource:
  *   geocode/municipality）は MapView が fitBounds で確定場所にfitし、地図上に検索範囲の
  *   青（#2563eb）矩形を描画する（BBOXオーバーレイ）。検索は確定した範囲で実行される
  *   （地図を移動しても確定場所の範囲が優先）。入力をクリアすると矩形が消え、
@@ -135,42 +135,59 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 駅・路面電車・ケーブルカーの候補は全国駅ファイル（stations.json）から取る
   const nearby = useNearbyPlaceCandidates()
 
-  // 全国駅ファイルの候補（stations.json。フォーカス時に読み込む・
-  // モジュールキャッシュで再フォーカス時の再取得を防ぐ）。読み込み失敗時は
-  // 空配列（駅候補なしで従来どおり動作・エラー表示しない）
+  // 全国駅ファイルの候補（stations.json。トップ表示時に1回だけ読み込む・
+  // モジュールキャッシュで再読み込みを防ぐ）。読み込み失敗時はエラー表示
+  // （stationLoadFailed）し駅候補は出さない（無言で空に落とさない・
+  // 再試行はページ再読み込みのみ）
   const [stations, setStations] = useState([])
-  const loadStations = useCallback(() => {
-    loadStationFile().then((rows) => setStations(stationFileToCandidates(rows)))
-  }, [])
+  const [stationLoadFailed, setStationLoadFailed] = useState(false)
+  // 駅ファイル読み込み失敗メッセージ（トップ・フォーム両方の場所入力まわりに
+  // 表示する。駅候補は出さない・再試行はページ再読み込みのみ）
+  const stationError = stationLoadFailed
+    ? '駅データの読み込みに失敗しました。駅候補は表示されません（ページを再読み込みしてください）。'
+    : null
+  // stations への反映は1回だけ（トップ↔フォームのview切替で effect が
+  // 再実行されても同じ Promise が返るので状態の書き換えを1回に抑える）
+  const stationsLoadedRef = useRef(false)
 
   // 地名入力欄フォーカス時: 周辺候補の現在位置取得・Overpass キャッシュ
-  // （nearby.request）に加えて全国駅ファイルを読み込む（モジュールキャッシュ
-  // 済みなら即返すので再フォーカス時のコストはほぼない）
+  // （nearby.request）。駅ファイルはトップ表示時に読み込むためここではしない
   const handlePlaceFocus = useCallback(() => {
     nearby.request()
-    loadStations()
-  }, [nearby.request, loadStations])
+  }, [nearby.request])
 
-  // (top) トップ表示時に自治体データを読み込む（モジュールキャッシュで二重取得しない。
-  // loadMunicipalities は失敗時も空配列を返すため catch は不要）
+  // (top) トップ表示時に自治体データと全国駅ファイルを読み込む。
+  // 両方ともモジュールキャッシュで二重取得しない（loadMunicipalities は
+  // 失敗時も空配列を返すため catch は不要）。駅ファイルは失敗時に Error で
+  // reject するため catch でエラー表示する（駅候補は出さない・再試行しない）。
+  // 状態への反映は view 切替後に解決しても行う（フォーム表示の場所入力も
+  // 自治体候補・駅候補の両方を使うため cancelled 判定を付けない）。駅ファイルの
+  // 反映は stationsLoadedRef で1回に抑え、自治体データはモジュールキャッシュが
+  // 同じ配列参照を返すため React が更新をスキップして冪等になる
   useEffect(() => {
     if (view !== 'top') return undefined
-    let cancelled = false
-    loadMunicipalities().then((list) => {
-      if (!cancelled) setMunicipalities(list)
-    })
-    return () => { cancelled = true }
+    loadMunicipalities().then((list) => setMunicipalities(list))
+    loadStationFile()
+      .then((rows) => {
+        if (stationsLoadedRef.current) return
+        stationsLoadedRef.current = true
+        setStations(stationFileToCandidates(rows))
+      })
+      .catch(() => setStationLoadFailed(true))
   }, [view])
 
-  // (top) 自治体データが後から読み込み完了した場合に、現在の入力値で
-  // 自治体候補を再計算する（データより先にユーザーが入力したケースに対応）
+  // 自治体データが後から読み込み完了した場合に、現在の入力値で自治体候補を
+  // 再計算する（データより先にユーザーが入力したケースに対応。フォーム表示の
+  // 場所入力も自治体候補を使うためトップ表示に限定しない）。検索エリアが
+  // 設定済みならスキップする（入力欄には選択した候補の displayName が入っていて
+  // ユーザーの入力ではないため・view 切替で設定済みエリアのリストが再出現しない）
   useEffect(() => {
-    if (view !== 'top') return
+    if (placeAreaSet) return
     const q = placeQuery.trim()
     setMuniSuggest(q.length >= 2
       ? matchMunicipalities(municipalities, q).map(municipalityToCandidate)
       : [])
-  }, [municipalities, view])
+  }, [municipalities, placeAreaSet])
 
   // (top) 周辺キャッシュが取得完了（フォーカス→Overpass取得→完了）したとき
   // に、現在の入力値で周辺候補を再導出する（取得中にすでに文字が入力されて
@@ -330,7 +347,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'municipality' } })
         setAreaName(result.displayName)
         setPlaceAreaSet(true)
-        setAreaSetQuery(q)
+        // 候補の表示名（displayName）を入力欄に入れる（何が確定したか欄から分かるように）。
+        // areaSetQuery も同じ文字列に更新し、「同じ地名のエリアが既に設定済みなら
+        // 何もしない」のショートカットが働き続ける
+        setPlaceQuery(result.displayName)
+        setAreaSetQuery(result.displayName)
         return
       }
       if (exact.length >= 2) {
@@ -375,7 +396,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'geocode' } })
       setAreaName(result.displayName)
       setPlaceAreaSet(true)
-      setAreaSetQuery(q)
+      // 候補1件で確定: その表示名（displayName）を入力欄に入れる
+      // （areaSetQuery も同じ文字列に更新し、再「地名検索」のショートカットを保つ）
+      setPlaceQuery(result.displayName)
+      setAreaSetQuery(result.displayName)
     } catch (error) {
       setSearchError(error.message || '地名検索に失敗しました')
     } finally {
@@ -449,8 +473,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   }
 
   // (top) 候補をタップしたら、その候補で検索エリアを設定する（既存の
-  // 「地名が見つかった」ときと全く同じ流れ: bbox → state.bbox、入力欄が緑に
-  // なり「検索エリアに「○○」を設定しました」が出る）。リストは閉じる。
+  // 「地名が見つかった」ときと全く同じ流れ: bbox → state.bbox、入力欄が緑になり
+  // 候補の表示名（displayName）が入る）。リストは閉じる。
   // 施設検索はまだ実行しない（「指定した場所と種別で検索」ボタンで実行）。
   // サジェストの候補（自治体・周辺 Overpass キャッシュ）と「候補が複数あります」
   // の候補（Nominatim）で共通。
@@ -491,7 +515,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     })
     setAreaName(candidate.displayName)
     setPlaceAreaSet(true)
-    setAreaSetQuery(placeQuery.trim())
+    // 候補の表示名（displayName）を入力欄に入れる（何が選ばれたか欄から分かるように）。
+    // areaSetQuery も同じ文字列に更新し、「同じ地名のエリアが既に設定済みなら
+    // 何もしない」のショートカットが働き続ける
+    setPlaceQuery(candidate.displayName)
+    setAreaSetQuery(candidate.displayName)
     setSuggestCandidates([])
     setMuniSuggest([])
     setPendingCandidates(null)
@@ -619,11 +647,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     return map && typeof map.getBounds === 'function' ? boundsToBbox(map.getBounds()) : null
   })()
 
-  // (#xx) 地図モードの場所入力用候補（トップの QuickTopIntro と同じ組み立て: 自治体
-  // サジェスト→周辺キャッシュの端末内照合候補。選択待ちなら pendingCandidates を表示）
-  const mapCandidates = pendingCandidates
+  // 地名入力のサジェスト候補（トップの QuickTopIntro と地図モードの場所入力で
+  // 共有）。自治体候補＋駅・周辺候補を unifySuggestCandidates で統一する:
+  // 現在位置（nearby.center）が分かっている場合は3種を合せて距離の近い順、
+  // 分からない場合は現行の並び（自治体→駅・周辺）を維持。選択待ちなら
+  // pendingCandidates を表示
+  const unifiedSuggest = pendingCandidates
     ? pendingCandidates
-    : [...muniSuggest, ...suggestCandidates]
+    : unifySuggestCandidates(muniSuggest, suggestCandidates, nearby.center)
+
+  // (#xx) 地図モードの場所入力用候補（トップの QuickTopIntro と同じ組み立て）
+  const mapCandidates = unifiedSuggest
 
   // (#xx) 確定場所（geocode/municipality）が設定済みかどうか — 検索ボタンラベル用
   const confirmedArea = !!(bbox && isValidBbox(bbox) &&
@@ -725,9 +759,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
           {searchError && (
             <p role="alert" className="text-sm text-red-600">{searchError}</p>
           )}
-          {areaName && (
-            <p className="text-sm text-green-700">検索エリアに「{areaName}」を設定しました</p>
+          {stationError && (
+            <p role="alert" className="text-sm text-red-600">{stationError}</p>
           )}
+          {/* 成功フィードバック（「設定しました」文言）は廃止: 候補を選ぶと
+              入力欄に候補の表示名が入るため、何が設定されたか欄から分かる */}
         </div>
 
         <AreaCard state={state} liveBounds={mapBbox} areaName={areaName} />
@@ -764,13 +800,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               geocodeDisabled={geocoding}
               searching={searching}
               searchError={searchError}
-              areaName={areaName}
+              stationError={stationError}
               areaSet={placeAreaSet}
               geocoding={geocoding}
               disabled={state.status === 'loading'}
-              candidates={pendingCandidates
-                ? pendingCandidates
-                : [...muniSuggest, ...suggestCandidates]}
+              candidates={unifiedSuggest}
               candidatesHeading={pendingCandidates ? '候補が複数あります。選んでください。' : null}
               onCandidateSelect={handleCandidateSelect}
             />

@@ -340,7 +340,7 @@ async function switchToMapMode() {
 
 // (#63) 「検索エリアが設定済み」状態をテスト上で再現する: 地名を入力して
 // 「地名検索」を押す（fetchモックが「梅田」のNominatim結果を返す → 検索エリアに
-// 設定される）。成功フィードバックの表示を待って返す。
+// 設定される）。成功（緑＋入力欄に候補の表示名が入る）を待って返す。
 // 後続でタイル選択+「指定した場所と種別で検索」で実際に検索するテストがこれを利用する。
 // （トップ画面には地図を描画しないため、旧「ユーザーが地図を動かした」の
 // 再現方法はなくなった。検索エリアは地名検索または自治体選択で設定される。）
@@ -348,7 +348,7 @@ async function setAreaByGeocode() {
   fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
   fireEvent.click(getGeocodeButton())
   await waitFor(() => {
-    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').className).toContain('border-green-500')
   }, { timeout: 8000 })
 }
 
@@ -1363,7 +1363,9 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     await waitFor(() => {
       expect(screen.getByText(/『日本』の範囲が広すぎるため検索できません/)).toBeTruthy()
     }, { timeout: 8000 })
-    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+    // 入力欄は入力文字のまま（緑にならない）
+    expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').value).toBe('梅田')
+    expect(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）').className).not.toContain('border-green-500')
 
     // Overpassクエリは送出されない
     expect(overpassCalls).toHaveLength(0)
@@ -1604,9 +1606,9 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「指定�
     fireEvent.change(screen.getByPlaceholderText('地名・駅名（例: 大阪駅）'), { target: { value: '梅田' } })
     fireEvent.click(getGeocodeButton())
 
-    // 検索エリア設定の成功フィードバックが表示される
+    // 検索エリアが設定される（緑＋入力欄に候補の表示名が入る）
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに「.*」を設定しました/)).toBeTruthy()
+      expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
 
     // タイルを選択してから「指定した場所と種別で検索」を押す
@@ -1639,10 +1641,10 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     // 緑色の枠線と薄い緑の背景
     expect(input.className).toContain('border-green-500')
     expect(input.className).toContain('bg-green-50')
-    // 入力値は残る（決まった場所が欄内に緑で見える）
-    expect(input.value).toBe('梅田')
-    // 既存の成功フィードバック文はそのまま残る
-    expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+    // 入力欄には候補の表示名（displayName）が入る（何が設定されたか欄から分かる）
+    expect(input.value).toBe('大阪府大阪市北区梅田1丁目')
+    // 成功フィードバックの「設定しました」文言は表示されない
+    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
   }, IT_TIMEOUT)
 
   it('成功後に場所入力欄を編集すると: 緑が解除され検索エリアは未設定に戻り、「指定した場所と種別で検索」で未設定ガード（案内メッセージ）が出る', async () => {
@@ -1656,8 +1658,8 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     // 緑が解除される
     expect(input.className).not.toContain('border-green-500')
     expect(input.className).not.toContain('bg-green-50')
-    // 成功フィードバックも消える（食い違う状態にならない）
-    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+    // 入力欄には編集後の値が入る（候補の表示名は消える）
+    expect(input.value).toBe('奈良')
 
     // 入力を空に戻す（= 入力が空で検索エリアも未設定）
     fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '' } })
@@ -1711,8 +1713,8 @@ describe('(place) 場所入力欄の緑色表示（検索エリア設定成功�
     // 緑にならない
     expect(input.className).not.toContain('border-green-500')
     expect(input.className).not.toContain('bg-green-50')
-    // 成功フィードバックは出ない
-    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+    // 入力欄は入力文字のまま
+    expect(input.value).toBe('zzz見つからない')
     // 検索エリアも設定されていない: タイル選択+「指定した場所と種別で検索」で
     // 未設定ガードの案内が出る（ジオコードのエラーメッセージはそのまま残る）
     fireEvent.click(within(screen.getByRole('region', { name: '目的から探す' })).getByRole('button', { name: '食べる' }))
@@ -1826,13 +1828,14 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     await waitForSuggestOption(/梅田駅/)
     fireEvent.click(screen.getByRole('option', { name: /梅田駅/ }))
 
-    // エリア設定: 入力欄が緑＋成功フィードバック（「地名検索」で場所が見つかったときと同じ流れ）。
+    // エリア設定: 入力欄が緑＋候補の表示名（displayName）が入る
+    // （「地名検索」で場所が見つかったときと同じ流れ。設定文言は廃止）。
     // 駅（点）→ 駅を中心とする1km四方の範囲が検索エリアになる
     await waitFor(() => {
       const input = screen.getByPlaceholderText(PLACE_INPUT)
       expect(input.className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(screen.getByText('検索エリアに「梅田駅」を設定しました')).toBeTruthy()
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('梅田駅')
     // リストは閉じる
     expect(screen.queryByRole('listbox')).toBeNull()
     // 施設検索はまだ実行されていない（around:5000 の周辺取得クエリは別物）
@@ -1877,10 +1880,10 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     expect(within(lb).getByRole('option', { name: '上本町（鹿児島県鹿児島市）' })).toBeTruthy()
     expect(within(lb).getByRole('option', { name: '上本町（大阪府大阪市）' })).toBeTruthy()
 
-    // エリアは設定されていない（緑もフィードバックも出ない）
+    // エリアは設定されていない（緑にならない・入力欄は入力文字のまま）
     const input = screen.getByPlaceholderText(PLACE_INPUT)
     expect(input.className).not.toContain('border-green-500')
-    expect(screen.queryByText(/検索エリアに.*を設定しました/)).toBeNull()
+    expect(input.value).toBe('上本町')
     // 施設検索は実行されていない（トップ画面のまま）
     expect(overpassCalls.filter((q) => !q.includes('around:5000'))).toHaveLength(0)
     expect(tabIsCurrent('一覧')).toBe(false)
@@ -1899,10 +1902,11 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     }, { timeout: 8000 })
     fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: '上本町（鹿児島県鹿児島市）' }))
 
-    // エリアが設定される（緑＋フィードバック）。まだ検索は実行されない
+    // エリアが設定される（緑＋入力欄に候補の表示名が入る）。まだ検索は実行されない
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+      expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
+    expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('上本町, 鹿児島市, 鹿児島県, 日本')
     expect(overpassCalls.filter((q) => !q.includes('around:5000'))).toHaveLength(0)
     // リストは閉じる
     expect(screen.queryByRole('listbox')).toBeNull()
@@ -1944,9 +1948,9 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     await waitFor(() => {
       expect(screen.queryByTestId('place-input-spinner')).toBeNull()
     }, { timeout: 8000 })
-    // 検索エリアが設定される（成功フィードバック表示）
+    // 検索エリアが設定される（入力欄に候補の表示名が入る）
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+      expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe('大阪府大阪市北区梅田1丁目')
     }, { timeout: 8000 })
   }, IT_TIMEOUT)
 
@@ -1964,10 +1968,10 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
       expect(getSuggestOptions().length).toBeGreaterThan(0)
     }, { timeout: 8000 })
 
-    // 自治体候補をタップ → エリアが設定され、リストは閉じる
+    // 自治体候補をタップ → エリアが設定され（緑＋入力欄に候補の表示名が入る）、リストは閉じる
     fireEvent.click(getSuggestOptions()[0])
     await waitFor(() => {
-      expect(screen.getByText(/検索エリアに.*を設定しました/)).toBeTruthy()
+      expect(screen.getByPlaceholderText(PLACE_INPUT).className).toContain('border-green-500')
     }, { timeout: 8000 })
     expect(screen.queryByRole('listbox')).toBeNull()
 
