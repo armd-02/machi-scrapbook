@@ -99,7 +99,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // (#63) 場所指定（クイックトップの地名入力）。親コンポーネントがview切替に
   // 関係なく同じインスタンスを維持するため、入力状態はこのコンポーネントが保持する
   const [placeQuery, setPlaceQuery] = useState('')
-  const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
   // 検索エリアとして設定した場所の表示名（成功フィードバック用）
   const [areaName, setAreaName] = useState(null)
@@ -233,7 +232,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // ③ 場所と種別がそろえば、その範囲・種別で施設検索を実行
   //   （成功で MobileShell が一覧タブへ自動切替）。
   const handleTopSearch = () => {
-    if (state.status === 'loading' || searching) return
+    if (state.status === 'loading') return
 
     // ① 検索エリアの確認（geocode は行わない）。エリアは「地名検索」または
     //   「都道府県から探す」の自治体選択で設定済みの state.bbox
@@ -294,7 +293,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       })
       return
     }
-    setSearching(true)
     search(criteria)
   }
 
@@ -798,7 +796,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               onGeocode={handleGeocodePlace}
               onFocus={handlePlaceFocus}
               geocodeDisabled={geocoding}
-              searching={searching}
               searchError={searchError}
               stationError={stationError}
               areaSet={placeAreaSet}
@@ -853,7 +850,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             onSearch={handleTopSearch}
             onOpenDetailed={() => onViewChange('form')}
             selectedTileId={selectedTile ? selectedTile.id : null}
-            searching={searching}
+            searching={state.status === 'loading'}
             disabled={state.status === 'loading'}
           />
         ) : (

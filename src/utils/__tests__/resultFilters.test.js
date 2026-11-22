@@ -378,84 +378,74 @@ describe('matchesPower（powerStatus の3状態判定・「あり」の絞り込
   })
 })
 
-describe('applyResultFilters: wheelchair（車椅子 複数選択）', () => {
+describe('applyResultFilters: wheelchair（車椅子 しきい値型の単一選択）', () => {
   const a = { type: 'node', id: 1, tags: { name: 'A', amenity: 'cafe', wheelchair: 'yes' } }
   const b = { type: 'node', id: 2, tags: { name: 'B', amenity: 'cafe', wheelchair: 'limited' } }
   const c = { type: 'node', id: 3, tags: { name: 'C', amenity: 'cafe', wheelchair: 'no' } }
   const d = { type: 'node', id: 4, tags: { name: 'D', amenity: 'cafe' } }
+  const e = { type: 'node', id: 5, tags: { name: 'E', amenity: 'cafe', wheelchair: 'designated' } }
 
   const names = (out) => out.map((r) => r.tags.name)
 
-  it('空配列（何もチェックしていない）は絞り込みなし＝全件', () => {
-    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: [] }))).toEqual(['A', 'B', 'C', 'D'])
+  it("'all'（すべて）は絞り込みなし＝全件", () => {
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: 'all' }))).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 
-  it("['yes'] は対応可（yes / designated）だけ", () => {
-    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes'] }))).toEqual(['A'])
+  it("'gte_partial'（一部対応以上）: yes / designated / limited が残る（no・未登録は除外）", () => {
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: 'gte_partial' }))).toEqual(['A', 'B', 'E'])
   })
 
-  it("['yes', 'no'] は対応可・対応なしだけ（OR、一部対応と未登録は除外）", () => {
-    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes', 'no'] }))).toEqual(['A', 'C'])
+  it("'gte_yes'（対応可のみ）: yes / designated のみ（limited・no・未登録は除外）", () => {
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: 'gte_yes' }))).toEqual(['A', 'E'])
   })
 
-  it("['partial'] は一部対応（limited）だけ", () => {
-    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['partial'] }))).toEqual(['B'])
-  })
-
-  it("['yes', 'partial', 'no'] は登録済みの全件（未登録は除外）", () => {
-    expect(names(applyResultFilters([a, b, c, d], { ...BASE, wheelchair: ['yes', 'partial', 'no'] }))).toEqual(['A', 'B', 'C'])
+  it('旧形式の値も後方互換で新しいしきい値に変換される', () => {
+    // 旧単一値: 'yes' → gte_yes（対応可のみ）
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: 'yes' }))).toEqual(['A', 'E'])
+    // 旧単一値: 'partial' → gte_partial（一部対応以上）
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: 'partial' }))).toEqual(['A', 'B', 'E'])
+    // 旧配列: 'partial' を含む → gte_partial、'yes' のみ → gte_yes
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: ['yes', 'partial'] }))).toEqual(['A', 'B', 'E'])
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: ['yes'] }))).toEqual(['A', 'E'])
+    // 旧配列: 'no' のみ・空配列 → all（絞り込みなし）
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: ['no'] }))).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(names(applyResultFilters([a, b, c, d, e], { ...BASE, wheelchair: [] }))).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 })
 
-describe('matchesWheelchair（tags.wheelchair の値で判定）', () => {
+describe('matchesWheelchair（tags.wheelchair の値でしきい値判定）', () => {
   const withWc = (v) => mItem({ tags: { wheelchair: v } })
 
-  it("'all' は全件一致", () => {
+  it("'all' は全件一致（未登録も含む）", () => {
     expect(matchesWheelchair(mItem(), 'all')).toBe(true)
     expect(matchesWheelchair(withWc('designated'), 'all')).toBe(true)
+    expect(matchesWheelchair(withWc('no'), 'all')).toBe(true)
   })
 
-  it("'yes'（対応可）: 'yes' / 'designated'。limited・no・未登録は一致しない", () => {
-    expect(matchesWheelchair(withWc('yes'), 'yes')).toBe(true)
-    expect(matchesWheelchair(withWc('designated'), 'yes')).toBe(true)
-    expect(matchesWheelchair(withWc('limited'), 'yes')).toBe(false)
-    expect(matchesWheelchair(withWc('no'), 'yes')).toBe(false)
-    expect(matchesWheelchair(mItem(), 'yes')).toBe(false)
+  it("'gte_partial'（一部対応以上）: yes / designated / limited が一致。no・未登録は一致しない", () => {
+    expect(matchesWheelchair(withWc('yes'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('no'), 'gte_partial')).toBe(false)
+    expect(matchesWheelchair(mItem(), 'gte_partial')).toBe(false)
   })
 
-  it("'partial'（一部対応）: 'limited' のみ", () => {
-    expect(matchesWheelchair(withWc('limited'), 'partial')).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), 'partial')).toBe(false)
-    expect(matchesWheelchair(mItem(), 'partial')).toBe(false)
+  it("'gte_yes'（対応可のみ）: yes / designated のみ。limited・no・未登録は一致しない", () => {
+    expect(matchesWheelchair(withWc('yes'), 'gte_yes')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'gte_yes')).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), 'gte_yes')).toBe(false)
+    expect(matchesWheelchair(withWc('no'), 'gte_yes')).toBe(false)
+    expect(matchesWheelchair(mItem(), 'gte_yes')).toBe(false)
   })
 
-  it("'no'（対応なし）: 'no' のみ（未登録は一致しない）", () => {
-    expect(matchesWheelchair(withWc('no'), 'no')).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), 'no')).toBe(false)
-    expect(matchesWheelchair(mItem(), 'no')).toBe(false)
-  })
-
-  it('配列（複数選択）: チェックした状態のいずれかに一致すれば true（OR 判定）', () => {
-    // 対応可（yes）: yes / designated
-    expect(matchesWheelchair(withWc('yes'), ['yes'])).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), ['yes', 'no'])).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), ['no'])).toBe(false)
-    expect(matchesWheelchair(withWc('designated'), ['yes'])).toBe(true)
-    // 一部対応（partial）: limited
-    expect(matchesWheelchair(withWc('limited'), ['partial'])).toBe(true)
-    expect(matchesWheelchair(withWc('limited'), ['yes', 'partial'])).toBe(true)
-    expect(matchesWheelchair(withWc('limited'), ['yes', 'no'])).toBe(false)
-    // 対応なし（no）
-    expect(matchesWheelchair(withWc('no'), ['no'])).toBe(true)
-    expect(matchesWheelchair(withWc('no'), ['yes', 'no'])).toBe(true)
-    expect(matchesWheelchair(withWc('no'), ['yes'])).toBe(false)
-    // 空配列は絞り込みなし（全件一致）
-    expect(matchesWheelchair(withWc('yes'), [])).toBe(true)
-    expect(matchesWheelchair(withWc('no'), [])).toBe(true)
-    expect(matchesWheelchair(mItem(), [])).toBe(true)
-    // 未登録はどの状態にも一致しない
-    expect(matchesWheelchair(mItem(), ['yes'])).toBe(false)
-    expect(matchesWheelchair(mItem(), ['yes', 'partial', 'no'])).toBe(false)
+  it('旧形式の値も後方互換で新しいしきい値に変換されて判定される', () => {
+    expect(matchesWheelchair(withWc('yes'), 'yes')).toBe(true)       // → gte_yes
+    expect(matchesWheelchair(withWc('limited'), 'yes')).toBe(false)  // → gte_yes
+    expect(matchesWheelchair(withWc('limited'), 'partial')).toBe(true)   // → gte_partial
+    expect(matchesWheelchair(withWc('yes'), 'partial')).toBe(true)      // → gte_partial
+    expect(matchesWheelchair(withWc('no'), 'partial')).toBe(false)
+    expect(matchesWheelchair(withWc('no'), 'no')).toBe(true)            // → all（全件一致）
+    expect(matchesWheelchair(withWc('no'), [])).toBe(true)              // 空配列 → all
   })
 })
 
@@ -493,7 +483,7 @@ describe('matchesRating（rating フィールド。0＝未評価）', () => {
 })
 
 describe('hasActiveFilters（共通キー拡張）', () => {
-  const base = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], rating: 'all', kerbHeight: 'any' }
+  const base = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', rating: 'all', kerbHeight: 'any' }
 
   it('初期値・空オブジェクトは false', () => {
     expect(hasActiveFilters(base)).toBe(false)
@@ -508,7 +498,8 @@ describe('hasActiveFilters（共通キー拡張）', () => {
     expect(hasActiveFilters({ ...base, wifi: 'yes' })).toBe(true)
     expect(hasActiveFilters({ ...base, wifi: 'no' })).toBe(true)
     expect(hasActiveFilters({ ...base, power: 'yes' })).toBe(true)
-    expect(hasActiveFilters({ ...base, wheelchair: 'partial' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: 'gte_partial' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: 'gte_yes' })).toBe(true)
     expect(hasActiveFilters({ ...base, rating: 'gte1' })).toBe(true)
     expect(hasActiveFilters({ ...base, rating: 'eq5' })).toBe(true)
   })
@@ -517,33 +508,42 @@ describe('hasActiveFilters（共通キー拡張）', () => {
     expect(hasActiveFilters({ ...base, nameFilter: '   ' })).toBe(false)
   })
 
-  it('wheelchair 配列（複数選択）: 1つ以上なら true、空配列は false', () => {
-    expect(hasActiveFilters({ ...base, wheelchair: ['yes'] })).toBe(true)
-    expect(hasActiveFilters({ ...base, wheelchair: ['yes', 'no'] })).toBe(true)
-    expect(hasActiveFilters({ ...base, wheelchair: [] })).toBe(false)
+  it('wheelchair（しきい値の単一値）: all 以外なら true', () => {
+    expect(hasActiveFilters({ ...base, wheelchair: 'gte_partial' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: 'gte_yes' })).toBe(true)
+    expect(hasActiveFilters({ ...base, wheelchair: 'all' })).toBe(false)
   })
 })
 
-describe('normalizeWheelchair（後方互換: 古い単一値形式を配列に正規化）', () => {
-  it('配列はそのまま（無効値を除外）', () => {
-    expect(normalizeWheelchair(['yes', 'no'])).toEqual(['yes', 'no'])
-    expect(normalizeWheelchair(['yes', 'invalid'])).toEqual(['yes'])
-    expect(normalizeWheelchair([])).toEqual([])
+describe('normalizeWheelchair（後方互換: 旧形式を新しいしきい値値に正規化）', () => {
+  it('新しい形式の値はそのまま', () => {
+    expect(normalizeWheelchair('all')).toBe('all')
+    expect(normalizeWheelchair('gte_partial')).toBe('gte_partial')
+    expect(normalizeWheelchair('gte_yes')).toBe('gte_yes')
   })
 
-  it('単一文字列を配列に移行', () => {
-    expect(normalizeWheelchair('yes')).toEqual(['yes'])
-    expect(normalizeWheelchair('partial')).toEqual(['partial'])
-    expect(normalizeWheelchair('no')).toEqual(['no'])
+  it('旧単一値を新しいしきい値に移行', () => {
+    expect(normalizeWheelchair('yes')).toBe('gte_yes')
+    expect(normalizeWheelchair('partial')).toBe('gte_partial')
+    // 'no' 絞り込みは新仕様には無いので「絞り込みなし」に
+    expect(normalizeWheelchair('no')).toBe('all')
   })
 
-  it("'all' は初期値（空配列）に", () => {
-    expect(normalizeWheelchair('all')).toEqual([])
+  it('旧配列（複数選択）を最も近いしきい値に移行', () => {
+    // 'partial' を含む → gte_partial（最も広いしきい値）
+    expect(normalizeWheelchair(['yes', 'partial'])).toBe('gte_partial')
+    expect(normalizeWheelchair(['partial', 'no'])).toBe('gte_partial')
+    // 'partial' を含まず 'yes' を含む → gte_yes
+    expect(normalizeWheelchair(['yes'])).toBe('gte_yes')
+    expect(normalizeWheelchair(['yes', 'no'])).toBe('gte_yes')
+    // 'no' のみ・空配列 → all（絞り込みなし）
+    expect(normalizeWheelchair(['no'])).toBe('all')
+    expect(normalizeWheelchair([])).toBe('all')
   })
 
-  it('不明な値・undefined・null は初期値（空配列）に', () => {
-    expect(normalizeWheelchair('invalid')).toEqual([])
-    expect(normalizeWheelchair(undefined)).toEqual([])
-    expect(normalizeWheelchair(null)).toEqual([])
+  it('不明な値・undefined・null は「絞り込みなし」（all）に', () => {
+    expect(normalizeWheelchair('invalid')).toBe('all')
+    expect(normalizeWheelchair(undefined)).toBe('all')
+    expect(normalizeWheelchair(null)).toBe('all')
   })
 })

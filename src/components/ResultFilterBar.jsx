@@ -56,18 +56,18 @@ export const POWER_OPTIONS = [
   { value: 'yes', label: '電源あり' },
 ]
 
+// 車椅子対応の選択肢（しきい値型の単一選択）。
+// 'gte_partial' = 一部対応以上（yes/designated + limited）、'gte_yes' = 対応可のみ
 export const WHEELCHAIR_OPTIONS = [
   { value: 'all', label: 'すべて' },
-  { value: 'yes', label: '対応可' },
-  { value: 'partial', label: '一部対応' },
-  { value: 'no', label: '対応なし' },
+  { value: 'gte_partial', label: '一部対応以上' },
+  { value: 'gte_yes', label: '対応可のみ' },
 ]
 
 /** filter キー → 選択肢（FilterCheckboxRow が options を渡されないときに解決用） */
 const FILTER_OPTIONS = {
   wifi: WIFI_OPTIONS,
   power: POWER_OPTIONS,
-  wheelchair: WHEELCHAIR_OPTIONS,
 }
 
 /** ★評価の選択肢（まちメモ帳用。0 = 未評価） */
@@ -338,42 +338,7 @@ export function WifiPowerRow({ wifiValue, onWifiChange, powerValue, onPowerChang
   )
 }
 
-/**
- * 車椅子対応の複数選択チェックボックス行。
- *
- * 「対応可」(yes)「一部対応」(partial)「対応なし」(no) の3つのチェックボックスで、
- * 複数同時選択ができる。1つ以上チェックしたら、チェックした状態のいずれかに該当する
- * 施設だけが残る（OR 判定）。何もチェックしていなければ絞り込みなし（従来の「すべて」と
- * 同じ）。
- *
- * 状態は配列（選択済みの値の集合。例: [] / ['yes'] / ['yes','no']）。チェックボックスの
- * タップで対応する値を配列に入れ／外す（トグル）。絞り込み判定は matchesWheelchair の
- * 配列 OR 判定に委ねる。
- *
- * @param {Array<string>} selected - 選択済みの車椅子状態値（[] = 絞り込みなし）
- * @param {(values: Array<string>) => void} onChange - 更新後の配列を渡して呼ばれる
- * @param {string} [className=''] - 追加クラス
- */
-export function WheelchairMultiRow({ selected = [], onChange, className = '' }) {
-  const sel = normalizeWheelchair(selected)
-  const options = WHEELCHAIR_OPTIONS.filter((o) => o.value !== 'all')
-  const toggle = (v) => onChange(sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v])
-  return (
-    <div className={`${className} ${ROW_CLASS}`}>
-      <FilterHeading icon="♿" heading="車椅子" />
-      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label="車椅子対応で絞る">
-        {options.map((o) => {
-          const checked = sel.includes(o.value)
-          return (
-            <CheckboxPill key={o.value} checked={checked} onChange={() => toggle(o.value)}>
-              {o.label}
-            </CheckboxPill>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
+
 
 /**
  * 評価フィルタ値を「点灯する星の数」に変換（0 = 未選択＝「すべて」）。

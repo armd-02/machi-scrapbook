@@ -11,6 +11,7 @@ import { render, screen, fireEvent, within, cleanup, waitFor, act } from '@testi
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
 import MobileListTab from '../MobileListTab'
+import { facilityIconUrl } from '../../../utils/facilityIcon'
 
 // 実際のOverpass正規化と同様に tags.name → 顶层name にコピーする
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする。
@@ -436,6 +437,17 @@ const poiWithCoords = [
 ]
 
 describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () => {
+  // jsdom には Element.prototype.scrollIntoView が無いのでスタブする
+  // （ピンタップでのカードスクロール検証用。afterEach で元に戻す）
+  let origScrollIntoView
+  beforeEach(() => {
+    origScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => {
+    Element.prototype.scrollIntoView = origScrollIntoView
+  })
+
   it('POI検索結果: 初期は折りたたみ（地図非表示）で、「地図を表示」を押すと結果範囲にフィットして表示される', async () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: poiWithCoords },
@@ -484,7 +496,7 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
-  it('POI: 結果マップのマーカータップで onOpenDetail(result, "map") が呼ばれる（詳細シート導線）', async () => {
+  it('POI: 結果マップのピンタップで一覧を対応する施設カードへスクロールして選択状態にする（詳細シートは開かない）', async () => {
     const onOpenDetail = vi.fn()
     render(
       <Harness preActions={[
@@ -502,21 +514,108 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
       expect(map._lastGeoJSON?.data?.features?.length).toBe(2)
     })
 
-    // マーカー（カフェA node/30）をタップ → pointレイヤのclickイベントを発火
+    // ピン（カフェA node/30）をタップ → アイコンレイヤのclickイベントを発火
     const map = mockState.api._state.maps.at(-1)
     const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/30')
     expect(feature).toBeTruthy()
+    expect(feature.properties.icon).toBe('cafe.png')
     act(() => {
-      map.fire('click', 'point-circle', {
+      map.fire('click', 'poi-icon', {
         features: [feature],
         lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
       })
     })
 
-    // 検索タブのマーカータップと同じ引数形式（result, 'map'）で詳細が開かれる
-    expect(onOpenDetail).toHaveBeenCalledTimes(1)
-    expect(onOpenDetail.mock.calls[0][0]).toEqual(poiWithCoords[0])
-    expect(onOpenDetail.mock.calls[0][1]).toBe('map')
+    // 詳細シートは開かない
+    expect(onOpenDetail).not.toHaveBeenCalled()
+    // 対応するカード（id: facility-card-node/30）へスクロールして選択状態にする
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    const card = document.getElementById('facility-card-node/30')
+    expect(card).toBeTruthy()
+    expect(card.className).toContain('ring-primary-500')
+    expect(card.className).toContain('border-primary-400')
+    // 他のカードは選択されない
+    expect(document.getElementById('facility-card-node/31').className).not.toContain('ring-primary-500')
+  })
+
+  it('POI: フォールバック点（アイコン読込失敗）のタップでも対応するカードが選択される', async () => {
+    mockState.api.setImageLoadFailures([facilityIconUrl('cafe.png')])
+    const onOpenDetail = vi.fn()
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: poiWithCoords },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileListTab onOpenDetail={onOpenDetail} />
+      </Harness>
+    )
+
+    // 折りたたみを展開して結果マップをマウントし、結果の設定を待つ
+    fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
+    await waitFor(async () => {
+      const map = mockState.api._state.maps.at(-1)
+      expect(map._lastGeoJSON?.data?.features?.length).toBe(2)
+    })
+
+    // カフェAのアイコン読込失敗 → フォールバック点（properties.icon が空）
+    const map = mockState.api._state.maps.at(-1)
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/30')
+    expect(feature.properties.icon).toBe('')
+    act(() => {
+      map.fire('click', 'poi-fallback', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+
+    // 詳細シートは開かず、対応するカードが選択される
+    expect(onOpenDetail).not.toHaveBeenCalled()
+    const card = document.getElementById('facility-card-node/30')
+    expect(card.className).toContain('ring-primary-500')
+  })
+
+  it('POI: 再検索（結果の置換）で選択がクリアされる', async () => {
+    let dispatchRef
+    function Inner() {
+      const [state, dispatch] = React.useReducer(
+        appReducer,
+        [{ type: 'SET_RESULTS', payload: poiWithCoords }, { type: 'SET_STATUS', payload: 'success' }],
+        (acts) => acts.reduce((s, a) => appReducer(s, a), createInitialState())
+      )
+      dispatchRef = dispatch
+      return (
+        <AppContext.Provider value={{ state, dispatch }}>
+          <MobileListTab onOpenDetail={vi.fn()} />
+        </AppContext.Provider>
+      )
+    }
+    render(<Inner />)
+
+    // 折りたたみを展開して結果マップをマウントし、結果の設定を待つ
+    fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
+    await waitFor(async () => {
+      const map = mockState.api._state.maps.at(-1)
+      expect(map._lastGeoJSON?.data?.features?.length).toBe(2)
+    })
+
+    // ピン（カフェA node/30）をタップ → カードが選択される
+    const map = mockState.api._state.maps.at(-1)
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/30')
+    act(() => {
+      map.fire('click', 'poi-icon', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+    expect(document.getElementById('facility-card-node/30').className).toContain('ring-primary-500')
+
+    // 再検索（新しい結果に置き換え）→ 選択がクリアされる
+    await act(async () => {
+      dispatchRef({ type: 'SET_RESULTS', payload: [park] })
+    })
+    expect(document.getElementById('facility-card-node/30')).toBeNull()
+    const card = screen.getByRole('heading', { name: '中央公園' }).closest('[id^="facility-card-"]')
+    expect(card.className).not.toContain('ring-primary-500')
   })
 
   it('バリアフリー検索結果: 初期は開いている状態（初期open）。線・点の結果範囲にフィットされ、凡例は常時表示', async () => {
@@ -873,8 +972,9 @@ describe('MobileListTab: 作業スペース系の電源・Wi-Fi 集計', () => {
 // powerStatus / matchesWheelchair）に従って絞り込みが効くことを検証する。
 const CAFE_WIFI_ALL = { type: 'node', id: 71, name: 'カフェG', tags: { amenity: 'cafe', name: 'カフェG', internet_access: 'wireless', power_supply: 'yes', wheelchair: 'yes' } }
 const CAFE_PLAIN = { type: 'node', id: 72, name: 'カフェH', tags: { amenity: 'cafe', name: 'カフェH' } }
+const CAFE_LIMITED = { type: 'node', id: 74, name: 'カフェJ', tags: { amenity: 'cafe', name: 'カフェJ', wheelchair: 'limited' } }
 const RAMEN_SOCKET = { type: 'node', id: 73, name: 'ラーメンI', tags: { amenity: 'restaurant', name: 'ラーメンI', internet_access: 'no', 'socket:indoor': 'yes', wheelchair: 'designated' } }
-const FILTERBAR_ITEMS = [CAFE_WIFI_ALL, CAFE_PLAIN, RAMEN_SOCKET]
+const FILTERBAR_ITEMS = [CAFE_WIFI_ALL, CAFE_PLAIN, CAFE_LIMITED, RAMEN_SOCKET]
 
 describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・車椅子行）', () => {
   it('POI一覧バーに WiFi・電源・車椅子対応 の行が出て、初期はすべて「すべて」', () => {
@@ -883,16 +983,15 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
 
-    // Wi-Fi・電源は1行に統合（WifiPowerRow）。車椅子は複数選択チェックボックス（WheelchairMultiRow）
+    // Wi-Fi・電源は1行に統合（WifiPowerRow）。車椅子はしきい値型の単一選択（FilterSelect）
     const wp = screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
-    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
 
-    // デフォルト（全 unchecked ＝ 絞らない）: 実チェックボックスは未選択
+    // デフォルト: Wi-Fi・電源の実チェックボックスは未選択、車椅子セレクトは「すべて」（絞り込みなし）
     expect(within(wp).getByRole('checkbox', { name: 'WiFiあり' }).checked).toBe(false)
     expect(within(wp).getByRole('checkbox', { name: '電源あり' }).checked).toBe(false)
-    for (const name of ['対応可', '一部対応', '対応なし']) {
-      expect(within(wc).getByRole('checkbox', { name }).checked).toBe(false)
-    }
+    expect(wc).toBeTruthy()
+    expect(wc.value).toBe('all')
     // 「なし」絞り込みは廃止: なし系チェックボックスは存在しない
     expect(within(wp).queryByRole('checkbox', { name: 'WiFiなし' })).toBeNull()
     expect(within(wp).queryByRole('checkbox', { name: '電源なし' })).toBeNull()
@@ -905,7 +1004,7 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
     ]} />)
 
     // 車椅子行: 見出しにアイコン(♿)＋文言「車椅子」
-    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
     const wcHeading = wc.previousElementSibling
     expect(wcHeading.textContent).toContain('車椅子')
     expect(wcHeading.textContent).toContain('♿')
@@ -974,28 +1073,43 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
   })
 
-  it('車椅子 対応可: wheelchair が yes/designated のものだけ残る（limited・未登録は除外）', () => {
+  it('車椅子 対応可のみ: wheelchair が yes/designated のものだけ残る（limited・未登録は除外）', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
-    const wc = screen.getByRole('group', { name: '車椅子対応で絞る' })
+    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
 
-    fireEvent.click(within(wc).getByRole('checkbox', { name: '対応可' }))
+    fireEvent.change(wc, { target: { value: 'gte_yes' } })
     expect(screen.getByText('カフェG')).toBeTruthy() // yes
+    expect(screen.getByText('ラーメンI')).toBeTruthy() // designated
+    expect(screen.queryByText('カフェH')).toBeNull() // 未登録
+    expect(screen.queryByText('カフェJ')).toBeNull() // limited
+  })
+
+  it('車椅子 一部対応以上: wheelchair が yes/designated/limited のものだけ残る（未登録は除外）', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+
+    fireEvent.change(wc, { target: { value: 'gte_partial' } })
+    expect(screen.getByText('カフェG')).toBeTruthy() // yes
+    expect(screen.getByText('カフェJ')).toBeTruthy() // limited
     expect(screen.getByText('ラーメンI')).toBeTruthy() // designated
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
   })
 })
 
 describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1コントロール＋チップ横スクロール）', () => {
-  it('チップ行は1行で横スクロールし、縦に改行しない（Wi-Fi・電源・車椅子）', () => {
+  it('チップ行は1行で横スクロールし、縦に改行しない（Wi-Fi・電源）。車椅子は単一行セレクト', () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
 
-    for (const name of ['Wi-Fi・電源のありで絞る', '車椅子対応で絞る']) {
+    for (const name of ['Wi-Fi・電源のありで絞る']) {
       const group = screen.getByRole('group', { name })
       // チップ群は1行で横スクロール（overflow-x-auto・flex は nowrap の意図）。改行用 flex-wrap は無い
       expect(group.className).toContain('overflow-x-auto')
@@ -1008,6 +1122,14 @@ describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1
       expect(group.previousElementSibling).toBeTruthy() // 見出しが直前の子
       expect(group.previousElementSibling.className).toContain('min-h-[44px]')
     }
+
+    // 車椅子行（単一選択セレクト）も横長の1行で、見出し（♿ 車椅子）がセレクトの右隣に並ぶ
+    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+    const wcRow = wc.parentElement
+    expect(wcRow.className).toContain('flex')
+    expect(wcRow.className).toContain('min-h-[44px]')
+    expect(wc.previousElementSibling).toBeTruthy() // 見出しが直前の子
+    expect(wc.previousElementSibling.className).toContain('min-h-[44px]')
   })
 
   it('入力・セレクト行も横長の1行で、見出し（アイコン＋文言）がコントロールの右隣に並ぶ', () => {

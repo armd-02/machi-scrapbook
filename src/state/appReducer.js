@@ -45,7 +45,7 @@ export function createInitialState() {
     searchSource: 'map',
     selectedMunicipality: null,
     municipalitySearch: { category: '', cuisine: '', purpose: '' },
-    resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' },
+    resultFilters: { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' },
 
     // まちメモ帳タブのサブビュー: 'list'（通常の一覧）| 'trash'（ごみ箱）。
     // ヘッダーメニューの「ごみ箱」で 'trash' に設定すると、シェルがメモ帳タブに

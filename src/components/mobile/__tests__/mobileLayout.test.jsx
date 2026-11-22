@@ -774,8 +774,8 @@ describe('(#59/#60) 検索タブ: 地図の明示的な検索トリガー', () =
   }, IT_TIMEOUT)
 })
 
-describe('(#59) 一覧タブ: 結果マップのマーカータップ→詳細シート（修正）', () => {
-  it('一覧タブの結果マップでマーカーをタップすると施設詳細ボトムシートが開き、「閉じる」で一覧タブに戻る', async () => {
+describe('(#59) 一覧タブ: 結果マップのピンタップ→カード選択（修正）', () => {
+  it('一覧タブの結果マップでピンをタップすると一覧が対応する施設カードへスクロールして選択状態になる（詳細シートは開かない）', async () => {
     renderApp()
 
     // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから地図モード
@@ -806,28 +806,25 @@ describe('(#59) 一覧タブ: 結果マップのマーカータップ→詳細�
       expect(features.length).toBeGreaterThanOrEqual(1)
     }, { timeout: 8000 })
 
-    // マーカー（テスト珈琲店 node/1001）をタップ → pointレイヤのclickイベントを発火
+    // ピン（テスト珈琲店 node/1001）をタップ → アイコンレイヤのclickイベントを発火
     const map = getResultsMap()
     const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/1001')
     expect(feature).toBeTruthy()
+    expect(feature.properties.icon).toBe('cafe.png')
     act(() => {
-      map.fire('click', 'point-circle', {
+      map.fire('click', 'poi-icon', {
         features: [feature],
         lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
       })
     })
 
-    // 施設詳細ボトムシートが開く
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: /施設詳細: テスト珈琲店/ })).toBeTruthy()
-    }, { timeout: 3000 })
-
-    // 「閉じる」でシートが閉じられ、一覧タブの表示が維持される（MobileShellの既存仕組み）
-    const dialog = screen.getByRole('dialog', { name: /施設詳細: テスト珈琲店/ })
-    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull()
-    }, { timeout: 3000 })
+    // 詳細シートは開かない
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // 一覧が対応するカードへスクロールし、選択状態（ハイライト）になる
+    const card = document.getElementById('facility-card-node/1001')
+    expect(card).toBeTruthy()
+    expect(card.className).toContain('ring-primary-500')
+    expect(card.className).toContain('border-primary-400')
     expect(tabIsCurrent('一覧')).toBe(true)
   }, IT_TIMEOUT)
 })
@@ -1624,6 +1621,69 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「指定�
 
     // 検証メッセージは表示されず、成功で一覧タブへ自動切替
     expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+})
+
+// (修正) トップ検索の「検索中…」が戻らない不具合: ローカル state `searching`
+// は true にして setSearching(false) する経路が無く、検索完了後もボタンが
+// 「検索中…」のままで固まり再検索ができなかった。`searching` を廃止し
+// state.status === 'loading' から導出するよう直したので、検索の実状態
+// （loading → success/error/idle）とボタン表示が常に一致することを確認する。
+describe('(top) 検索完了後にボタンが通常表示へ戻る（「検索中…」で固まらない）', () => {
+  it('トップ検索が成功した後も「指定した場所と種別で検索」ボタンは通常表示に戻り、再検索できる', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
+    renderApp()
+    await setAreaByGeocode()
+
+    // タイルを選択して「指定した場所と種別で検索」を押す
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // 成功で一覧タブへ自動切替
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+
+    // 検索タブ（トップ画面）に戻るとボタンは通常表示に戻っている
+    clickTab('検索')
+    const btn = getTopSearchButton()
+    expect(btn).toBeTruthy()
+    expect(btn.textContent).toBe('指定した場所と種別で検索')
+    expect(btn.disabled).toBe(false)
+
+    // 続けて再検索できる（2件目の検索が完了し一覧タブへ自動切替される）。
+    // 同一クエリはOverpassメモリキャッシュにヒットするため2件目の通信は発生しない
+    // が、検索フロー自体（status: loading→success）は実行される
+    fireEvent.click(btn)
+    await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('トップ検索が失敗した後もボタンは通常表示に戻り、再検索できる', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
+    overpassStatus = 500
+    renderApp()
+    await setAreaByGeocode()
+
+    // タイルを選択して「指定した場所と種別で検索」を押す
+    fireEvent.click(screen.getByRole('button', { name: '食べる' }))
+    fireEvent.click(getTopSearchButton())
+
+    // 失敗でサーバーエラーのバナーが表示される（検索タブにとどまる）
+    await waitFor(() => {
+      expect(screen.getByText(/サーバーエラー/)).toBeTruthy()
+    }, { timeout: 8000 })
+
+    // ボタンは通常表示に戻っている（「検索中…」で固まっていない）
+    const btn = getTopSearchButton()
+    expect(btn).toBeTruthy()
+    expect(btn.disabled).toBe(false)
+
+    // 再検索できる（サーバーが復旧すれば結果が取得できる）。
+    // 1件目は失敗してキャッシュされていないため、2件目は実際に通信される
+    overpassStatus = 200
+    fireEvent.click(btn)
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
     expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
   }, IT_TIMEOUT)

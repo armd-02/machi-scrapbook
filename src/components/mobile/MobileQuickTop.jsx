@@ -90,7 +90,6 @@ export const BARRIER_FREE_TILE = toTile(
  * @param {(() => void) | null} onFocus 地名入力欄のフォーカス時（親で周辺
  *   候補の取得を起動）
  * @param {boolean} [geocodeDisabled] 「地名検索」ボタンを無効化（ジオコード実行中等）
- * @param {boolean} searching 施設検索実行中
  * @param {string | null} searchError 地名検索エラー
  * @param {string | null} [stationError] 駅ファイル（stations.json）の読み込み
  *   失敗エラー。場所入力まわりに通信エラーとして表示（駅候補は出ない）
@@ -113,7 +112,6 @@ export function QuickTopIntro({
   onGeocode = null,
   onFocus = null,
   geocodeDisabled = false,
-  searching = false,
   searchError = null,
   stationError = null,
   areaSet = false,

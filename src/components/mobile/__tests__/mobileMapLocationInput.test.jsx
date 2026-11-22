@@ -955,4 +955,35 @@ describe('サジェストの距離順統一（自治体＋駅・周辺）', () =
       expect.stringContaining('桑名駅'),
     ])
   }, 15000)
+
+  it('失敗→再試行成功: 表示中のサジェストが距離順に並び替わる', async () => {
+    // 初回フォーカスで位置取得が拒否 → 従来の並び（自治体が先）
+    geoMode = 'fail'
+    renderApp()
+    await openMapMode()
+    await typeAndAwaitSuggest('桑名', { optionCount: 2 })
+
+    // geolocation 失敗の確定（setTimeout 0）を待つ
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(getSuggestOptions().map((o) => o.textContent)).toEqual([
+      expect.stringContaining('桑名市'),
+      expect.stringContaining('桑名駅'),
+    ])
+
+    // 成功モードにして再フォーカス → 位置取得の再試行が成功 → center が設定される
+    geoMode = 'ok'
+    fireEvent.focus(getLocationInput())
+
+    // center が設定されたことで、表示中のサジェストが距離順に並び替わる
+    // （桑名駅・約150m が桑名市・約88km より先に来る）
+    await waitFor(() => {
+      const opts = getSuggestOptions()
+      expect(opts.map((o) => o.textContent)).toEqual([
+        expect.stringContaining('桑名駅'),
+        expect.stringContaining('桑名市'),
+      ])
+    }, { timeout: 8000 })
+  }, 15000)
 })

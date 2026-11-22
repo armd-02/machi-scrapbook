@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   facilityName,
   formatAddress,
@@ -12,6 +12,7 @@ import { memochoKeyOf } from '../../utils/memocho'
 import { useMemocho } from '../../hooks/useMemocho'
 import { powerWifiStatus, isWorkspaceFacility } from '../../utils/powerWifi'
 import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
+import { getCachedThumb, queueThumb } from '../../utils/resultThumbs'
 
 // テスト・他コンポーネントの互換のために再エクスポート
 export { facilityName, formatAddress, safeWebsite }
@@ -64,8 +65,12 @@ function PowerWifiValue({ state, icon }) {
  * 押したときだけ onOpen(result) で開く。
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
+ *
+ * showMapThumb: 地図サムネイルを右側に表示（検索結果カード用）。
+ *   240×240 の captureMapImage で遅延・逐次生成しメモリキャッシュする
+ *   （localStorage には保存しない・生成失敗は画像なしの通常表示）
  */
-export default function MobileFacilityCard({ result, onOpen, bare = false, hideMemoToggle = false }) {
+export default function MobileFacilityCard({ result, onOpen, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false }) {
   const tags = result.tags || {}
   const name = facilityName(result)
   const typeLabel = facilityTypeLabel(result)
@@ -103,12 +108,51 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
     toggle(result)
   }
 
-  return (
-    <div
-      className={bare
-        ? "w-full text-left p-3 space-y-1.5"
-        : "w-full text-left bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5"}
-    >
+  // (地図サムネイル) 検索結果カード用: カード右側に地図サムネイルを表示する
+  // （まちメモ帳カードと同じ見た目: 表示列120px・240×240生成・©表記オーバーレイ）。
+  // - 生成は遅延（IntersectionObserver で画面に入ったら）＋逐次キュー（同時1件）
+  // - メモリキャッシュのみ（localStorage には保存しない）。再表示しても再生成しない
+  // - 生成失敗はセッション内でリトライせず、画像なしの通常表示に落とす
+  const [thumb, setThumb] = useState(undefined) // undefined=未生成・null=失敗・string=dataURL
+  const rootRef = useRef(null)
+  const thumbKey = memochoKeyOf(result)
+  const thumbLat = typeof result.lat === 'number' && Number.isFinite(result.lat) ? result.lat : null
+  const thumbLon = typeof result.lon === 'number' && Number.isFinite(result.lon) ? result.lon : null
+  const hasThumbCoords = showMapThumb && thumbLat !== null && thumbLon !== null
+
+  useEffect(() => {
+    if (!hasThumbCoords) return
+    const cached = getCachedThumb(thumbKey)
+    if (cached !== undefined) {
+      setThumb(cached)
+      return
+    }
+    let cancelled = false
+    const start = () => {
+      queueThumb(thumbKey, thumbLat, thumbLon).then((url) => {
+        if (!cancelled) setThumb(url)
+      })
+    }
+    // IntersectionObserver 未対応環境（テスト・旧ブラウザ）はマウント時に即生成
+    if (typeof IntersectionObserver !== 'function') {
+      start()
+      return () => { cancelled = true }
+    }
+    const el = rootRef.current
+    if (!el) return
+    const io = new IntersectionObserver((entries) => {
+      if (cancelled) return
+      if (entries.some((e) => e.isIntersecting)) {
+        io.disconnect()
+        start()
+      }
+    }, { threshold: 0.1 })
+    io.observe(el)
+    return () => { cancelled = true; io.disconnect() }
+  }, [hasThumbCoords, thumbKey, thumbLat, thumbLon])
+
+  const content = (
+    <>
       {/* 施設名（大きめ・太字）＋カテゴリラベル＋「🔎詳細」ボタン。
           カード本体のタップでは詳細は開かず、ボタンの押下のみで開く。
           名前の左に施設種別アイコン（高さ24px）を表示 */}
@@ -230,6 +274,43 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
           {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
         </button>
       )}
+    </>
+  )
+
+  // (地図サムネイル) 表示モード: 右側に120pxのサムネイル列を併設する
+  // （まちメモ帳カードと同じ構造・©表記オーバーレイ付き）
+  if (showMapThumb) {
+    return (
+      <div
+        ref={rootRef}
+        id={cardId || undefined}
+        className={`w-full bg-white border rounded-xl shadow-sm overflow-hidden flex items-stretch ${
+          selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'}`}
+      >
+        <div className="flex-1 min-w-0 p-3 space-y-1.5">{content}</div>
+        {typeof thumb === 'string' && (
+          <div className="relative shrink-0 w-[120px]" aria-hidden="true">
+            <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
+              © OpenStreetMap contributors
+            </span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      id={cardId || undefined}
+      className={bare
+        ? "w-full text-left p-3 space-y-1.5"
+        : `w-full text-left bg-white border rounded-xl p-3 shadow-sm space-y-1.5 ${
+            selected
+              ? 'border-primary-400 ring-2 ring-primary-500'
+              : 'border-slate-200'}`}
+    >
+      {content}
     </div>
   )
 }

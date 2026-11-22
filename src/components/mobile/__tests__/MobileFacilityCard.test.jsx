@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import MobileFacilityCard, { facilityName, formatAddress, safeWebsite } from '../MobileFacilityCard'
 import { facilityTypeLabel } from '../../../utils/facilityLabels'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
+import * as mapCapture from '../../../utils/mapCapture'
+import { resetThumbState } from '../../../utils/resultThumbs'
+
+// captureMapImage をモック（タイル取得をネットワークに頼らない）
+vi.mock('../../../utils/mapCapture', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, captureMapImage: vi.fn() }
+})
 
 /**
  * (#59 / #44 / 電話帳型改訂) モバイル施設カード
@@ -512,5 +520,90 @@ describe('MobileFacilityCard: 施設名の左のアイコン', () => {
       <MobileFacilityCard result={{ type: 'node', id: 61, tags: { name: '謎の施設', foo: 'bar' } }} onOpen={vi.fn()} />
     )
     expect(iconImg(container).getAttribute('src')).toBe(`${import.meta.env.BASE_URL}icons/marker-stroked.png`)
+  })
+})
+
+// ===== 地図サムネイル（showMapThumb・検索結果カード用） =====
+describe('MobileFacilityCard: 地図サムネイル（showMapThumb）', () => {
+  // サムネイル画像（dataURL）を特定する（施設アイコンは path 形式なので区別できる）
+  const thumbImg = (container) => container.querySelector('img[src^="data:image/jpeg"]')
+
+  beforeEach(() => {
+    resetThumbState()
+    vi.clearAllMocks()
+  })
+
+  it('座標があるカードは生成完了後にサムネイル（dataURL・©表記）が表示される', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledWith(34.85, 135.5))
+    await waitFor(() => expect(thumbImg(container)).toBeTruthy())
+    const img = thumbImg(container)
+    expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,THUMB')
+    // © 表記がオーバーレイされる
+    expect(screen.getByText('© OpenStreetMap contributors')).toBeTruthy()
+    // 施設名など既存表示は維持される
+    expect(screen.getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
+  })
+
+  it('座標が無いカードはサムネイルが出ない（captureMapImage も呼ばれない）', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    const noCoords = { type: 'node', id: 200, name: '座標なし施設', tags: { name: '座標なし施設', amenity: 'cafe' } }
+    const { container } = render(<MobileFacilityCard result={noCoords} onOpen={vi.fn()} showMapThumb />)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mapCapture.captureMapImage).not.toHaveBeenCalled()
+    expect(thumbImg(container)).toBeNull()
+    // カードは通常どおり表示される
+    expect(screen.getByRole('heading', { name: '座標なし施設' })).toBeTruthy()
+  })
+
+  it('同一施設は生成が1回だけ（メモリキャッシュ・再表示で再生成しない）', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    const { unmount } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1))
+    unmount()
+    // 同一施設を再表示
+    const { container: c2 } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+    // キャッシュ命中でサムネイルが表示され、captureMapImage は再呼び出しされない
+    await waitFor(() => expect(thumbImg(c2)).toBeTruthy())
+    expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('生成失敗時は画像なしで通常どおり表示される（セッション内でリトライしない）', async () => {
+    mapCapture.captureMapImage.mockResolvedValue(null)
+    const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1))
+    // 失敗後もサムネイルは出ず、カードは通常どおり
+    await waitFor(() => expect(thumbImg(container)).toBeNull())
+    expect(screen.getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
+    // リトライしない（生成は1回のみ）
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('IntersectionObserver がある環境では、カードが画面に入ってから生成する（遅延生成）', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    // IntersectionObserver をモック（observe された実例とトリガを保持）
+    let instance = null
+    class MockIO {
+      constructor(cb) { this.cb = cb; instance = this }
+      observe() {}
+      disconnect() {}
+    }
+    const OriginalIO = global.IntersectionObserver
+    global.IntersectionObserver = MockIO
+    try {
+      const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+      // エフェクトが IO を作成するまで待つ
+      await vi.waitFor(() => expect(instance).toBeTruthy())
+      // まだ生成されていない（画面に入っていない）
+      expect(mapCapture.captureMapImage).not.toHaveBeenCalled()
+      // カードが画面に入る（isIntersecting: true）
+      instance.cb([{ isIntersecting: true, target: null }])
+      await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(thumbImg(container)).toBeTruthy())
+    } finally {
+      global.IntersectionObserver = OriginalIO
+    }
   })
 })

@@ -49,7 +49,7 @@ describe('DEFAULT_MEMO_FILTERS', () => {
       cuisine: '',
       wifi: 'all',
       power: 'all',
-      wheelchair: [],
+      wheelchair: 'all',
       rating: 'all',
     })
   })
@@ -124,32 +124,32 @@ describe('matchesWifi（共通ロジック: wifiStatus の3状態判定）', () 
 describe('matchesWheelchair（共通ロジック: tags.wheelchair の値で判定）', () => {
   const withWc = (v) => item({ tags: { wheelchair: v } })
 
-  it("'all' は全件一致", () => {
+  it("'all' は全件一致（未登録・no も含む）", () => {
     expect(matchesWheelchair(item(), 'all')).toBe(true)
     expect(matchesWheelchair(withWc('designated'), 'all')).toBe(true)
+    expect(matchesWheelchair(withWc('no'), 'all')).toBe(true)
   })
 
-  it("'yes'（対応可）: 'yes' / 'designated' が一致", () => {
-    expect(matchesWheelchair(withWc('yes'), 'yes')).toBe(true)
-    expect(matchesWheelchair(withWc('designated'), 'yes')).toBe(true)
-    expect(matchesWheelchair(withWc('limited'), 'yes')).toBe(false)
-    expect(matchesWheelchair(withWc('no'), 'yes')).toBe(false)
-    expect(matchesWheelchair(item(), 'yes')).toBe(false)
+  it("'gte_partial'（一部対応以上）: yes / designated / limited が一致。no・未登録は一致しない", () => {
+    expect(matchesWheelchair(withWc('yes'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), 'gte_partial')).toBe(true)
+    expect(matchesWheelchair(withWc('no'), 'gte_partial')).toBe(false)
+    expect(matchesWheelchair(item(), 'gte_partial')).toBe(false)
   })
 
-  it("'partial'（一部対応）: 'limited' のみが一致", () => {
-    expect(matchesWheelchair(withWc('limited'), 'partial')).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), 'partial')).toBe(false)
-    expect(matchesWheelchair(withWc('designated'), 'partial')).toBe(false)
-    expect(matchesWheelchair(withWc('no'), 'partial')).toBe(false)
-    expect(matchesWheelchair(item(), 'partial')).toBe(false)
+  it("'gte_yes'（対応可のみ）: yes / designated のみ。limited・no・未登録は一致しない", () => {
+    expect(matchesWheelchair(withWc('yes'), 'gte_yes')).toBe(true)
+    expect(matchesWheelchair(withWc('designated'), 'gte_yes')).toBe(true)
+    expect(matchesWheelchair(withWc('limited'), 'gte_yes')).toBe(false)
+    expect(matchesWheelchair(withWc('no'), 'gte_yes')).toBe(false)
+    expect(matchesWheelchair(item(), 'gte_yes')).toBe(false)
   })
 
-  it("'no'（対応なし）: 'no' のみが一致（未登録は一致しない）", () => {
+  it('旧単一値 "no" は新仕様に無い絞り込みなので「すべて」（all）として扱う', () => {
     expect(matchesWheelchair(withWc('no'), 'no')).toBe(true)
-    expect(matchesWheelchair(withWc('yes'), 'no')).toBe(false)
-    expect(matchesWheelchair(withWc('limited'), 'no')).toBe(false)
-    expect(matchesWheelchair(item(), 'no')).toBe(false)
+    expect(matchesWheelchair(withWc('yes'), 'no')).toBe(true)
+    expect(matchesWheelchair(item(), 'no')).toBe(true)
   })
 })
 
@@ -204,7 +204,8 @@ describe('isMemoFilterActive（共通の hasActiveFilters に委譲）', () => {
     expect(isMemoFilterActive({ ...base, wifi: 'yes' })).toBe(true)
     expect(isMemoFilterActive({ ...base, wifi: 'no' })).toBe(true)
     expect(isMemoFilterActive({ ...base, power: 'yes' })).toBe(true)
-    expect(isMemoFilterActive({ ...base, wheelchair: 'yes' })).toBe(true)
+    expect(isMemoFilterActive({ ...base, wheelchair: 'gte_yes' })).toBe(true)
+    expect(isMemoFilterActive({ ...base, wheelchair: 'gte_partial' })).toBe(true)
     expect(isMemoFilterActive({ ...base, rating: 'gte1' })).toBe(true)
     expect(isMemoFilterActive({ ...base, rating: 'eq5' })).toBe(true)
   })
@@ -263,20 +264,26 @@ describe('applyMemochoFilters（共通の applyResultFilters への委譲）', (
     expect(names(applyMemochoFilters([withSocket, withSupply, noSupply], { power: 'yes' }))).toEqual(['カフェG', 'カフェH'])
   })
 
-  it("車椅子: 'yes' = yes/designated、'partial' = limited、'no' = no（未登録は除外）", () => {
-    expect(names(applyMemochoFilters(ALL, { wheelchair: 'yes' }))).toEqual(['カフェA'])
-    expect(names(applyMemochoFilters(ALL, { wheelchair: 'partial' }))).toEqual(['ラーメンC'])
-    expect(names(applyMemochoFilters(ALL, { wheelchair: 'no' }))).toEqual(['寿司D'])
+  it("車椅子: 'gte_partial' = yes/designated/limited、'gte_yes' = yes/designated（未登録は除外）", () => {
+    // 一部対応以上: yes（カフェA）＋ limited（ラーメンC）
+    expect(names(applyMemochoFilters(ALL, { wheelchair: 'gte_partial' }))).toEqual(['カフェA', 'ラーメンC'])
+    // 対応可のみ: yes（カフェA）だけ
+    expect(names(applyMemochoFilters(ALL, { wheelchair: 'gte_yes' }))).toEqual(['カフェA'])
+    // designated も対応可に含める
     const designated = item({ id: 9005, name: 'カフェJ', tags: { name: 'カフェJ', amenity: 'cafe', wheelchair: 'designated' } })
-    expect(names(applyMemochoFilters([designated], { wheelchair: 'yes' }))).toEqual(['カフェJ'])
+    expect(names(applyMemochoFilters([designated], { wheelchair: 'gte_yes' }))).toEqual(['カフェJ'])
   })
 
-  it("車椅子 配列（複数選択）: チェックした状態のいずれかに一致すれば残る（OR）", () => {
-    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes', 'no'] }))).toEqual(['カフェA', '寿司D'])
-    expect(names(applyMemochoFilters(ALL, { wheelchair: ['partial', 'no'] }))).toEqual(['ラーメンC', '寿司D'])
-    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes', 'partial', 'no'] }))).toEqual(['カフェA', 'ラーメンC', '寿司D'])
-    // 空配列は絞り込みなし（全件）
+  it("車椅子: 旧形式の値も後方互換で新しいしきい値に変換される", () => {
+    // 旧単一値: 'yes' → gte_yes（対応可のみ）、'partial' → gte_partial（一部対応以上）
+    expect(names(applyMemochoFilters(ALL, { wheelchair: 'yes' }))).toEqual(['カフェA'])
+    expect(names(applyMemochoFilters(ALL, { wheelchair: 'partial' }))).toEqual(['カフェA', 'ラーメンC'])
+    // 旧配列: 'partial' を含む → gte_partial、'yes' のみ → gte_yes
+    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes', 'partial'] }))).toEqual(['カフェA', 'ラーメンC'])
+    expect(names(applyMemochoFilters(ALL, { wheelchair: ['yes'] }))).toEqual(['カフェA'])
+    // 空配列・'no' のみ → all（絞り込みなし＝全件）
     expect(applyMemochoFilters(ALL, { wheelchair: [] })).toHaveLength(6)
+    expect(applyMemochoFilters(ALL, { wheelchair: ['no'] })).toHaveLength(6)
   })
 
   it('料理の種別: 一覧側と同一の処理（部分一致・";"区切り・大小文字無視）', () => {
@@ -302,7 +309,7 @@ describe('applyMemochoFilters（共通の applyResultFilters への委譲）', (
     // キーワード ＋ ★1以上 ＝ 両方一致のものだけ（ラーメンE は rating 0 で落ちる）
     expect(names(applyMemochoFilters(ALL, { nameFilter: 'ラーメン', rating: 'gte1' }))).toEqual(['ラーメンC'])
     // WiFiなし {B} × 車椅子対応可 {A} ＝ 0件
-    expect(applyMemochoFilters(ALL, { wifi: 'no', wheelchair: 'yes' })).toHaveLength(0)
+    expect(applyMemochoFilters(ALL, { wifi: 'no', wheelchair: 'gte_yes' })).toHaveLength(0)
   })
 
   it('空配列・items が無い場合でも安全に空配列を返す', () => {

@@ -16,7 +16,8 @@
  *   - cuisine:       料理ジャンル
  *   - wifi:          WiFi（all | yes | no。未登録はどちらにも含めない）
  *   - power:         電源（all | yes。「あり」= 3状態判定の 'yes' のみ）
- *   - wheelchair:    車椅子対応（複数選択）。選択値の配列（[] = 絞り込みなし、['yes'] 等）。
+ *   - wheelchair:    車椅子対応（しきい値型の単一選択）。'all' | 'gte_partial' | 'gte_yes'。
+ *     'gte_partial' = 一部対応以上、'gte_yes' = 対応可のみ。未登録は絞り込み時に除外。
  *   - rating:        ★評価（all | gte1〜gte4 | eq5。0 = 未評価）
  *
  * 各条件は AND 結合。
@@ -40,7 +41,7 @@ export const DEFAULT_MEMO_FILTERS = {
   cuisine: '',
   wifi: 'all',
   power: 'all',
-  wheelchair: [],
+  wheelchair: 'all',
   rating: 'all'
 }
 

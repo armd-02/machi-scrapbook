@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useApp } from '../../context/AppContext'
 import { applyResultFilters, hasActiveFilters, cuisineFacetValues } from '../../utils/resultFilters'
 import { activeSearchOf } from '../../state/appReducer'
@@ -8,8 +8,8 @@ import MobileResultsMap from './MobileResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
 import {
-  FilterInput, FilterSelect, WifiPowerRow, WheelchairMultiRow, CategorySelect, CuisineChips,
-  KEYWORD_LABEL
+  FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
+  KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
 import AttributeCompleteness from '../AttributeCompleteness'
 import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
@@ -71,11 +71,45 @@ export default function MobileListTab({ onOpenDetail }) {
   const narrowing = filtersActive && filtered.length < (results || []).length
 
   const hasResults = status === 'success' && (results || []).length > 0
-  const visible = filtered.slice(0, MAX_CARDS)
+  const visible = useMemo(() => filtered.slice(0, MAX_CARDS), [filtered])
+
+  // (アイコンピン) 結果マップのピンタップで選択された施設キー（`${type}/${id}`）。
+  // タップで一覧を対応するカードへスクロールし、カードをハイライトする
+  // （詳細シートは開かない）。
+  const [selectedKey, setSelectedKey] = useState(null)
+
+  // 現在表示されているカードのキー集合（フィルタ適用・MAX_CARDS 截断後）
+  const visibleKeys = useMemo(
+    () => new Set(visible.map((r) => `${r.type}/${r.id}`)),
+    [visible]
+  )
+
+  // 再検索（結果の置換）で選択をクリアする
+  useEffect(() => {
+    setSelectedKey(null)
+  }, [results])
+
+  // 選択中カードが非表示になった場合（フィルタで除外された等）もクリアする
+  useEffect(() => {
+    if (selectedKey && !visibleKeys.has(selectedKey)) setSelectedKey(null)
+  }, [selectedKey, visibleKeys])
+
+  // 結果マップのピンタップ: カードが表示されているならスクロールして選択する。
+  // カードが非表示（フィルタ除外・MAX_CARDS を超える分）なら何もしない。
+  const handleMarkerSelect = useCallback((result) => {
+    const key = `${result.type}/${result.id}`
+    if (!visibleKeys.has(key)) return
+    setSelectedKey(key)
+    const el = document.getElementById(`facility-card-${key}`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [visibleKeys])
+
   const resetFilters = () => {
     // 検索フォームのカテゴリ・目的選択も一緒に解除する（状態の整合性）
     dispatch({ type: searchFormType, payload: { category: '', purpose: '' } })
-    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
   }
 
   return (
@@ -93,8 +127,9 @@ export default function MobileListTab({ onOpenDetail }) {
           <>
             {/* (修正) 検索結果マップ: 折りたたみ式（初期は折りたたみ・非表示）。
                 見出しボタン「地図を表示／地図を隠す」で開閉する。
-                マーカータップで施設詳細ボトムシートが開く（検索タブと同じ導線） */}
-            <CollapsibleResultsMap onOpenDetail={onOpenDetail} />
+                ピンタップで一覧を対応する施設カードへスクロールし、カードを
+                選択状態にする（詳細シートは開かない） */}
+            <CollapsibleResultsMap onMarkerClick={handleMarkerSelect} />
 
             <p className="text-xs text-slate-600">
               {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
@@ -129,10 +164,17 @@ export default function MobileListTab({ onOpenDetail }) {
                 powerValue={resultFilters.power}
                 onPowerChange={(v) => setFilters({ power: v })}
               />
-              <WheelchairMultiRow
-                selected={resultFilters.wheelchair}
-                onChange={(arr) => setFilters({ wheelchair: arr })}
-              />
+              {/* 車椅子対応: しきい値型の単一選択（すべて / 一部対応以上 / 対応可のみ） */}
+              <FilterSelect
+                label="車椅子対応で絞る"
+                value={resultFilters.wheelchair}
+                onChange={(e) => setFilters({ wheelchair: e.target.value })}
+                filter="wheelchair"
+              >
+                {WHEELCHAIR_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </FilterSelect>
               <div className="flex gap-2">
                 <CategorySelect
                   items={results}
@@ -181,6 +223,9 @@ export default function MobileListTab({ onOpenDetail }) {
             <MobileFacilityCard
               key={`${r.type}/${r.id}`}
               result={r}
+              cardId={`facility-card-${r.type}/${r.id}`}
+              selected={selectedKey === `${r.type}/${r.id}`}
+              showMapThumb
               onOpen={(res) => onOpenDetail && onOpenDetail(res, 'list')}
             />
           ))}
@@ -207,17 +252,17 @@ export default function MobileListTab({ onOpenDetail }) {
  * （地図の高さ設定 mapHeight.results / mapHeight.resultsBf は MobileResultsMap 内で
  * 従来どおり維持される）。
  *
- * - (修正) POI（kind='poi'）: 地図のマーカータップで施設詳細ボトムシートを開く
- *   （onOpenDetail(result, 'map')）。検索タブのマーカータップと同じ導線で、
- *   MobileResultsMap の onMarkerClick に接続する。バリアフリー側
- *   （kind='barrier_free'）にはタップコールバックを渡さず、タップ挙動は
- *   変更しない。
+ * - (修正) POI（kind='poi'）: 地図のマーカー（施設アイコン・フォールバック点）
+ *   タップで、onMarkerClick(result) を呼ぶ。MobileListTab 側が対応する施設
+ *   カードへスクロールし選択状態にする（詳細シートは開かない）。
+ *   バリアフリー側（kind='barrier_free'）にはタップコールバックを渡さず、
+ *   タップ挙動は変更しない。
  *
  * 折りたたみ状態はこの子コンポーネントのローカルstateに置く。MobileListTab 本体の
  * フック構成（早期returnとuseMemoの順序）を変えずに済むため、resultKind の
  * poi⇄barrier_free 切替によるフック数の変化で React がエラーを出すのを避ける。
  */
-function CollapsibleResultsMap({ kind = 'poi', initiallyOpen = false, onOpenDetail = null }) {
+function CollapsibleResultsMap({ kind = 'poi', initiallyOpen = false, onMarkerClick = null }) {
   const [visible, setVisible] = useState(initiallyOpen)
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -230,12 +275,12 @@ function CollapsibleResultsMap({ kind = 'poi', initiallyOpen = false, onOpenDeta
         <span>🗺️ 検索結果マップ</span>
         <span className="text-xs text-slate-500">{visible ? '地図を隠す' : '地図を表示'}</span>
       </button>
-      {/* (修正) POI のみマーカータップ→詳細シート（検索タブの onMarkerClick 配線と
-          同一: openDetail(r, 'map')）。バリアフリー側はタップコールバックなし
+      {/* (修正) POI のみマーカータップ→対応カードのスクロール＋選択
+          （onMarkerClick(result)）。バリアフリー側はタップコールバックなし
           （kind='barrier_free' のタップ挙動は変更しない） */}
       {visible && (
-        kind === 'poi' && onOpenDetail
-          ? <MobileResultsMap kind={kind} onMarkerClick={(r) => onOpenDetail(r, 'map')} />
+        kind === 'poi' && onMarkerClick
+          ? <MobileResultsMap kind={kind} onMarkerClick={onMarkerClick} />
           : <MobileResultsMap kind={kind} />
       )}
     </div>
@@ -255,7 +300,7 @@ function BarrierFreeMobileList() {
 
   // バリアフリー要素には意味のないフィルタ（料理ジャンル・
   // WiFi・電源・車椅子）は適用しない（旧POI検索の残値で全件が消えるのを防ぐ）
-  const bfFilters = { ...resultFilters, cuisine: '', wifi: 'all', power: 'all', wheelchair: [] }
+  const bfFilters = { ...resultFilters, cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all' }
   const filtered = useMemo(
     () => applyResultFilters(results || [], bfFilters),
     [results, resultFilters]
@@ -269,7 +314,7 @@ function BarrierFreeMobileList() {
   // バリアフリー検索ではフォームのカテゴリ（barrier_free）は検索条件そのものなので、
   // リセットは表示フィルタのみに限る
   const resetFilters = () => {
-    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: [], kerbHeight: 'any' })
+    setFilters({ nameFilter: '', typeFilter: 'all', sortDir: 'none', cuisine: '', wifi: 'all', power: 'all', wheelchair: 'all', kerbHeight: 'any' })
   }
 
   const hasResults = status === 'success' && (results || []).length > 0

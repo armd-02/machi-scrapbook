@@ -2,7 +2,8 @@
 /**
  * (修正) MobileResultsMap: モバイル「一覧」タブ上部の結果マップ。
  *
- * - POI結果: 点（point-circleレイヤ）として表示、結果範囲にfitBounds
+ * - POI結果: 施設アイコン（poi-icon symbolレイヤ）として表示、結果範囲にfitBounds
+ *   （アイコンが未解決・画像読込失敗のものは青い点（poi-fallback circleレイヤ））
  * - バリアフリー結果: 線（bf-line）＋点（bf-node）として表示
  * - 範囲が算出できない場合は state.bbox にfitBounds（フォールバック）
  * - 再検索（結果変化）: ソースのsetData + fitBounds が再実行される
@@ -34,6 +35,7 @@ import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
 import { getMapInstance } from '../../../hooks/useMapRef'
 import MobileResultsMap from '../MobileResultsMap'
+import { facilityIconUrl } from '../../../utils/facilityIcon'
 
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする
 const mockState = vi.hoisted(() => ({ api: null }))
@@ -148,19 +150,27 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     const map = getMap()
     expect(map).toBeTruthy()
 
-    // ソース・レイヤ: 'results'（geojson・非クラスタ）+ point-circle
+    // ソース・レイヤ: 'results'（geojson・非クラスタ）+ poi-icon（symbol）
+    // + poi-fallback（circle・青い点）
     const src = map._sources.get('results')
     expect(src).toBeTruthy()
     expect(src.type).toBe('geojson')
     expect(src.cluster).toBeFalsy()
-    expect(map._layers.map((l) => l.id)).toEqual(['point-circle'])
+    expect(map._layers.map((l) => l.id)).toEqual(['poi-icon', 'poi-fallback'])
 
-    // 結果がGeoJSONとして設定される（lon,lat座標）
-    const fc = map._lastGeoJSON.data
-    expect(fc.type).toBe('FeatureCollection')
-    expect(fc.features).toHaveLength(2)
-    expect(fc.features[0].geometry).toEqual({ type: 'Point', coordinates: [135.5, 34.7] })
-    expect(fc.features[0].properties.key).toBe('node/1')
+    // (アイコンピン) 結果がGeoJSONとして設定され、properties.icon に
+    // 解決されたアイコン名（施設カードと同じ getFacilityIcon）が付く
+    await waitFor(() => {
+      const fc = map._lastGeoJSON.data
+      expect(fc.type).toBe('FeatureCollection')
+      expect(fc.features).toHaveLength(2)
+      expect(fc.features[0].geometry).toEqual({ type: 'Point', coordinates: [135.5, 34.7] })
+      expect(fc.features[0].properties).toMatchObject({ key: 'node/1', icon: 'cafe.png' })
+      expect(fc.features[1].properties).toMatchObject({ key: 'node/2', icon: 'tree_and_bench.png' })
+    })
+    // アイコン画像はマップへ登録される
+    expect(map._images.has('cafe.png')).toBe(true)
+    expect(map._images.has('tree_and_bench.png')).toBe(true)
 
     // 結果範囲にfitBounds
     const fit = callsOf(map, 'fitBounds')[0]
@@ -179,6 +189,8 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     )
     await flushLoad()
 
+    // (アイコンピン) アイコン読込の後に setData・fitBounds が実行される
+    await waitFor(() => expect(callsOf(getMap(), 'fitBounds')).toHaveLength(1))
     const fit = callsOf(getMap(), 'fitBounds')[0]
     const [[w, s], [e, n]] = fit.args[0]
     expect(w).toBeLessThan(135.55)
@@ -200,7 +212,10 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     await flushLoad()
 
     // 使用可能な座標なし → 空のFeatureCollection
-    expect(getMap()._lastGeoJSON.data.features).toHaveLength(0)
+    await waitFor(() => {
+      expect(getMap()._lastGeoJSON).toBeTruthy()
+      expect(getMap()._lastGeoJSON.data.features).toHaveLength(0)
+    })
     const fit = callsOf(getMap(), 'fitBounds')[0]
     expect(fit.args[0]).toEqual([[135.5, 34.7], [135.6, 34.8]])
   })
@@ -224,7 +239,8 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     await flushLoad()
 
     const map = getMap()
-    expect(map._lastGeoJSON.data.features).toHaveLength(2)
+    // (アイコンピン) 最初のsetDataはアイコン読込の後に実行される
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(2))
     const fitsBefore = callsOf(map, 'fitBounds').length
 
     // 再検索: 新しい結果に置き換わる
@@ -232,9 +248,12 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
       dispatchRef({ type: 'SET_RESULTS', payload: [poiC] })
     })
 
-    expect(map._lastGeoJSON.data.features).toHaveLength(1)
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(1))
     expect(map._lastGeoJSON.data.features[0].properties.key).toBe('node/5')
     expect(callsOf(map, 'fitBounds').length).toBe(fitsBefore + 1)
+    // (アイコンピン) 最初の読込ですでに登録済みのアイコンは再読込しない
+    // （cafe.png・tree_and_bench.png の2回のloadImageのみ）
+    expect(map._calls.filter((c) => c.name === 'loadImage')).toHaveLength(2)
     // 単一点の再検索: 点を中心にわずかに拡張された範囲へfitBounds
     const [[w, s], [e, n]] = callsOf(map, 'fitBounds').at(-1).args[0]
     expect(w).toBeCloseTo(135.6995, 6)
@@ -293,9 +312,11 @@ describe('MobileResultsMap: hidden→表示 遷移（修正）', () => {
     await flushLoad()
     const map = getMap()
     expect(map).toBeTruthy()
-    // ソースへの setData は行われる
-    expect(map._lastGeoJSON).toBeTruthy()
-    expect(map._lastGeoJSON.data.features).toHaveLength(2)
+    // ソースへの setData は行われる（アイコン読込の後に非同期で実行）
+    await waitFor(() => {
+      expect(map._lastGeoJSON).toBeTruthy()
+      expect(map._lastGeoJSON.data.features).toHaveLength(2)
+    })
     // fitBounds は呼ばれない（コンテナが 0サイズの間は保留）
     expect(callsOf(map, 'fitBounds')).toHaveLength(0)
     // resize も呼ばれない（表示への遷移が起きていないため）
@@ -311,6 +332,12 @@ describe('MobileResultsMap: hidden→表示 遷移（修正）', () => {
     await hideContainer()
     await flushLoad()
     const map = getMap()
+    // (アイコンピン) 最初のsetData完了を待つ（hidden 中に保留される範囲はこの
+    // 時点で作られるため、表示復帰前に確定しておかないとfitBoundsが実行されない）
+    await waitFor(() => {
+      expect(map._lastGeoJSON).toBeTruthy()
+      expect(map._lastGeoJSON.data.features).toHaveLength(2)
+    })
     expect(callsOf(map, 'fitBounds')).toHaveLength(0)
 
     // コンテナが表示サイズになったと擬装（タブ表示・折りたたみ展開）
@@ -332,8 +359,10 @@ describe('MobileResultsMap: hidden→表示 遷移（修正）', () => {
       </Harness>
     )
     await flushLoad()
-    await showContainer(360, 200)
     const map = getMap()
+    // (アイコンピン) load 時のfitBounds完了を待つ（setData はアイコン読込の後）
+    await waitFor(() => expect(callsOf(map, 'fitBounds')).toHaveLength(1))
+    await showContainer(360, 200)
     const fitsAfterShow = callsOf(map, 'fitBounds').length   // 1（load 時）
     const resizesAfterShow = resizesOf(map).length            // 1
 
@@ -372,7 +401,7 @@ describe('MobileResultsMap: hidden→表示 遷移（修正）', () => {
       dispatchRef({ type: 'SET_RESULTS', payload: [poiC] })
     })
     // ソースは更新されるが、隠れているため fitBounds は呼ばれない
-    expect(map._lastGeoJSON.data.features).toHaveLength(1)
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(1))
     expect(map._lastGeoJSON.data.features[0].properties.key).toBe('node/5')
     expect(callsOf(map, 'fitBounds')).toHaveLength(0)
 
@@ -513,7 +542,7 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     { type: 'SET_STATUS', payload: 'success' }
   ]
 
-  it('POI: 点レイヤのクリックで対応する結果を引いて onMarkerClick が呼ばれる', async () => {
+  it('POI: アイコンレイヤ（poi-icon）のクリックで対応する結果を引いて onMarkerClick が呼ばれる', async () => {
     const onMarkerClick = vi.fn()
     render(
       <Harness preActions={poiPre}>
@@ -523,10 +552,13 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     await flushLoad()
 
     const map = getMap()
+    // (アイコンピン) アイコン読込完了（setData）を待つ
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(2))
     const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/1')
     expect(feature).toBeTruthy()
+    expect(feature.properties.icon).toBe('cafe.png')
     act(() => {
-      map.fire('click', 'point-circle', {
+      map.fire('click', 'poi-icon', {
         features: [feature],
         lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
       })
@@ -548,12 +580,66 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
 
     const map = getMap()
     act(() => {
-      map.fire('click', 'point-circle', {
+      map.fire('click', 'poi-icon', {
         features: [{ properties: { key: 'node/999' } }],
         lngLat: { lat: 34.7, lng: 135.5 }
       })
     })
     expect(onMarkerClick).not.toHaveBeenCalled()
+  })
+
+  it('POI: アイコン読込失敗の機能はフォールバックの青い点（poi-fallback）になり、クリックで onMarkerClick が呼ばれる', async () => {
+    // cafe.png の読込失敗を擬装する
+    mockState.api.setImageLoadFailures([facilityIconUrl('cafe.png')])
+    const onMarkerClick = vi.fn()
+    render(
+      <Harness preActions={poiPre}>
+        <MobileResultsMap kind="poi" onMarkerClick={onMarkerClick} />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    // cafe アイコンの読込失敗 → properties.icon が空（フォールバック点）。
+    // park アイコンは成功して施設アイコンのまま。
+    await waitFor(() => {
+      const features = map._lastGeoJSON.data.features
+      expect(features.find((f) => f.properties.key === 'node/1').properties.icon).toBe('')
+      expect(features.find((f) => f.properties.key === 'node/2').properties.icon).toBe('tree_and_bench.png')
+    })
+    expect(map._images.has('cafe.png')).toBe(false)
+    expect(map._images.has('tree_and_bench.png')).toBe(true)
+
+    // フォールバック点レイヤ（poi-fallback）をクリック
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/1')
+    act(() => {
+      map.fire('click', 'poi-fallback', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+    expect(onMarkerClick).toHaveBeenCalledTimes(1)
+    expect(onMarkerClick.mock.calls[0][0]).toEqual(poiA)
+  })
+
+  it('POI: 対応表に無い施設はフォールバックアイコン（marker-stroked.png）で表示される', async () => {
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [{ type: 'node', id: 6, name: '不明施設', lat: 34.72, lon: 135.52, tags: { unknown_key: 'value' } }] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="poi" />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    await waitFor(() => {
+      const features = map._lastGeoJSON.data.features
+      expect(features).toHaveLength(1)
+      expect(features[0].properties.icon).toBe('marker-stroked.png')
+    })
+    expect(map._images.has('marker-stroked.png')).toBe(true)
   })
 
   it('バリアフリー: onMarkerClick を渡されてもタップコールバックは配線しない（従来どおり）', async () => {

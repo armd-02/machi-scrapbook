@@ -22,6 +22,13 @@ const POSITION_MAX_AGE_MS = 5 * 60 * 1000
  * 動作する（status: 'denied'）。Overpass の取得失敗時は前のキャッシュが
  * あるならそれを維持する（劣化して動作し続ける）。
  *
+ * 現在位置の取得はアプリ側タイマーで必ず確定する（ブラウザのコールバックが
+ * 呼ばれないハングの場合でも GEO_TIMEOUT_MS 後に null で確定するため、
+ * 'locating' に永久に詰まることはない）。失敗・タイムアウト後も、明示的な
+ * ユーザー操作（フォーカス・「地名検索」押下）のタイミングで再取得を再試行
+ * する（進行中リクエストの共有・重複防止は維持）。取得のたびに許可プロンプト
+ * を連発しないように、進行中リクエストの共有（pendingRef）で重複を抑える。
+ *
  * 現在位置の取得は Overpass 周辺取得の成否・完了とは切り離して保持される
  * （positionRef）。位置が取れていても周辺取得が未完了・失敗の場合に
  * 「位置が取れているのに center が null」になるのを防ぐ（viewbox 付け）。
@@ -36,8 +43,9 @@ const POSITION_MAX_AGE_MS = 5 * 60 * 1000
  *   request: () => Promise<void> — 入力欄フォーカス時に呼ぶ
  *   awaitPosition: () => Promise<{ lat, lon }|null> — 「地名検索」押下時に
  *     位置取得の確定を待つ（既に取れていれば即返す。進行中なら確定を待ち、
- *     未開始ならその場で取得を開始して待つ。失敗確定なら即 null。ユーザーを
- *     ブロックしない）
+ *     未開始ならその場で取得を開始して待つ。過去の失敗だけで恒久的に諦めず、
+ *     この押下という明示的なユーザー操作のタイミングで再試行する。ユーザーを
+ *     長時間ブロックしない — アプリ側タイマーで必ず GEO_TIMEOUT_MS 内に確定）
  */
 export function useNearbyPlaceCandidates() {
   const [status, setStatus] = useState('idle')
@@ -54,10 +62,6 @@ export function useNearbyPlaceCandidates() {
   const positionRef = useRef(null)
   // 位置取得進行中の Promise（request と awaitPosition が共有する）
   const pendingRef = useRef(null)
-  // 位置取得が失敗した（拒否・非対応・タイムアウト）かのフラグ。
-  // 失敗確定後は awaitPosition が新しい取得を開始せず即 null を返す
-  // （ユーザーをブロックしない）
-  const failedRef = useRef(false)
   // 取得中のフラグ（フォーカスが連続して起きても重複リクエストを防ぐ）
   const busyRef = useRef(false)
 
@@ -68,9 +72,28 @@ export function useNearbyPlaceCandidates() {
         resolve(null)
         return
       }
+      // アプリ側タイマーの保証: ブラウザが成功・エラーのどちらのコールバックも
+      // 呼ばない場合（例: 許可プロンプトが未回答の間でブラウザ自身の timeout
+      // が進まない）でも、GEO_TIMEOUT_MS 後に必ず null で確定する。
+      // これにより 'locating' に永久に詰まること・busy フラグが解放されない
+      // ことを防ぐ
+      let settled = false
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          resolve(null)
+        }
+      }, GEO_TIMEOUT_MS)
+      const settle = (value) => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          resolve(value)
+        }
+      }
       geo.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => resolve(null),
+        (pos) => settle({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => settle(null),
         {
           enableHighAccuracy: false,
           timeout: GEO_TIMEOUT_MS,
@@ -80,7 +103,8 @@ export function useNearbyPlaceCandidates() {
     })
 
   // 現在位置の取得を開始する（進行中の取得があればその Promise を共有する）。
-  // 成功なら positionRef に保存、失敗なら failedRef を立てる
+  // 成功なら positionRef に保存する。失敗・タイムアウトでも Promise は確定し、
+  // 次回の明示的なユーザー操作（フォーカス・検索押下）で再取得できる
   const startPosition = () => {
     if (pendingRef.current) return pendingRef.current
     const p = (async () => {
@@ -88,9 +112,6 @@ export function useNearbyPlaceCandidates() {
       pendingRef.current = null
       if (pos) {
         positionRef.current = pos
-        failedRef.current = false
-      } else {
-        failedRef.current = true
       }
       return pos
     })()
@@ -101,15 +122,16 @@ export function useNearbyPlaceCandidates() {
   /**
    * 現在位置の取得が確定するまで待つ（「地名検索」の viewbox 付け用）。
    * - 既に取れていれば即返す
-   * - 取得が進行中ならその成否を待つ
-   * - 過去の取得が失敗済みなら即 null（新しい取得は開始しない）
-   * - 未取得ならその場で取得を開始して確定を待つ
+   * - 取得が進行中ならその成否を待つ（重複取得しない）
+   * - 未取得・過去の失敗ならその場で取得を開始して確定を待つ
+   *   （過去の失敗だけで恒久的に諦めない。この呼び出しは「地名検索」押下という
+   *    明示的なユーザー操作なので再試行してよい。進行中の共有でプロンプト連発は
+   *    防ぎ、アプリ側タイマーで必ず GEO_TIMEOUT_MS 内に確定する）
    * @returns {Promise<{ lat: number, lon: number }|null>}
    */
   const awaitPosition = useCallback(() => {
     if (positionRef.current) return Promise.resolve(positionRef.current)
     if (pendingRef.current) return pendingRef.current
-    if (failedRef.current) return Promise.resolve(null)
     return startPosition()
   }, [])
 

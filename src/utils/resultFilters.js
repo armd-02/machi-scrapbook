@@ -18,10 +18,9 @@
  *   - wifi:         WiFi有無（all | yes | no）。wifiStatus（3状態）と一致するものだけ。
  *     未登録（unknown）は「あり」にも「なし」にも含めない。
  *   - power:        電源有無（all | yes）。powerStatus（3状態）で 'yes' のものだけ。
- *   - wheelchair:   車椅子対応（複数選択）。選択した状態値の配列（[] = 絞り込みなし、
- *     ['yes'] / ['yes','no'] 等）。tags.wheelchair がチェックした状態のいずれかに
- *     一致すれば残す（OR）。'yes'=yes/designated、'partial'=limited、'no'=no。未登録は
- *     どの状態にも含めない。単一値（'all'|'yes'|'partial'|'no'）も後方互換で受け付ける。
+ *   - wheelchair:   車椅子対応（しきい値型の単一選択）。'all' | 'gte_partial' | 'gte_yes'。
+ *     'gte_partial' = 一部対応以上（yes/designated + limited）、'gte_yes' = 対応可のみ
+ *     （yes/designated）。未登録（tags.wheelchair が無い）は絞り込み指定時は該当しない。
  *   - rating:       ★評価（all | gte1〜gte4 | eq5）。rating は整数 0-5（0 = 未評価）。
  *     未評価は「すべて」にのみ該当する。まちメモ帳専用の絞り込み。
  *   - kerbHeight:   縁石の高さ（any | flat | low | high | unknown）。
@@ -255,68 +254,59 @@ export function matchesPower(item, mode) {
 }
 
 /**
- * 車椅子対応で絞る（'all' | 'yes' | 'partial' | 'no'）。
- * 'partial' = limited、'yes' = yes / designated。
- * 未登録（tags.wheelchair が無い）はどの絞り込みにも該当しない。
+ * 車椅子対応で絞る（しきい値型の単一選択: 'all' | 'gte_partial' | 'gte_yes'）。
+ * 'gte_partial' = 一部対応以上（yes / designated / limited）、'gte_yes' = 対応可のみ
+ * （yes / designated）。
+ * 未登録（tags.wheelchair が無い）は絞り込み指定時は該当しない。
+ * 旧形式（単一値 'yes'/'partial'/'no'・複数選択配列）も normalizeWheelchair で
+ * 新しいしきい値値に変換して受け付ける（後方互換）。
  */
 export function matchesWheelchair(item, mode) {
   const v = ((item && item.tags) || {}).wheelchair
-  // 複数選択（配列）: 空配列は絞り込みなし。1つ以上ならチェックした状態のいずれかに
-  // 一致すれば該当（OR 判定）。
-  if (Array.isArray(mode)) {
-    if (mode.length === 0) return true
-    return mode.some((m) => matchWcValue(v, m))
-  }
-  // 単一値（従来の仕様をそのまま保持）
-  if (mode === 'all') return true
-  if (mode === 'yes') return v === 'yes' || v === 'designated'
-  if (mode === 'partial') return v === 'limited'
-  if (mode === 'no') return v === 'no'
+  const m = normalizeWheelchair(mode)
+  if (m === 'all') return true
+  if (m === 'gte_partial') return v === 'yes' || v === 'designated' || v === 'limited'
+  if (m === 'gte_yes') return v === 'yes' || v === 'designated'
   return true
 }
 
 /**
- * 車椅子の単一状態値がアイテムの tags.wheelchair に一致するか。
- * 'yes' = yes / designated、'partial' = limited、'no' = no。
- * 未登録（undefined）はどの状態にも一致しない（false を返す）。
- */
-function matchWcValue(v, mode) {
-  if (mode === 'yes') return v === 'yes' || v === 'designated'
-  if (mode === 'partial') return v === 'limited'
-  if (mode === 'no') return v === 'no'
-  return false
-}
-
-/**
- * 車椅子フィルタの値を新しい形式（配列）に正規化する（後方互換）。
- * 古い形式（単一文字列）の値を読み込んでも壊れないようにする（移行）。
+ * 車椅子フィルタの値を新しい形式（しきい値型の単一文字列）に正規化する（後方互換）。
+ * 旧形式（複数選択の配列・単一文字列）の値を読み込んでも壊れないようにする（移行）。
  *
- * - 配列: 有効な値（'yes'|'partial'|'no'）だけを残して返す
- * - 文字列:
- *   - 'all' → []（絞り込みなし）
- *   - 'yes' / 'partial' / 'no' → [値]（移行：単一選択を配列に変換）
- *   - それ以外 → []（初期値）
- * - undefined / null / その他 → []
+ * - 新しい形式の文字列（'all' | 'gte_partial' | 'gte_yes'）: そのまま返す
+ * - 旧形式の文字列:
+ *   - 'yes' → 'gte_yes'（対応可のみ）
+ *   - 'partial' → 'gte_partial'（一部対応以上）
+ *   - 'all' / 'no' / 不明な値 → 'all'（絞り込みなし）
+ * - 旧形式の配列（複数選択）:
+ *   - 'partial' を含む → 'gte_partial'（最も広いしきい値）
+ *   - 'partial' を含まず 'yes' を含む → 'gte_yes'
+ *   - それ以外（'no' のみ・空配列など）→ 'all'
+ * - undefined / null / その他 → 'all'
  *
- * @param {*} value - wheelchair フィルタ値（配列または文字列）
- * @returns {string[]} 新しい形式の配列
+ * @param {*} value - wheelchair フィルタ値（文字列または配列）
+ * @returns {'all'|'gte_partial'|'gte_yes'} 新しい形式の単一文字列
  */
 export function normalizeWheelchair(value) {
-  const VALID = ['yes', 'partial', 'no']
+  const VALID = ['all', 'gte_partial', 'gte_yes']
   if (Array.isArray(value)) {
-    return value.filter((v) => VALID.includes(v))
+    if (value.includes('partial')) return 'gte_partial'
+    if (value.includes('yes')) return 'gte_yes'
+    return 'all'
   }
   if (typeof value === 'string') {
-    if (value === 'all') return []
-    if (VALID.includes(value)) return [value]
-    return []
+    if (VALID.includes(value)) return value
+    if (value === 'yes') return 'gte_yes'
+    if (value === 'partial') return 'gte_partial'
+    return 'all'
   }
-  return []
+  return 'all'
 }
 
 /**
  * 車椅子フィルタが有効か（絞り込みが掛かっているか）。
- * 配列（複数選択）なら1つ以上選択済み、単一値なら 'all' 以外 を判定する。
+ * 単一値なら 'all' 以外、旧形式の配列なら1つ以上選択済み を判定する。
  */
 function wheelchairActive(f) {
   const wc = f && f.wheelchair

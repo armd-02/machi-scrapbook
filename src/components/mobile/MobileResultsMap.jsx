@@ -4,13 +4,12 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../../context/AppContext'
 import { BASEMAP_STYLE } from '../../utils/mapStyle'
 import {
-  POINT_LAYER_DEF,
   BF_LINE_LAYER_DEF,
-  BF_NODE_LAYER_DEF,
-  resultsToGeoJSON
+  BF_NODE_LAYER_DEF
 } from '../MapView'
 import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
 import { useDraggableHeight } from '../../hooks/useDraggableHeight'
+import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
 
 /**
  * (修正) モバイル「一覧」タブ上部の結果マップ。
@@ -27,13 +26,20 @@ import { useDraggableHeight } from '../../hooks/useDraggableHeight'
  *   ホイール・ダブルタップでズームできる。一覧タブの縦スクロール領域内に
  *   埋め込まれるが、タッチ操作は地図に渡る（interactive 既定値・
  *   pointer-events なし）。
- * - kind='poi'      → 結果を点として表示（MapView と同じ青い点レイヤ）
+ * - kind='poi'      → 結果を施設アイコン（symbolレイヤ）として表示
  *   kind='barrier_free' → 歩道を線・縁石/案内信号を点として表示
  *   （MapView と同じレイヤ定義・色を使うため、見た目が一致する）
- * - (修正) kind='poi': 点（マーカー）タップで onMarkerClick(result) プロパティを
- *   呼び出す（検索タブの地図（MapView）もマーカータップで onMarkerClick 経由で
- *   詳細シートを開くのと同一の配線: feature の key（type/id）から結果を解決して
- *   コールバックに渡す）。kind='barrier_free' にはタップコールバックを設けない
+ * - (アイコンピン) kind='poi': アイコン解決は施設カードと同じ getFacilityIcon /
+ *   facilityIconUrl（utils/facilityIcon.js）。必要なアイコン画像のみを
+ *   map.loadImage + map.addImage で読み込み・登録し、読込に成功したアイコンは
+ *   施設アイコンで描画する。未解決・読込失敗の施設は青い点（MapView の
+ *   POINT_LAYER_DEF と同じ見たみの circle レイヤ）で描画する。検索タブの地図
+ *   （MapView）は従来どおり青い点のまま（アイコン化しない）。
+ * - (修正) kind='poi': アイコン・フォールバック点のマーカータップで
+ *   onMarkerClick(result) プロパティを呼び出す（feature の key（type/id）から
+ *   結果を解決してコールバックに渡す）。一覧タブ側はこれを受け、対応する施設
+ *   カードへスクロールして選択状態にする（詳細シートは開かない）。
+ *   kind='barrier_free' にはタップコールバックを設けない
  *   （従来どおりクリックでのポップアップ等も無い挙動を維持）
  * - 結果の範囲（extent）に fitBounds でカメラを合わせる。範囲が算出できない
  *   場合は前回の検索 bbox に合わせる。
@@ -80,6 +86,91 @@ const FIT_OPTIONS = { padding: 24, maxZoom: 16, duration: 0 }
 const RESULTS_MAP_HEIGHT_KEY = 'mapHeight.results'
 // (修正) バリアフリー結果マップ専用の高さ保存キー（POI地図のキーとは独立）
 const BF_RESULTS_MAP_HEIGHT_KEY = 'mapHeight.resultsBf'
+
+// (アイコンピン) properties.icon が空でない（= 画像の登録に成功した）機能を
+// 施設アイコンで描画する。アイコン画像は buildPoiIconGeoJSON が
+// map.loadImage + map.addImage で読み込み・登録する（アイコンの出典は
+// facilityIcon.js のコメントを参照）。
+const POI_ICON_LAYER_DEF = {
+  id: 'poi-icon',
+  type: 'symbol',
+  source: POI_SOURCE_ID,
+  filter: ['!=', ['get', 'icon'], ''],
+  layout: {
+    'icon-image': ['get', 'icon'],
+    'icon-size': 0.5, // 64px のアイコンを約32pxで描画
+    'icon-allow-overlap': true,
+  },
+}
+
+// (フォールバック) properties.icon が空（= アイコン未解決・画像読込失敗）の
+// 機能を青い点として描画する。検索タブの点レイヤ（MapView の POINT_LAYER_DEF）
+// と同じ見た目で、従来から結果マップに表示されていた点を引き継ぐ。
+const POI_FALLBACK_LAYER_DEF = {
+  id: 'poi-fallback',
+  type: 'circle',
+  source: POI_SOURCE_ID,
+  filter: ['==', ['get', 'icon'], ''],
+  paint: {
+    'circle-radius': 6,
+    'circle-color': '#2563eb',
+    'circle-stroke-width': 2,
+    'circle-stroke-color': '#ffffff',
+  },
+}
+
+// map.loadImage(url, cb) を Promise 化する
+const loadImageAsync = (map, url) =>
+  new Promise((resolve, reject) =>
+    map.loadImage(url, (err, img) => (err ? reject(err) : resolve(img)))
+  )
+
+/**
+ * (アイコンピン) 結果バッチに必要なアイコンをマップへ登録し、各機能に
+ * properties.icon（登録成功=アイコン名 / 失敗=空文字）を付けた GeoJSON を作る。
+ *
+ * - アイコン解決は getFacilityIcon（施設カードと同じロジック・未対応は
+ *   フォールバックアイコン）
+ * - 未試行のアイコンのみを loadImage → addImage で並行読み込む（Promise.all）
+ * - 読込成功/失敗は iconStatus（Map: アイコン名 → boolean）にキャッシュされ、
+ *   再検索などで同じアイコンが再び出てきても再読込しない
+ */
+async function buildPoiIconGeoJSON(map, results, iconStatus) {
+  const rs = (Array.isArray(results) ? results : [])
+    .filter((r) => !r.bf && r.lat != null && r.lon != null)
+  if (rs.length === 0) return { type: 'FeatureCollection', features: [] }
+
+  const icons = [...new Set(rs.map((r) => getFacilityIcon(r.tags || {})))]
+  await Promise.all(
+    icons.filter((icon) => !iconStatus.has(icon)).map(async (icon) => {
+      try {
+        const image = await loadImageAsync(map, facilityIconUrl(icon))
+        map.addImage(icon, image)
+        iconStatus.set(icon, true)
+      } catch {
+        iconStatus.set(icon, false)
+      }
+    })
+  )
+
+  return {
+    type: 'FeatureCollection',
+    features: rs.map((r) => {
+      const icon = getFacilityIcon(r.tags || {})
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
+        properties: {
+          type: r.type,
+          id: r.id,
+          key: `${r.type}/${r.id}`,
+          name: r.name || null,
+          icon: iconStatus.get(icon) === true ? icon : '',
+        },
+      }
+    }),
+  }
+}
 
 /**
  * GeoJSON FeatureCollection の範囲（BBOX）を算出する。
@@ -141,6 +232,12 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
   const visibleRef = useRef(true)
   // 隠れている間に保留した fitBounds の対象範囲 [[sw],[ne]]（null で保留なし）
   const pendingBoundsRef = useRef(null)
+  // (アイコンピン) アイコン画像の読込状態（アイコン名 → true=登録成功 /
+  // false=失敗）。マップ生成時に初期化し、再検索での再読込を防ぐ
+  const iconStatusRef = useRef(new Map())
+  // (アイコンピン) applyData の実行番号。非同期のアイコン読込中に新しい
+  // applyData が始まったら、古い方の setData をスキップする
+  const applySeqRef = useRef(0)
 
   // 地図の高さをドラッグで変更（範囲160〜480px）。既定の高さと保存キーは
   // kind で分ける: poi → 既定200px・mapHeight.results / barrier_free →
@@ -172,12 +269,18 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
   // 最新の結果をソースに反映し、結果範囲にカメラを合わせる
   // (修正) fitBounds はコンテナに実際の表示サイズがあるときだけ行う。
   // 隠れている（幅・高さ0）間はソースへ setData だけ行いフィットを保留する。
-  const applyData = useCallback(() => {
+  const applyData = useCallback(async () => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
+    const seq = ++applySeqRef.current
     const { results: rs, bbox: bb } = latestRef.current
-    const fc = kind === 'barrier_free' ? barrierFreeToMapGeoJSON(rs) : resultsToGeoJSON(rs)
     const sourceId = kind === 'barrier_free' ? BF_SOURCE_ID : POI_SOURCE_ID
+    // (アイコンピン) POI はアイコン画像の読み込み・登録を経て GeoJSON を作る
+    // （非同期）。バリアフリーは従来どおり
+    const fc = kind === 'barrier_free'
+      ? barrierFreeToMapGeoJSON(rs)
+      : await buildPoiIconGeoJSON(map, rs, iconStatusRef.current)
+    if (seq !== applySeqRef.current) return // 新しい applyData に引き継ぐ
     const source = map.getSource(sourceId)
     if (source) source.setData(fc)
 
@@ -220,6 +323,9 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
     map.addControl(new maplibregl.AttributionControl({ compact: true }))
     mapRef.current = map
     loadedRef.current = false
+    // (アイコンピン) 新マップのためアイコン読込状態を初期化（旧マップで登録した
+    // 画像は新マップには存在しないため、再読込が必要）
+    iconStatusRef.current = new Map()
 
     map.on('load', () => {
       loadedRef.current = true
@@ -229,19 +335,22 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
         map.addLayer(BF_NODE_LAYER_DEF)
       } else {
         map.addSource(POI_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
-        map.addLayer(POINT_LAYER_DEF)
-        // (修正) マーカータップ → onMarkerClick コールバック（施設詳細ボトムシート
-        // を開く）。検索タブの MapView と同じ配線: feature の key（type/id）から
-        // 結果を解決して onMarkerClick に渡す。POI の点レイヤのみで、バリアフリー
-        // 側（kind='barrier_free'）のタップ挙動は変更しない。
-        map.on('click', POINT_LAYER_DEF.id, (e) => {
+        // (アイコンピン) 施設アイコン（symbol）＋読込失敗時のフォールバック点
+        // （circle・MapView の POINT_LAYER_DEF と同じ見た目）
+        map.addLayer(POI_ICON_LAYER_DEF)
+        map.addLayer(POI_FALLBACK_LAYER_DEF)
+        // マーカータップ → onMarkerClick。アイコン・フォールバックの両レイヤに
+        // 同じハンドラを付ける（2つの filter は排他的なので重複しない）。
+        const handlePoiClick = (e) => {
           const key = e.features?.[0]?.properties?.key
           if (!key) return
           const result = latestRef.current.results.find((r) => `${r.type}/${r.id}` === key)
           if (!result) return
           const cb = onMarkerClickRef.current
           if (cb) cb(result)
-        })
+        }
+        map.on('click', POI_ICON_LAYER_DEF.id, handlePoiClick)
+        map.on('click', POI_FALLBACK_LAYER_DEF.id, handlePoiClick)
       }
       applyData()
     })

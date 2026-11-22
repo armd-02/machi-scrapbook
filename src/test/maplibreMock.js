@@ -22,6 +22,10 @@
  * - Map: on/off/fire, addSource/getSource/addLayer/removeLayer/removeSource,
  *   querySourceFeatures, fitBounds/panTo/easeTo/jumpTo,
  *   getBounds/getZoom/getCenter, getCanvas, addControl, resize, remove
+ * - Map: loadImage/addImage/getImage/removeImage（施設アイコンの読み込み・登録）
+ *   - loadImage(url, cb) はマイクロタスクで cb(error, image) を発火。
+ *     setImageLoadFailures([url, ...]) で読込失敗を擬装できる。
+ *   - addImage(name, image) は map._images（name → image）に登録される。
  * - touchZoomRotate: enable/disable/enableRotation/disableRotation
  *   （disableRotation の呼び出し・状態を検証するため _rotationDisabled を保持）
  * - GeoJSONSource（addSourceで生成・getSourceで取得）: setData(data)
@@ -50,6 +54,7 @@ export function createMapLibreMock(options = {}) {
     markers: [],  // 生成されたMarkerインスタンス（生成順）
     popups: [],   // 生成されたPopupインスタンス（生成順）
     controls: [], // 生成されたAttributionControlインスタンス（生成順）
+    _imageFailures: new Set(), // loadImage で失敗させるURLの集合（setImageLoadFailures）
   }
 
   const bbox = options.bbox || { south: 34.8, west: 135.4, north: 34.9, east: 135.6 }
@@ -72,6 +77,7 @@ export function createMapLibreMock(options = {}) {
       _handlers: {},
       _sources: new Map(),
       _layers: [],
+      _images: new Map(), // addImage で登録されたイメージ（name → image）
       _markers: [],
       _calls: [],
       _lastGeoJSON: null,
@@ -161,6 +167,22 @@ export function createMapLibreMock(options = {}) {
       removeMarker(m) { this._markers = this._markers.filter((x) => x !== m); return this },
       resize() { return this._record('resize') },
       remove() { this._removed = true },
+
+      // 実MapLibreの map.loadImage(url, cb) を模す。cb(error, image) 形式で
+      // 非同期（マイクロタスク）に呼ばれる。URL が失敗リスト（setImageLoadFailures）
+      // に含まれる場合は cb(error)、それ以外は cb(null, {_image, _url})。
+      loadImage(url, cb) {
+        this._record('loadImage', url)
+        const fail = state._imageFailures.has(url)
+        queueMicrotask(() => cb(
+          fail ? new Error(`イメージ読込失敗: ${url}`) : null,
+          fail ? undefined : { _image: true, _url: url }
+        ))
+        return this
+      },
+      addImage(name, image) { this._images.set(name, image); return this },
+      getImage(name) { return this._images.has(name) ? this._images.get(name) : null },
+      removeImage(name) { this._images.delete(name); return this },
 
       // 実MapLibreの TwoFingersTouchZoomRotateHandler を模す。
       // disableRotation() はピンチズームを残して捻り回転のみ無効化する。
@@ -273,6 +295,11 @@ export function createMapLibreMock(options = {}) {
       state.popups.length = 0
       state.controls.length = 0
       state._querySourceFeatures = null
+      state._imageFailures = new Set()
+    },
+    // loadImage で失敗させるURLを設定する（結果マップのアイコン読込失敗テスト用）
+    setImageLoadFailures(urls) {
+      state._imageFailures = new Set(urls || [])
     },
     _state: state,
   }

@@ -8,8 +8,8 @@ import { linkifySegments } from '../../utils/linkify'
 import { cuisineFacetValues } from '../../utils/resultFilters'
 import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
 import {
-  FilterInput, WifiPowerRow, WheelchairMultiRow, CategorySelect, CuisineChips,
-  RatingStarsRow, KEYWORD_LABEL
+  FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
+  RatingStarsRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
 
 /**
@@ -47,8 +47,8 @@ import {
  *   - WiFi（wifi）: internet_access タグの3状態判定（wifiStatus）。あり＝'yes'、
  *     なし＝'no'。未登録（unknown）はどちらにも含めない
  *   - 電源（power）: powerSupply タグの3状態判定（powerStatus）。「あり」＝'yes' のみ
- *   - 車椅子対応（wheelchair）: tags.wheelchair の値で判定（yes/designated＝対応可、
- *     limited＝一部対応、no＝対応なし）。未登録はどの絞り込みにも一致しない
+ *   - 車椅子対応（wheelchair）: しきい値型の単一選択（all / gte_partial / gte_yes）。
+ *     一部対応以上＝yes/designated/limited、対応可のみ＝yes/designated。未登録は絞り込み時に除外
  *   - ★評価（rating）: rating フィールド（0＝未評価）ベース。★N以上＝rating >= N、
  *     ★5のみ＝rating === 5。未評価（0）は「すべて」にのみ該当。UIは星ボタン5つ
  *     （カードの★評価行と同じ見た目・操作: 星nを押すと★N以上、同じ星を再タップで解除）
@@ -209,10 +209,17 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
               powerValue={memoFilters.power}
               onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
             />
-            <WheelchairMultiRow
-              selected={memoFilters.wheelchair}
-              onChange={(arr) => setMemoFilters((f) => ({ ...f, wheelchair: arr }))}
-            />
+            {/* 車椅子対応: しきい値型の単一選択（すべて / 一部対応以上 / 対応可のみ） */}
+            <FilterSelect
+              label="車椅子対応で絞る"
+              value={memoFilters.wheelchair}
+              onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
+              filter="wheelchair"
+            >
+              {WHEELCHAIR_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </FilterSelect>
             <CategorySelect
               items={activeItems(items)}
               value={memoFilters.catFilter || ''}
