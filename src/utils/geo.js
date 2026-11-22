@@ -10,6 +10,9 @@ import { isValidBbox } from './searchBbox'
 // 距離計算（viewbox 付きジオコード候補の距離順再ソートに使う）
 import { haversineKm } from './nearbyCandidates'
 import { executeOverpassQuery } from './overpass'
+// 施設種別ラベルと「検索語の末尾が種別名か」判定
+// （Overpass 名前検索フォールバックのランキングに使う）
+import { facilityTypeLabel, trailingTypeLabel } from './facilityLabels'
 
 /**
  * Nominatimの boundingbox（文字列配列 [south,north,west,east]）を
@@ -167,8 +170,13 @@ function nominatimKind(row) {
   return NOMINATIM_KIND_LABELS[row.class + ':' + row.type] || ''
 }
 
+// 地名ジオコード候補の提示上限件数。Nominatim の取得件数（limit）、
+// 距離順ソート後の切り詰め件数、Overpass 名前検索フォールバックの
+// 提示件数のすべてがこの値を共有する
+export const GEOCODE_CANDIDATE_LIMIT = 40
+
 /**
- * 地名のジオコード候補を複数取得する（Nominatim、limit=5）
+ * 地名のジオコード候補を複数取得する（Nominatim、limit=40）
  *
  * トップの地名入力サジェストや、複数候補の提示（候補が2件以上で利用者に
  * 選ばせる流れ）に使う。geocode() と同じくレート制限（最大1リクエスト/秒）を
@@ -179,12 +187,12 @@ function nominatimKind(row) {
  *   viewbox: 現在位置付近を優先するBBOX（viewboxAround で生成）。
  *   Nominatim の viewbox パラメータ（min_lon,max_lat,max_lon,min_lat）として
  *   付く。bounded=1 は付けない。
- *   limit: 取得件数（既定5）
+ *   limit: 取得件数（既定 GEOCODE_CANDIDATE_LIMIT=40）
  * @returns {Promise<Array>} - 候補の配列。各候補: { lat, lon, displayName,
  *   name, prefecture, city, type, boundingbox }
  *   （prefecture/city は addressdetails の state / city・town・village 等から抽出）
  */
-export async function geocodeCandidates(query, { viewbox = null, limit = 5 } = {}) {
+export async function geocodeCandidates(query, { viewbox = null, limit = GEOCODE_CANDIDATE_LIMIT } = {}) {
   if (!query || query.trim() === '') return []
 
   // Nominatim利用規約: 最大1リクエスト/秒（geocode() と共有）
@@ -257,15 +265,15 @@ export async function geocodeCandidates(query, { viewbox = null, limit = 5 } = {
 /**
  * ジオコード候補を指定点からの距離（km）の近い順に並び替え、先頭 N 件を返す。
  * Nominatim は結果を距離順に並べないため、viewbox を付けて現在地付近を優先
- * しても最寄りの候補が下位に沈み得る（例: limit=5 だと最寄りが候補に入らない）。
- * そのため viewbox 付きの「地名検索」では多めに取得（limit=20）してから本関数で
- * 距離順に並べ替えて先頭5件を使う。
+ * しても最寄りの候補が下位に沈み得る（取得件数が少ないと最寄りが候補に入らない）。
+ * そのため viewbox 付きの「地名検索」では GEOCODE_CANDIDATE_LIMIT 件取得してから
+ * 本関数で距離順に並べ替えて先頭 GEOCODE_CANDIDATE_LIMIT 件を使う。
  * @param {Array} candidates geocodeCandidates() の戻り値
  * @param {{ lat: number, lon: number }} center 現在位置
- * @param {number} [maxCount=5] 保持する候補数
+ * @param {number} [maxCount=GEOCODE_CANDIDATE_LIMIT] 保持する候補数
  * @returns {Array} 距離順に並び替えた候補（先頭 maxCount 件）
  */
-export function sortCandidatesByDistance(candidates, center, maxCount = 5) {
+export function sortCandidatesByDistance(candidates, center, maxCount = GEOCODE_CANDIDATE_LIMIT) {
   const list = Array.isArray(candidates) ? candidates : []
   if (!center || !list.length) return list
   const { lat, lon } = center
@@ -517,6 +525,7 @@ export function parseNameSearchResponse(data) {
         lon: el.lon,
         name,
         kind: nameSearchKind(tags),
+        tags,
         boundingbox: null
       })
     } else if ((el.type === 'way' || el.type === 'relation') && el.bounds) {
@@ -530,6 +539,7 @@ export function parseNameSearchResponse(data) {
         lon: (b.minlon + b.maxlon) / 2,
         name,
         kind: nameSearchKind(tags),
+        tags,
         boundingbox: { south: b.minlat, west: b.minlon, north: b.maxlat, east: b.maxlon }
       })
     }
@@ -537,23 +547,47 @@ export function parseNameSearchResponse(data) {
   return out
 }
 
+// 同名集約で way/relation（bounds あり）を node（bounds なし）に優先させる
+// しきい値（km）。同名の2候補の距離差がこれを超える場合は別の施設と見て
+// 近い方を取る（bounds 優先しない）。
+const BBOX_PREFERENCE_MAX_DIFF_KM = 2
+
 /**
  * 全国名前検索の結果を提示用候補に整える。
- * - 同名の候補を1件に集約（現在位置があるなら最近接・なければ先頭）。
- *   例: 「岡山大学筋」が複数の要素（停留所等）として返っても1件になる
+ * - 同名の候補を1件に集約。
+ *   - 双方とも bounds の有無が同じなら: 現在位置があるなら最近接・なければ先頭
+ *   - 片方だけ bounds あり（way/relation）なら: 距離差が
+ *     BBOX_PREFERENCE_MAX_DIFF_KM 以内なら bounds あり側を残す（検索エリアが
+ *     bounds から決まるため。例: 「岡山大学 津島キャンパス」はキャンパス範囲
+ *     を持つ relation を、同名の標識 node ではなく残す）。しきい値を超える
+ *     距離差なら近い方（別の施設と見なす）
  * - displayName（= name）・type・addresstype・prefecture・city・distanceKm
  *   を付与
- * - 現在位置がある場合は距離順にソートし、maxCount 件で切り詰める
+ * - 並び順:
+ *   - 検索語の末尾が施設種別名（trailingTypeLabel）の場合: 種別一致候補
+ *     （facilityTypeLabel がその種別名と一致する候補）を先に並べる。
+ *     一致グループ内は bbox 面積の降順（キャンパス・施設敷地を優先）→
+ *     距離の昇順。一致しない候補は従来どおり距離順（現在位置がある場合）。
+ *     例: 「岡山大学」検索で「大学」（amenity=university）が「学校」（附属校）
+ *     より先頭に来る
+ *   - 末尾が種別名でない場合: 従来どおり距離順（現在位置がある場合）・
+ *     なければ入力順
+ * - maxCount 件で切り詰める
  * @param {Array} raw parseNameSearchResponse の戻り値
  * @param {{ lat: number, lon: number }|null} center 現在位置（未取得なら null）
- * @param {number} [maxCount=5] 提示する候補の最大件数
+ * @param {number} [maxCount=GEOCODE_CANDIDATE_LIMIT] 提示する候補の最大件数
+ * @param {string} [query=''] 検索語（種別一致ランキングに使う）
  * @returns {Array} 候補（geocodeCandidates の戻り値と互換の形状）
  */
-export function prepareNameSearchCandidates(raw, center, maxCount = 5) {
+export function prepareNameSearchCandidates(raw, center, maxCount = GEOCODE_CANDIDATE_LIMIT, query = '') {
   const list = Array.isArray(raw) ? raw : []
   if (!list.length) return []
 
-  // 同名の候補を1件に集約（現在位置があるなら最近接・なければ先頭）
+  const distFrom = (c) =>
+    center ? haversineKm(center.lat, center.lon, c.lat, c.lon) : null
+
+  // 同名の候補を1件に集約（bounds あり側を優先し、距離差が近い場合は
+  // bounds あり側を残す）
   const byName = new Map()
   for (const c of list) {
     const prev = byName.get(c.name)
@@ -561,11 +595,21 @@ export function prepareNameSearchCandidates(raw, center, maxCount = 5) {
       byName.set(c.name, c)
       continue
     }
-    if (
-      center &&
-      haversineKm(center.lat, center.lon, c.lat, c.lon) <
-      haversineKm(center.lat, center.lon, prev.lat, prev.lon)
-    ) {
+    const prevHasBbox = prev.boundingbox != null
+    const curHasBbox = c.boundingbox != null
+    if (prevHasBbox !== curHasBbox) {
+      const withBbox = curHasBbox ? c : prev
+      const withoutBbox = curHasBbox ? prev : c
+      const diffKm =
+        distFrom(withBbox) == null || distFrom(withoutBbox) == null
+          ? 0
+          : Math.abs(distFrom(withBbox) - distFrom(withoutBbox))
+      if (diffKm <= BBOX_PREFERENCE_MAX_DIFF_KM) {
+        byName.set(c.name, withBbox)
+      } else if (center && distFrom(c) < distFrom(prev)) {
+        byName.set(c.name, c)
+      }
+    } else if (center && distFrom(c) < distFrom(prev)) {
       byName.set(c.name, c)
     }
   }
@@ -580,8 +624,28 @@ export function prepareNameSearchCandidates(raw, center, maxCount = 5) {
     distanceKm: center ? haversineKm(center.lat, center.lon, c.lat, c.lon) : undefined
   }))
 
-  if (!center) return withMeta.slice(0, maxCount)
-  return sortCandidatesByDistance(withMeta, center, maxCount)
+  const dist = (c) => (center ? c.distanceKm : 0)
+  const bboxArea = (c) => (c.boundingbox ? calculateBboxAreaKm2(c.boundingbox) : 0)
+
+  let ranked
+  const typeLabel = trailingTypeLabel(query)
+  if (typeLabel) {
+    // 種別一致: 検索語末尾の種別名と facilityTypeLabel が一致する候補を先頭へ
+    const isTypeMatch = (c) => facilityTypeLabel(c) === typeLabel
+    const matches = withMeta.filter(isTypeMatch)
+    const others = withMeta.filter((c) => !isTypeMatch(c))
+    // 一致グループ: bbox 面積の降順（キャンパス・施設敷地を優先）→ 距離昇順
+    matches.sort((a, b) => bboxArea(b) - bboxArea(a) || dist(a) - dist(b))
+    // 非一致グループ: 距離順
+    others.sort((a, b) => dist(a) - dist(b))
+    ranked = [...matches, ...others]
+  } else {
+    // 末尾が種別名でない: 従来どおり（距離順・なければ入力順）
+    ranked = [...withMeta]
+    ranked.sort((a, b) => dist(a) - dist(b))
+  }
+
+  return ranked.slice(0, maxCount)
 }
 
 /**
@@ -597,7 +661,7 @@ export function prepareNameSearchCandidates(raw, center, maxCount = 5) {
  * @param {{ center?: { lat: number, lon: number }|null, maxCount?: number }} [options]
  * @returns {Promise<Array>} 候補（見つからなかった・失敗時は空配列）
  */
-export async function overpassNameSearch(query, { center = null, maxCount = 5 } = {}) {
+export async function overpassNameSearch(query, { center = null, maxCount = GEOCODE_CANDIDATE_LIMIT } = {}) {
   const q = (query || '').trim()
   if (!q) return []
   try {
@@ -605,7 +669,7 @@ export async function overpassNameSearch(query, { center = null, maxCount = 5 } 
       parse: parseNameSearchResponse,
       fallback: false
     })
-    return prepareNameSearchCandidates(results, center, maxCount)
+    return prepareNameSearchCandidates(results, center, maxCount, q)
   } catch (error) {
     console.warn('[geocode] Overpass 名前検索に失敗しました:', error.message)
     return []

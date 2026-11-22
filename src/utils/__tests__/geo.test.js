@@ -2,7 +2,7 @@
  * geo.js のジオコード関数のユニットテスト（fetch をモックしネットワークなし）
  *
  * - geocode（既存）: limit=1 の単一結果・空クエリ・空結果・エラー
- * - geocodeCandidates（新規）: limit=5・addressdetails=1、都道府県・市区町村の
+ * - geocodeCandidates（新規）: limit=40・addressdetails=1、都道府県・市区町村の
  *   抽出、boundingbox の形式、空結果、エラー
  * - geocodeCandidateLabel（新規）: 「名称（都道府県市区町村）」ラベル生成
  *   と各フォールバック
@@ -99,7 +99,7 @@ describe('geocode（既存）', () => {
 // ---------- geocodeCandidates（新規） ----------
 
 describe('geocodeCandidates（複数候補）', () => {
-  it('limit=5・addressdetails=1 で照会し、候補配列を指定した形式で返す', async () => {
+  it('limit=40・addressdetails=1 で照会し、候補配列を指定した形式で返す', async () => {
     const rows = [
       nomiRow(),
       nomiRow({
@@ -115,7 +115,7 @@ describe('geocodeCandidates（複数候補）', () => {
 
     const params = parseParams(urls[0])
     expect(params.get('q')).toBe('上本町')
-    expect(params.get('limit')).toBe('5')
+    expect(params.get('limit')).toBe('40')
     expect(params.get('addressdetails')).toBe('1')
     expect(params.get('countrycodes')).toBe('jp')
     expect(params.get('format')).toBe('json')
@@ -547,7 +547,7 @@ describe('sortCandidatesByDistance（viewbox 付きの距離順再ソート）',
 // - 補完のトリガ判定（name 部分一致チェック）は MobileSearchTab 側で行う
 // - エンドポイントは一次（armd-01）のみ（フォールバック連鎖に乗せない）
 // - 候補は geocodeCandidates と互換の形状（way/relation は bounds 中心）
-// - 同名候補は1件に集約・5件上限・現在位置がある場合は距離順
+// - 同名候補は1件に集約・GEOCODE_CANDIDATE_LIMIT（40）件上限・現在位置がある場合は距離順
 
 describe('buildNameSearchQuery（全国名前検索）', () => {
   it('範囲指定なし（全国）のクエリを [timeout:25] で生成する', () => {
@@ -580,7 +580,11 @@ describe('parseNameSearchResponse（Overpass 応答の解析）', () => {
       ]
     })
     expect(out).toEqual([
-      { lat: 34.651, lon: 133.921, name: '岡山大学病院', kind: '施設', boundingbox: null }
+      {
+        lat: 34.651, lon: 133.921, name: '岡山大学病院', kind: '施設',
+        tags: { name: '岡山大学病院', amenity: 'hospital' },
+        boundingbox: null
+      }
     ])
   })
 
@@ -600,6 +604,7 @@ describe('parseNameSearchResponse（Overpass 応答の解析）', () => {
         lon: (133.91 + 133.92) / 2,
         name: '岡山大学 鹿田キャンパス',
         kind: '施設',
+        tags: { name: '岡山大学 鹿田キャンパス', amenity: 'university' },
         boundingbox: { south: 34.64, west: 133.91, north: 34.65, east: 133.92 }
       }
     ])
@@ -690,13 +695,13 @@ describe('prepareNameSearchCandidates（同名集約と上限）', () => {
     }
   })
 
-  it('現在位置がある場合は距離順にソートして5件で切り詰める', () => {
+  it('maxCount を超える場合は距離順にソートして切り詰める', () => {
     const raw = []
     for (let i = 1; i <= 7; i++) {
       raw.push({ lat: 34.6 + 0.01 * i, lon: 133.9 + 0.01 * i, name: `施設${i}`, kind: '施設', boundingbox: null })
     }
     const center = { lat: 34.61, lon: 133.91 }
-    const out = prepareNameSearchCandidates(raw, center)
+    const out = prepareNameSearchCandidates(raw, center, 5)
     expect(out).toHaveLength(5)
     expect(out.map((c) => c.name)).toEqual(['施設1', '施設2', '施設3', '施設4', '施設5'])
   })
@@ -704,6 +709,79 @@ describe('prepareNameSearchCandidates（同名集約と上限）', () => {
   it('空の入力は空配列を返す', () => {
     expect(prepareNameSearchCandidates([], { lat: 34.7, lon: 135.5 })).toEqual([])
     expect(prepareNameSearchCandidates(null, null)).toEqual([])
+  })
+})
+
+describe('prepareNameSearchCandidates（種別一致ランキングとbounds優先集約）', () => {
+  // 実「岡山大学」データに近いモック（2026-11 実測）:
+  // 附属校（amenity=school）は現在位置（鹿田方面）に近く、大学本体
+  // （amenity=university）は少し遠い。津島キャンパスは bounds 付き
+  // relation と同名の標識 node が両方存在する。
+  const okayamaElements = () => [
+    { type: 'node', id: 1, lat: 34.6375, lon: 133.9481, tags: { name: '岡山大学附属特別支援学校', amenity: 'school' } },
+    { type: 'node', id: 2, lat: 34.654, lon: 133.9435, tags: { name: '岡山大学附属小学校', amenity: 'school' } },
+    { type: 'node', id: 3, lat: 34.6528, lon: 133.9431, tags: { name: '岡山大学附属中学校', amenity: 'school' } },
+    { type: 'relation', id: 4, bounds: { minlat: 34.683, minlon: 133.915, maxlat: 34.692, maxlon: 133.924 }, tags: { name: '岡山大学 津島キャンパス', amenity: 'university' } },
+    { type: 'node', id: 5, lat: 34.6855, lon: 133.9196, tags: { name: '岡山大学 津島キャンパス', tourism: 'information' } },
+    { type: 'way', id: 6, bounds: { minlat: 34.649, minlon: 133.918, maxlat: 34.652, maxlon: 133.922 }, tags: { name: '岡山大学 鹿田キャンパス', amenity: 'university' } }
+  ]
+  // 現在位置は鹿田方面（附属校に近い）
+  const center = { lat: 34.64, lon: 133.95 }
+  const candidates = (query) =>
+    prepareNameSearchCandidates(
+      parseNameSearchResponse({ elements: okayamaElements() }),
+      center, 5, query
+    )
+
+  it('検索語の末尾が種別名のとき、その種別と一致する候補を先頭にする（本体を附属校より優先）', () => {
+    expect(candidates('岡山大学').map((c) => c.name)).toEqual([
+      '岡山大学 津島キャンパス',   // 大学・bbox面積最大
+      '岡山大学 鹿田キャンパス',   // 大学
+      '岡山大学附属特別支援学校',  // 学校（最近接）
+      '岡山大学附属中学校',
+      '岡山大学附属小学校'
+    ])
+  })
+
+  it('同名集約は bounds 付き way/relation を残す（津島キャンパスは relation 側）', () => {
+    const cands = candidates('岡山大学')
+    const tsushima = cands.find((c) => c.name === '岡山大学 津島キャンパス')
+    expect(tsushima.boundingbox).not.toBeNull() // 標識 node ではなく bounds 付き relation
+    expect(tsushima.lat).toBeCloseTo((34.683 + 34.692) / 2)
+  })
+
+  it('検索語の末尾が種別名でない場合は従来の距離順を維持する', () => {
+    expect(candidates('岡山大学 津島キャンパス').map((c) => c.name)).toEqual([
+      '岡山大学附属特別支援学校',
+      '岡山大学附属中学校',
+      '岡山大学附属小学校',
+      '岡山大学 鹿田キャンパス',
+      '岡山大学 津島キャンパス'
+    ])
+  })
+
+  it('同名集約: 現在位置がない場合も bounds あり側を優先する', () => {
+    const els = [
+      { type: 'node', id: 1, lat: 34.7, lon: 135.5, tags: { name: '某建物', building: 'yes' } },
+      { type: 'way', id: 2, bounds: { minlat: 34.7, minlon: 135.51, maxlat: 34.701, maxlon: 135.511 }, tags: { name: '某建物', building: 'yes' } }
+    ]
+    const cands = prepareNameSearchCandidates(
+      parseNameSearchResponse({ elements: els }), null, 5, '某建物'
+    )
+    expect(cands).toHaveLength(1)
+    expect(cands[0].boundingbox).not.toBeNull()
+  })
+
+  it('同名集約: 距離差がしきい値を超える場合は近い方（node）を残す', () => {
+    const els = [
+      { type: 'node', id: 1, lat: 34.7, lon: 135.5, tags: { name: '某建物', building: 'yes' } },
+      { type: 'way', id: 2, bounds: { minlat: 34.85, minlon: 135.55, maxlat: 34.851, maxlon: 135.551 }, tags: { name: '某建物', building: 'yes' } }
+    ]
+    const cands = prepareNameSearchCandidates(
+      parseNameSearchResponse({ elements: els }), { lat: 34.7, lon: 135.5 }, 5, '某建物'
+    )
+    expect(cands).toHaveLength(1)
+    expect(cands[0].boundingbox).toBeNull()
   })
 })
 
@@ -746,7 +824,8 @@ describe('overpassNameSearch（Overpass 全国名前検索）', () => {
     expect(calls[0].url).toBe('https://armd-01.sakura.ne.jp/api/interpreter')
     expect(calls[0].q).toBe('[out:json][timeout:25];nwr["name"~"岡山大学"];out bb;')
 
-    // geocodeCandidates と互換の形状・距離順（津島 < 鹿田 < 病院）
+    // geocodeCandidates と互換の形状・種別一致順（「岡山大学」は末尾が
+    // 「大学」→ amenity=university 候補を bbox 面積降順で先頭、病院はそれ以降）
     expect(cands.map((c) => c.name)).toEqual([
       '岡山大学 津島キャンパス',
       '岡山大学 鹿田キャンパス',
@@ -757,6 +836,7 @@ describe('overpassNameSearch（Overpass 全国名前検索）', () => {
       lon: (134.01 + 134.03) / 2,
       name: '岡山大学 津島キャンパス',
       kind: '施設',
+      tags: { name: '岡山大学 津島キャンパス', amenity: 'university' },
       boundingbox: { south: 34.684, west: 134.01, north: 34.691, east: 134.03 },
       type: '',
       addresstype: '',
@@ -767,13 +847,15 @@ describe('overpassNameSearch（Overpass 全国名前検索）', () => {
     })
   })
 
-  it('現在位置がない場合は距離順にせず先頭5件を返す', async () => {
+  it('現在位置がない場合は距離順にしない（種別一致ランキングは適用される）', async () => {
     mockOverpassFetch(NAME_ELEMENTS)
     const cands = await overpassNameSearch('岡山大学')
+    // 「岡山大学」は末尾が「大学」→ 大学候補（bbox 面積降順）が先頭、
+    // それ以外は入力順（距離順ソートはされない）
     expect(cands.map((c) => c.name)).toEqual([
-      '岡山大学病院',
+      '岡山大学 津島キャンパス',
       '岡山大学 鹿田キャンパス',
-      '岡山大学 津島キャンパス'
+      '岡山大学病院'
     ])
     expect(cands[0].distanceKm).toBeUndefined()
   })

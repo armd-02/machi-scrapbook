@@ -756,9 +756,9 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
 // 付近の店舗が候補に入らなかった。修正後は:
 // - 位置が取れていれば（周辺 Overpass 取得の成否・完了に関係なく）viewbox を付ける
 // - 「地名検索」押下時に位置取得が進行中・未取得なら確定を待ってから問い合わせる
-// - viewbox 付きでは limit=20 で取得し、現在位置からの距離順に並べ替えて
-//   先頭5件を候補とする（Nominatim は距離順に並べないため）
-// - 位置が取れない（拒否・失敗）場合は viewbox なしで従来どおり（limit=5）
+// - viewbox 付きでは limit=40（GEOCODE_CANDIDATE_LIMIT）で取得し、現在位置からの距離順に
+//   並べ替えて先頭40件を候補とする（Nominatim は距離順に並べないため）
+// - 位置が取れない（拒否・失敗）場合は viewbox なし・limit=40
 describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
   // 現在位置（34.7, 135.5）中心 ±0.15度の viewbox パラメータ値
   const EXPECTED_VIEWBOX = '135.35,34.85,135.65,34.55'
@@ -793,12 +793,12 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
     fireEvent.change(getLocationInput(), { target: { value: '梅田' } })
     clickGeocode()
 
-    // Nominatim リクエストに viewbox・limit=20 が付いている
+    // Nominatim リクエストに viewbox・limit=40 が付いている
     await waitFor(() => {
       expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
     }, { timeout: 8000 })
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
-    expect(nominatimParams().get('limit')).toBe('20')
+    expect(nominatimParams().get('limit')).toBe('40')
 
     // 単一候補でエリアが設定される（入力欄に候補の表示名が入る）
     await waitFor(() => {
@@ -822,7 +822,7 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
       expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
     }, { timeout: 8000 })
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
-    expect(nominatimParams().get('limit')).toBe('20')
+    expect(nominatimParams().get('limit')).toBe('40')
   }, 15000)
 
   it('「地名検索」押下時に位置取得が進行中なら、確定を待ってから viewbox 付きで問い合わせされる', async () => {
@@ -853,15 +853,15 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
       expect(nominatimUrls.length).toBeGreaterThanOrEqual(1)
     }, { timeout: 8000 })
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
-    expect(nominatimParams().get('limit')).toBe('20')
+    expect(nominatimParams().get('limit')).toBe('40')
     await waitFor(() => {
       expect(getLocationInput().value).toBe('大阪府大阪市北区梅田1丁目')
     }, { timeout: 8000 })
   }, 15000)
 
-  it('viewbox 付きの場合は limit=20 で取得し、距離順に並べて先頭5件が提示される', async () => {
+  it('viewbox 付きの場合は limit=40 で取得し、距離順に並べて先頭40件が提示される', async () => {
     // Nominatim の返却順（距離順とは異なる）に6件。東京（約397km）は5位、
-    // 鹿児島（約564km）は6位で先頭5件から落ちる
+    // 鹿児島（約564km）は6位（上限40件以内のため提示される）
     nominatimRows = [
       UEMACHI_TOKYO_ROW,
       KAGOSHI_UEMACHI_ROW,
@@ -883,25 +883,24 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
       expect(screen.getByText('候補が複数あります。選んでください。')).toBeTruthy()
     }, { timeout: 8000 })
 
-    // limit=20 で取得されている
-    expect(nominatimParams().get('limit')).toBe('20')
+    // limit=40 で取得されている
+    expect(nominatimParams().get('limit')).toBe('40')
     expect(nominatimParams().get('viewbox')).toBe(EXPECTED_VIEWBOX)
 
-    // 現在位置（34.7, 135.5）からの距離順で先頭5件だけが提示される
+    // 現在位置（34.7, 135.5）からの距離順で全6件が提示される（上限40件以内）
     const options = getSuggestOptions()
-    expect(options).toHaveLength(5)
+    expect(options).toHaveLength(6)
     expect(options.map((o) => o.textContent)).toEqual([
       '上本町（大阪府大阪市）',
       '上本町（大阪府吹田市）',
       '上本町（奈良県香芝市）',
       '上本町（三重県桑名市）',
       '上本町（東京都新宿区）',
+      '上本町（鹿児島県鹿児島市）',
     ])
-    // 6位の鹿児島は提示されない
-    expect(screen.queryByRole('option', { name: /鹿児島/ })).toBeNull()
   }, 15000)
 
-  it('viewbox なし（位置取得失敗）の場合は従来どおり limit=5・Nominatim の順序のまま', async () => {
+  it('viewbox なし（位置取得失敗）の場合は limit=40・Nominatim の順序のまま', async () => {
     // 位置取得が拒否される
     geoMode = 'fail'
     nominatimRows = [KAGOSHI_UEMACHI_ROW, OSAKA_UEMACHI_ROW]
@@ -920,9 +919,9 @@ describe('「地名検索」の viewbox 付けと距離順再ソート', () => {
       expect(screen.getByText('候補が複数あります。選んでください。')).toBeTruthy()
     }, { timeout: 8000 })
 
-    // viewbox は付かず、limit=5 のまま
+    // viewbox は付かず、limit=40
     expect(nominatimParams().get('viewbox')).toBeNull()
-    expect(nominatimParams().get('limit')).toBe('5')
+    expect(nominatimParams().get('limit')).toBe('40')
 
     // 距離順の並び替えは行われない（Nominatim の返却順のまま）
     const options = getSuggestOptions()

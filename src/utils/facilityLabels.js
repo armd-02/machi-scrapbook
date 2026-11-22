@@ -352,3 +352,45 @@ export function facilityTypeLabel(result) {
     tags.railway || tags.aeroway
   return raw || '施設'
 }
+
+// TAG_SOURCES 辞書から導出できる日本語ラベルの全集。
+// 「検索語の末尾が施設種別名か」判定（Overpass 名前検索フォールバックの
+// 並び順、geo.js）に使う。
+const DICTIONARY_TYPE_LABELS = [
+  ...Object.values(AMENITY_LABELS),
+  ...Object.values(SHOP_LABELS),
+  ...Object.values(TOURISM_LABELS),
+  ...Object.values(LEISURE_LABELS),
+  ...Object.values(HEALTHCARE_LABELS),
+  ...Object.values(OFFICE_LABELS),
+  ...Object.values(CRAFT_LABELS),
+  ...Object.values(SPORT_LABELS),
+  ...Object.values(RAILWAY_LABELS),
+  ...Object.values(AEROWAY_LABELS),
+  ...Object.values(HIGHWAY_LABELS)
+]
+
+/**
+ * 検索語の末尾が施設種別名（TAG_SOURCES 辞書から導出できる日本語ラベル）
+ * の場合、その種別名を返す。複数一致する場合は最も長い（最も具体的な）
+ * 方を返す。
+ * 例: 「岡山大学」→「大学」（amenity=university 候補を優先）、「みらい公園」
+ * →「公園」、「新岡山駅」→「駅」。
+ * Overpass 名前検索フォールバック（geo.js の prepareNameSearchCandidates）
+ * の「種別一致」ランキングに使う。
+ * 注: カテゴリラベル（「小学校」等）は含めない。一般的なタグ付け
+ * （amenity=school →「学校」）と一致しなくなるため。
+ * @param {string} query 検索語
+ * @returns {string|null} 末尾の種別名（種別名で終わらなければ null）
+ */
+export function trailingTypeLabel(query) {
+  const q = String(query || '').trim()
+  if (!q) return null
+  let best = null
+  for (const label of DICTIONARY_TYPE_LABELS) {
+    if (label.length > q.length) continue
+    if (!q.endsWith(label)) continue
+    if (!best || label.length > best.length) best = label
+  }
+  return best
+}

@@ -4,7 +4,7 @@ import { useSearch } from '../../hooks/useSearch'
 import { getMapInstance } from '../../hooks/useMapRef'
 import { buildSearchCriteria } from '../../utils/searchCriteria'
 import { boundsToBbox, isValidBbox } from '../../utils/searchBbox'
-import { checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround, overpassNameSearch } from '../../utils/geo'
+import { GEOCODE_CANDIDATE_LIMIT, checkBboxSize, geocodeCandidates, isBboxTooLarge, isMunicipalityCandidate, searchAreaFromGeocode, sortCandidatesByDistance, viewboxAround, overpassNameSearch } from '../../utils/geo'
 import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
 import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates, unifySuggestCandidates } from '../../utils/stationCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
@@ -328,7 +328,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   //   前に現在位置の取得確定を待つ（未取得ならその場で取得を開始して待つ、
   //   失敗なら viewbox なしで従来どおり）。位置が取れていれば viewbox（現在地中心
   //   ±0.15度）を付けて近傍の結果を優先する（bounded=1 は付けない）。viewbox
-  //   付きでは limit=20 で取得し、現在位置からの距離順に並べ替えて先頭5件を使う
+  //   付きでは limit=40（GEOCODE_CANDIDATE_LIMIT）で取得し、現在位置からの距離順に並べ替えて先頭40件を使う
   //   ・候補1件: エリア設定（成功で入力欄が緑＋フィードバック）
   //   ・候補複数: 候補リストを提示（タップでエリア設定）
   //   ・0件・広すぎる: 入力欄の下にエラー表示
@@ -375,16 +375,16 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       // viewbox なしで従来どおり問い合わせる — ユーザーをブロックしない）
       const pos = await nearby.awaitPosition()
       const viewbox = viewboxAround(pos)
-      // viewbox 付きのときは多めに取得（limit=20）して現在位置からの距離順に
-      // 並び替え、先頭5件を候補として使う（Nominatim は距離順に並べないため）。
-      // viewbox なしは従来どおり limit=5・Nominatim の順序のまま
+      // viewbox 付きのときは limit=GEOCODE_CANDIDATE_LIMIT（40）で取得し、現在位置
+      // からの距離順に並べ替えて先頭40件を候補として使う（Nominatim は距離順に
+      // 並べないため）。viewbox なしは limit=40・Nominatim の順序のまま
       const cands = viewbox
         ? sortCandidatesByDistance(
-            await geocodeCandidates(q, { viewbox, limit: 20 }),
+            await geocodeCandidates(q, { viewbox, limit: GEOCODE_CANDIDATE_LIMIT }),
             pos,
-            5
+            GEOCODE_CANDIDATE_LIMIT
           )
-        : await geocodeCandidates(q, { limit: 5 })
+        : await geocodeCandidates(q, { limit: GEOCODE_CANDIDATE_LIMIT })
 
       // Nominatim 候補のどれも name に検索語を含まない場合、Overpass の全国
       // 名前検索で補完する（Nominatim は検索語と完全に同名の要素しか返さず、
@@ -393,7 +393,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       // 補完候補のみを提示する。補完が空（・失敗）なら従来どおりの流れ
       // （Nominatim 結果／「見つからない」）に戻る
       if (!cands.some((c) => (c.name || '').includes(q))) {
-        const fallbackCands = await overpassNameSearch(q, { center: pos })
+        const fallbackCands = await overpassNameSearch(q, { center: pos, maxCount: GEOCODE_CANDIDATE_LIMIT })
         if (fallbackCands.length > 0) {
           setPendingCandidates(fallbackCands)
           return
