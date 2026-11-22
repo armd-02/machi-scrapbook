@@ -47,28 +47,34 @@ function PowerWifiValue({ state, icon }) {
 /**
  * モバイル施設カード（電話帳型）
  *
- * 構成: 施設名（大きめ・太字）＋カテゴリラベルを先頭に、その下に
+ * 構成: 施設名（大きめ・太字）を先頭に、その下に
  * ラベル付きの情報行を並べる。
- *   - 基本項目: 住所・電話・営業時間・Webサイト
+ *   - 基本項目: 種別・住所・電話・営業時間・Webサイト
+ *     - 種別は常時行を表示（facilityTypeLabel は常に値を返す）。
+ *       書式は電話等の情報行と同じ（グレーのラベル＋値）。
  *     - 電話・Webサイトは常時行を表示。登録があれば従来どおりリンク
  *       （電話は tel:、Webサイトは外部リンク target=_blank）、
  *       未登録ならリンクにせず「-」と表記する。
  *     - 住所・営業時間は従来どおり登録がある場合だけ行を表示する。
  *     - 個別にタップできるようにカードは button ではなく div。
- *       詳細シートの展開はカード内の「🔎詳細」ボタンの押下のみ
- *       （カード本体のタップでは詳細は開かない）。
+ *       詳細シートの展開は施設名行（role=button）または地図サムネイルの
+ *       タップのみ（情報行のタップでは詳細は開かない）。
  *   - カテゴリ別の追加情報（keyInfoFor のプロファイル項目）のうち、
  *     基本4項目と重ならないものは基本項目の下に続けて表示。
  *   - 車椅子バッジ・欠落フィルタ時の「未登録」表示は従来どおり。
  *
- * 詳細シートはカード内の「🔎詳細」ボタン（aria-label: {施設名}の詳細）を
- * 押したときだけ onOpen(result) で開く。
+ * 詳細シートは施設名行（role=button・aria-label: {施設名}の詳細を表示）または
+ * 地図サムネイルのタップで onOpen(result) で開く（メモ帳カードと共通の形）。
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
  *
  * showMapThumb: 地図サムネイルを右側に表示（検索結果カード用）。
  *   240×240 の captureMapImage で遅延・逐次生成しメモリキャッシュする
- *   （localStorage には保存しない・生成失敗は画像なしの通常表示）
+ *   （localStorage には保存しない・生成失敗は画像なしの通常表示）。
+ *   サムネイルはタップで詳細を開く（role=button・aria-label は施設名行と
+ *   同じ。帰属表示オーバーレイは pointer-events-none で常時表示）。
+ *   サムネイルが出ていないカード（座標なし・生成失敗）は施設名行の
+ *   タップで詳細を開く。
  */
 export default function MobileFacilityCard({ result, onOpen, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false }) {
   const tags = result.tags || {}
@@ -153,37 +159,39 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
 
   const content = (
     <>
-      {/* 施設名（大きめ・太字）＋カテゴリラベル＋「🔎詳細」ボタン。
-          カード本体のタップでは詳細は開かず、ボタンの押下のみで開く。
-          名前の左に施設種別アイコン（高さ24px）を表示 */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <img
-            src={iconUrl}
-            alt=""
-            aria-hidden="true"
-            className="h-6 w-6 shrink-0"
-            loading="lazy"
-          />
-          <h3 className="min-w-0 break-words text-base font-bold text-slate-800">{name}</h3>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="text-[11px] text-primary-700 bg-primary-50 rounded-md px-2 py-0.5">
-            {typeLabel}
-          </span>
-          <button
-            type="button"
-            onClick={() => onOpen && onOpen(result)}
-            aria-label={`${name}の詳細`}
-            className="text-[11px] leading-tight px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100"
-          >
-            🔎詳細
-          </button>
-        </div>
+      {/* 施設名（大きめ・太字）。タップで詳細シートを開く（role=button）。
+          名前の左に施設種別アイコン（高さ24px）を表示。
+          種別チップ・「🔎詳細」ボタンは廃止（#84）: 種別は下方の情報行で
+          表示し、詳細は施設名行または地図サムネイルのタップで開く */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${name}の詳細を表示`}
+        onClick={() => onOpen && onOpen(result)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen && onOpen(result)
+          }
+        }}
+        className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+      >
+        <img
+          src={iconUrl}
+          alt=""
+          aria-hidden="true"
+          className="h-6 w-6 shrink-0"
+          loading="lazy"
+        />
+        <h3 className="min-w-0 break-words text-base font-bold text-slate-800">{name}</h3>
       </div>
 
-      {/* 基本項目行。住所・営業時間は登録済みのみ。
+      {/* 基本項目行。種別は常時・住所・営業時間は登録済みのみ。
           電話・Webサイトは常時表示し、未登録なら「-」（リンクにはしない） */}
+      <p className="text-xs text-slate-600 break-words">
+        <span className="text-slate-400">種別</span>
+        <span className="ml-1">{typeLabel}</span>
+      </p>
       {address && (
         <p className="text-xs text-slate-600 break-words">
           <span className="text-slate-400">住所</span>
@@ -289,7 +297,13 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
       >
         <div className="flex-1 min-w-0 p-3 space-y-1.5">{content}</div>
         {typeof thumb === 'string' && (
-          <div className="relative shrink-0 w-[120px]" aria-hidden="true">
+          // タップで詳細を開く（メモ帳カードのサムネイルと同じ振る舞い・セマンティクス）
+          <div
+            className="relative shrink-0 w-[120px] cursor-pointer"
+            role="button"
+            aria-label={`${name}の詳細を表示`}
+            onClick={() => onOpen && onOpen(result)}
+          >
             <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />
             <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
               © OpenStreetMap contributors

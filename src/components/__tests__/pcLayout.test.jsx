@@ -393,9 +393,9 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     seedMemocho()
     renderApp()
 
-    // 初期表示（右ペイン＝メモ帳）でメモ帳カードの「🔎詳細」ボタンから開く
-    // （カード本体タップでは詳細は開かない。サムネイルの「…の詳細を表示」とは別）
-    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'メモ珈琲店の詳細' }))
+    // 初期表示（右ペイン＝メモ帳）でメモ帳カードの施設名行（role=button）から開く
+    // （情報行のタップでは詳細は開かない）
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'メモ珈琲店の詳細を表示' }))
     let dialog = await screen.findByRole('dialog', { name: /施設詳細: メモ珈琲店/ })
     // 詳細シートはメモ本文を表示しない。登録済み状態（「メモ帳から削除」トグル）を確認する
     expect(within(dialog).getByText(/メモ帳から削除/)).toBeTruthy()
@@ -408,8 +408,8 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(selectCategoryChip('カフェ')).toBe(true)
     await runMapSearch()
     await expectRightListVisible()
-    // 一覧カードの「🔎詳細」ボタンから開く
-    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'テスト珈琲店の詳細' }))
+    // 一覧カードの施設名行（role=button）から開く
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
     dialog = await screen.findByRole('dialog', { name: /施設詳細: テスト珈琲店/ })
     expect(dialog).toBeTruthy()
   }, IT_TIMEOUT)

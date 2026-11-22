@@ -37,7 +37,7 @@ import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/u
  *   （フォームは常に地図モード＝「地図から探す」のみのため）。タイル検索は「地図の表示範囲」ではなく「設定済みの
  *   検索エリア」（state.bbox）で行う。検索エリアは次の2つの方法で設定される:
  *     ① 場所入力欄の「地名検索」ボタン（または Enter）での geocode（地名・駅名の
- *        結果の範囲を検索エリアに設定。駅など小さな範囲は約1km正方形に拡大）
+ *        結果の範囲を検索エリアに設定。駅など小さな範囲は約1.5km正方形に拡大）
  *     ② 「都道府県から探す」セクションで自治体を選択（そのbboxをエリアに設定）
  *   操作の流れ:
  *     ① 地名・駅名を入力して「地名検索」を押す（または Enter。geocode で検索
@@ -476,9 +476,9 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 施設検索はまだ実行しない（「指定した場所と種別で検索」ボタンで実行）。
   // サジェストの候補（自治体・周辺 Overpass キャッシュ）と「候補が複数あります」
   // の候補（Nominatim）で共通。
-  // エリアの範囲: 駅・地区（点）は searchAreaFromGeocode が約1km正方形にする。
+  // エリアの範囲: 駅・地区（点）は searchAreaFromGeocode が約1.5km正方形にする。
   // 公園は取得した bounds（out bb）を使うが、小さい場合は拡大する
-  // （公園の bbox 面積が0.01km²未満なら約1km正方形に）。
+  // （公園の bbox 面積が0.01km²未満なら約1.5km正方形に）。
   const handleCandidateSelect = (candidate) => {
     // 候補の元のBBOXが広すぎる（国・外国の州・都道府県など）: 検索エリアを設定
     // せず（広範囲全域の巨大クエリを防ぐ）、場所入力欄の下でエラー表示

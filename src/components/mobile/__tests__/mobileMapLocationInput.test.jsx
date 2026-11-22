@@ -465,7 +465,7 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     expect(options[0].textContent).toContain('駅')
     expect(options[1].textContent).toContain('地区')
 
-    // 駅候補をタップ（点候補: BBOXなし → 約1km正方形に拡大される）
+    // 駅候補をタップ（点候補: BBOXなし → 約1.5km正方形に拡大される）
     await selectAndAwaitArea(options[0])
 
     // 緑＋入力欄に候補の表示名（displayName）が入る（「設定しました」文言は出ない）
@@ -481,7 +481,7 @@ describe('(#xx) 地図モードの場所入力（「どの街・エリアで探�
     expect(within(section).getByText(/検索範囲: 梅田駅/)).toBeTruthy()
 
     // state.bbox（source: geocode）は MapView に渡り、地図上に矩形が描画される。
-    // 駅（点）候補は約1km正方形に拡大される
+    // 駅（点）候補は約1.5km正方形に拡大される
     const map = getMapInstance()
     expect(map.getSource('bbox-overlay')).toBeTruthy()
     expect(map._layers.some((l) => l.id === 'bbox-overlay-line')).toBe(true)

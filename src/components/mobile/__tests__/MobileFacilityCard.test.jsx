@@ -16,15 +16,16 @@ vi.mock('../../../utils/mapCapture', async (importOriginal) => {
 
 /**
  * (#59 / #44 / 電話帳型改訂) モバイル施設カード
- * - 生活者目線UI: 施設名（大きめ・太字）＋カテゴリラベルを先頭に、
- *   ラベル付きの基本項目行（住所・電話・営業時間・Webサイト）を並べる
+ * - 生活者目線UI: 施設名（大きめ・太字）を先頭に、
+ *   ラベル付きの基本項目行（種別・住所・電話・営業時間・Webサイト）を並べる
  * - 電話はtel:リンク、Webサイトは外部リンクとして個別にタップ可能
  *   （カードはbuttonでなくdiv。リンクタップで詳細シートは開かない）
  * - カテゴリ別追加項目（keyInfoFor）は基本4項目と重ならないものだけ表示
  * - OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * - 住所・営業時間は未登録なら行ごとに出さない（捏造しない）
  * - 電話・Webサイトは常時行を表示。未登録なら「-」（リンクにはしない）
- * - カード内の「🔎詳細」ボタン押下で onOpen(result)（カード本体タップでは詳細は開かない）
+ * - 施設名行（role=button）または地図サムネイルのタップで onOpen(result)
+ *   （情報行のタップでは詳細は開かない）
  */
 
 afterEach(() => cleanup())
@@ -131,22 +132,31 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.queryByRole('link', { name: /公式サイト/ })).toBeNull()
   })
 
-  it('カード本体タップでは onOpen は呼ばれない（詳細は開かない）', () => {
+  it('情報行（電話等）のタップでは onOpen は呼ばれない（詳細は開かない）', () => {
     const onOpen = vi.fn()
     render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
-    // 施設名（h3）・カード内の情報行をタップしても onClick は無い
-    fireEvent.click(screen.getByRole('heading', { name: 'テスト珈琲店' }))
+    // 情報行をタップしても詳細は開かない（開くのは施設名行と地図サムネイルのみ）
+    fireEvent.click(screen.getByText('電話'))
     expect(onOpen).not.toHaveBeenCalled()
   })
 
-  it('「🔎詳細」ボタン押下で onOpen(result) が呼ばれる', () => {
+  it('施設名行（role=button・aria-label: {施設名}の詳細を表示）のタップで onOpen(result) が呼ばれる', () => {
     const onOpen = vi.fn()
     render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} />)
-    const btn = screen.getByRole('button', { name: 'テスト珈琲店の詳細' })
-    expect(btn.textContent).toBe('🔎詳細')
+    const btn = screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' })
     fireEvent.click(btn)
     expect(onOpen).toHaveBeenCalledTimes(1)
     expect(onOpen).toHaveBeenCalledWith(COFFEE)
+  })
+
+  it('見出し行には種別チップ・「🔎詳細」ボタンが無く、種別は情報行（ラベル「種別」＋値）として表示される', () => {
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    // 「🔎詳細」ボタンは存在しない
+    expect(screen.queryByText('🔎詳細')).toBeNull()
+    // 種別は情報行の書式（グレーラベル「種別」＋値「カフェ」）で表示
+    expect(screen.getByText('種別')).toBeTruthy()
+    const typeRow = screen.getByText('カフェ').closest('p')
+    expect(typeRow).toBeTruthy()
   })
 
   it('カードはbutton要素ではなくdiv（リンクを内包する電話帳型カード）', () => {
@@ -546,15 +556,37 @@ describe('MobileFacilityCard: 地図サムネイル（showMapThumb）', () => {
     expect(screen.getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
   })
 
+  it('サムネイルのタップで onOpen(result) が呼ばれる（role=button・aria-label は施設名行と同一）', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    const onOpen = vi.fn()
+    render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} showMapThumb />)
+    // 施設名行とサムネイルの2つの「テスト珈琲店の詳細を表示」ボタンが並ぶ
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })).toHaveLength(2))
+    const [nameBtn, thumbBtn] = screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })
+    fireEvent.click(thumbBtn)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(COFFEE)
+    // 施設名行のタップでも開く（サムネイル有無にかかわらず）
+    fireEvent.click(nameBtn)
+    expect(onOpen).toHaveBeenCalledTimes(2)
+  })
+
   it('座標が無いカードはサムネイルが出ない（captureMapImage も呼ばれない）', async () => {
     mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
     const noCoords = { type: 'node', id: 200, name: '座標なし施設', tags: { name: '座標なし施設', amenity: 'cafe' } }
-    const { container } = render(<MobileFacilityCard result={noCoords} onOpen={vi.fn()} showMapThumb />)
+    const { container, unmount } = render(<MobileFacilityCard result={noCoords} onOpen={vi.fn()} showMapThumb />)
     await new Promise((r) => setTimeout(r, 0))
     expect(mapCapture.captureMapImage).not.toHaveBeenCalled()
     expect(thumbImg(container)).toBeNull()
     // カードは通常どおり表示される
     expect(screen.getByRole('heading', { name: '座標なし施設' })).toBeTruthy()
+    // サムネイルが無いカードでも施設名行のタップで詳細を開ける
+    unmount()
+    const onOpen = vi.fn()
+    render(<MobileFacilityCard result={noCoords} onOpen={onOpen} showMapThumb />)
+    fireEvent.click(screen.getByRole('button', { name: '座標なし施設の詳細を表示' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(noCoords)
   })
 
   it('同一施設は生成が1回だけ（メモリキャッシュ・再表示で再生成しない）', async () => {
@@ -571,7 +603,7 @@ describe('MobileFacilityCard: 地図サムネイル（showMapThumb）', () => {
 
   it('生成失敗時は画像なしで通常どおり表示される（セッション内でリトライしない）', async () => {
     mapCapture.captureMapImage.mockResolvedValue(null)
-    const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
+    const { container, unmount } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
     await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1))
     // 失敗後もサムネイルは出ず、カードは通常どおり
     await waitFor(() => expect(thumbImg(container)).toBeNull())
@@ -579,6 +611,13 @@ describe('MobileFacilityCard: 地図サムネイル（showMapThumb）', () => {
     // リトライしない（生成は1回のみ）
     await new Promise((r) => setTimeout(r, 0))
     expect(mapCapture.captureMapImage).toHaveBeenCalledTimes(1)
+    // サムネイルが無いカードでも施設名行のタップで詳細を開ける
+    unmount()
+    const onOpen = vi.fn()
+    render(<MobileFacilityCard result={COFFEE} onOpen={onOpen} showMapThumb />)
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(COFFEE)
   })
 
   it('IntersectionObserver がある環境では、カードが画面に入ってから生成する（遅延生成）', async () => {

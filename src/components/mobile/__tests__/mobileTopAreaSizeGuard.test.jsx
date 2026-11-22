@@ -10,7 +10,7 @@ import { calculateBboxAreaKm2, MAX_SEARCH_AREA_KM2 } from '../../../utils/geo'
  * 一般向けトップの「広すぎる」ガード（BBOX面積ベース判定）の検証
  *
  * 旧都道府県ガード（isPrefectureCandidate の名称ベース判定）を廃止し、
- * 候補の元のBBOXの面積（searchAreaFromGeocode の約1km拡大前の値）で
+ * 候補の元のBBOXの面積（searchAreaFromGeocode の約1.5km拡大前の値）で
  * 判定する方式に置き換えた。面積が MAX_SEARCH_AREA_KM2 = 1,000 km²
  * 以上で「広すぎる」とし、国・外国の州・都道府県などの広すぎる範囲を
  * すべてこの判定でカバーする。

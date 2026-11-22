@@ -14,7 +14,7 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 検索タブ内の地図モード検索 → クエリに地図BBOXが反映される
 // - 検索成功時の「一覧」タブ自動切替
 // - 検索タブの「この表示範囲で検索」明示トリガー（地図移動だけでは検索しない）
-// - 施設カードの「🔎詳細」ボタン → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
+// - 施設カードの施設名行（role=button）タップ → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
 // - (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）。地図モード検証
@@ -614,8 +614,8 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     await waitFor(() => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
-    // 施設カード内の「🔎詳細」ボタンを押す（カード本体タップでは詳細は開かない）
-    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細' }))
+    // 施設カードの施設名行（role=button）をタップ（情報行のタップでは詳細は開かない）
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeTruthy()
     }, { timeout: 3000 })
@@ -845,8 +845,8 @@ describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
 
-    // 施設カードの「🔎詳細」ボタンを押す（カード本体タップでは詳細は開かない）
-    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細' }))
+    // 施設カードの施設名行（role=button）をタップ（情報行のタップでは詳細は開かない）
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
 
     // ボトムシート（dialog）が開く: 名称・住所・カテゴリチップ・OSMリンク
     const dialog = await waitFor(() => {
@@ -1890,7 +1890,7 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
 
     // エリア設定: 入力欄が緑＋候補の表示名（displayName）が入る
     // （「地名検索」で場所が見つかったときと同じ流れ。設定文言は廃止）。
-    // 駅（点）→ 駅を中心とする1km四方の範囲が検索エリアになる
+    // 駅（点）→ 駅を中心とする1.5km四方の範囲が検索エリアになる
     await waitFor(() => {
       const input = screen.getByPlaceholderText(PLACE_INPUT)
       expect(input.className).toContain('border-green-500')
@@ -1907,17 +1907,19 @@ describe('(place) 地名入力のローカルサジェスト（自治体＋周�
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
     fireEvent.click(getTopSearchButton())
     const facilityCall = overpassCalls.find((q) => !q.includes('around:5000'))
-    // 梅田駅（34.7/135.5）中心の1km四方
-    expect(facilityCall).toContain('34.695503,135.494531,34.704497,135.505469')
+    // 梅田駅（34.7/135.5）中心の1.5km四方
+    expect(facilityCall).toContain('34.693255,135.491796,34.706745,135.508204')
     expect(facilityCall).toContain('amenity=cafe')
     expect(facilityCall).toContain('amenity=restaurant')
 
-    // クライアント側の bbox フィルタで1km四方内のみが残る:
-    // ラーメン屋（34.7/135.5）だけ。珈琲店（34.695/135.495）・書店（34.705/135.505）は外
+    // 1.5km四方では3要素とも四方内に入るため、bboxフィルタ後は全て残る
+    // （旧1km四方では珈琲店・書店はわずかに外側で1件のみだった）。
+    // 表示一覧は「食べる」目的フィルタで書店（shop=books）が除外されるため2件
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
-    expect(screen.getByText('1件の結果を取得しました')).toBeTruthy()
+    expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
     expect(screen.getByRole('heading', { name: /ラーメン屋テスト/ })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: /テスト珈琲店/ })).toBeNull()
+    expect(screen.getByRole('heading', { name: /テスト珈琲店/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /テスト書店/ })).toBeNull()
   }, IT_TIMEOUT)
 
   it('「地名検索」で候補が複数（2件以上）だと候補リスト＋「候補が複数あります。選んでください。」を表示し、施設検索は実行されない', async () => {

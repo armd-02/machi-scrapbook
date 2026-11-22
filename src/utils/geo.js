@@ -342,7 +342,7 @@ export const MAX_SEARCH_AREA_KM2 = 1000
 /**
  * BBOXの面積が「広すぎる」（MAX_SEARCH_AREA_KM2 km² 以上）かどうかを判定する。
  *
- * 判定対象は候補が持つ元のBBOX（searchAreaFromGeocode が約1km四方に拡大を
+ * 判定対象は候補が持つ元のBBOX（searchAreaFromGeocode が約1.5km四方に拡大を
  * かける前の値）。場所入力のガードで使う: ジオコード結果が国・都道府県等の
  * 広い範囲の場合は、その全域を検索エリアに設定して巨大な Overpass クエリを
  * 発行しないようにする。
@@ -417,13 +417,13 @@ const EARTH_RADIUS_KM = 6371
 
 /**
  * (#63) 指定点を中心にした約 sideKm 正方形のBBOXを生成する。
- * ジオコード結果が駅などの小さな範囲だった場合、それを約1km正方形に
+ * ジオコード結果が駅などの小さな範囲だった場合、それを約1.5km正方形に
  * 拡大して検索エリアにするのに使う。
  * @param {{lat: number, lon: number}} center 中心点
- * @param {number} [sideKm=1] 一辺の長さ（km）
+ * @param {number} [sideKm=1.5] 一辺の長さ（km）
  * @returns {{south: number, west: number, north: number, east: number}}
  */
-export function squareBboxAround(center, sideKm = 1) {
+export function squareBboxAround(center, sideKm = 1.5) {
   const { lat, lon } = center
   const KM_PER_DEG = (Math.PI / 180) * EARTH_RADIUS_KM
   const latRad = (lat * Math.PI) / 180
@@ -446,7 +446,7 @@ export function squareBboxAround(center, sideKm = 1) {
  * @param {{ sideKm?: number, thresholdKm2?: number }} [options]
  * @returns {{south: number, west: number, north: number, east: number}}
  */
-export function searchAreaFromGeocode(result, { sideKm = 1, thresholdKm2 = 1 } = {}) {
+export function searchAreaFromGeocode(result, { sideKm = 1.5, thresholdKm2 = 1 } = {}) {
   const bbox = result.boundingbox
   if (bbox && isValidBbox(bbox) && calculateBboxAreaKm2(bbox) >= thresholdKm2) {
     return bbox

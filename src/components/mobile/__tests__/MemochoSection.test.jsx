@@ -12,7 +12,8 @@
  * - カードの✕は2段階確認＋論理削除（deletedAt 付けてごみ箱へ移動）
  * - ごみ箱ビュー（view='trash'）: 削除日時・復元・完全に削除（2段階確認）・
  *   ごみ箱を空にする（2段階確認）・一覧に戻る
- * - カード内の「🔎詳細」ボタン押下で onOpenDetail が呼ばれる（カード本体タップでは開かない）
+ * - 施設名行（role=button）または地図サムネイルのタップで onOpenDetail が呼ばれる
+ *   （情報行のタップでは詳細は開かない）
  * - 地図サムネイルの生成・表示
  *
  * 書き出し（JSON/CSV）・読み込み・全消去（2段階確認）のテストは、#79 で
@@ -124,19 +125,21 @@ describe('MemochoSection: 基本表示', () => {
     expect(screen.getByLabelText('みらい公園のメモ').textContent).toBe('メモを追加')
   })
 
-  it('カード本体タップでは onOpenDetail は呼ばれない（詳細は開かない）', () => {
+  it('情報行（電話等）のタップでは onOpenDetail は呼ばれない（詳細は開かない）', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
     const { onOpenDetail } = renderSection()
 
-    fireEvent.click(screen.getByRole('heading', { name: 'テスト珈琲店' }))
+    // 情報行をタップしても詳細は開かない（開くのは施設名行と地図サムネイルのみ）
+    fireEvent.click(screen.getByText('電話'))
     expect(onOpenDetail).not.toHaveBeenCalled()
   })
 
-  it('「🔎詳細」ボタン押下で onOpenDetail（スナップショット＋origin "memocho"）が呼ばれる', () => {
+  it('施設名行（role=button）のタップで onOpenDetail（スナップショット＋origin "memocho"）が呼ばれる', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
     const { onOpenDetail } = renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細' }))
+    // 施設名行のボタン（サムネイルが生成されて2つになっても先頭は施設名行）
+    fireEvent.click(screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })[0])
     expect(onOpenDetail).toHaveBeenCalledTimes(1)
     expect(onOpenDetail).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'node', id: 1001, name: 'テスト珈琲店' }),
@@ -375,11 +378,12 @@ describe('MemochoSection: 地図サムネイル', () => {
     expect(img).toBeTruthy()
   })
 
-  it('地図をタップすると onOpenDetail が呼ばれる', () => {
+  it('地図（サムネイル）をタップすると onOpenDetail が呼ばれる', () => {
     const item = makeItem({ mapImage: 'data:image/jpeg;base64,QUJD' })
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([item]))
     const { onOpenDetail } = renderSection()
-    fireEvent.click(screen.getByRole('button', { name: /の詳細を表示/ }))
+    // 施設名行と同じ名前なので2つマッチするが、DOM順の2つ目（後方）がサムネイル
+    fireEvent.click(screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })[1])
     expect(onOpenDetail).toHaveBeenCalledWith(item, 'memocho')
   })
 

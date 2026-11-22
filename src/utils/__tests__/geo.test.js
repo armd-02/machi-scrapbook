@@ -387,7 +387,7 @@ describe('isMunicipalityCandidate（市区町村判定）', () => {
 // ---------- searchAreaFromGeocode との互換 ----------
 
 describe('searchAreaFromGeocode の候補互換', () => {
-  it('geocodeCandidates の候補オブジェクトをそのまま渡せる（小さな範囲は約1km正方形に拡大）', () => {
+  it('geocodeCandidates の候補オブジェクトをそのまま渡せる（小さな範囲は約1.5km正方形に拡大）', () => {
     const cand = {
       lat: 34.7,
       lon: 135.5,
@@ -404,9 +404,42 @@ describe('searchAreaFromGeocode の候補互換', () => {
     expect(area.north).toBeGreaterThan(34.7)
     expect(area.west).toBeLessThan(135.5)
     expect(area.east).toBeGreaterThan(135.5)
-    // 約1km（経度方向は緯度で短くなる）
-    expect(area.north - area.south).toBeGreaterThan(0.004)
-    expect(area.north - area.south).toBeLessThan(0.01)
+    // 約1.5km（経度方向は緯度で短くなる）
+    expect(area.north - area.south).toBeGreaterThan(0.012)
+    expect(area.north - area.south).toBeLessThan(0.015)
+  })
+
+  it('既定の検索エリアは1.5km四方（±0.75km）になる（十三駅の回帰例）', () => {
+    // 実例: 十三駅から「食べる」で検索した際、Cafe yutte（中心から北約0.54km・
+    // 東約0.56km、直線約0.78km）が1km四方では両方向ともわずかに外側で
+    // 見つからなかった。1.5km四方ならエリア内に入る。
+    const cand = {
+      lat: 34.7,
+      lon: 135.5,
+      displayName: '十三駅',
+      name: '十三駅',
+      type: 'railway_station'
+      // 点状（boundingbox なし）
+    }
+    const area = searchAreaFromGeocode(cand)
+
+    // 一辺1.5km: 緯度方向のspanは約0.0135度
+    expect(area.north - area.south).toBeGreaterThan(0.012)
+    expect(area.north - area.south).toBeLessThan(0.015)
+    // 経度方向のspanは約0.0164度（1km四方の約0.0109度の1.5倍）
+    expect(area.east - area.west).toBeGreaterThan(0.014)
+    expect(area.east - area.west).toBeLessThan(0.018)
+
+    // Cafe yutte 相当の点（北0.54km・東0.56km）がエリア内に入る
+    const cafe = { lat: 34.70486, lon: 135.50613 }
+    expect(cafe.lat).toBeGreaterThan(area.south)
+    expect(cafe.lat).toBeLessThan(area.north)
+    expect(cafe.lon).toBeGreaterThan(area.west)
+    expect(cafe.lon).toBeLessThan(area.east)
+
+    // 旧1km四方では外側だったこと（回帰の区別）
+    const old = { south: 34.7 - 0.5 / 111.1949266, north: 34.7 + 0.5 / 111.1949266 }
+    expect(cafe.lat).toBeGreaterThan(old.north)
   })
 })
 
