@@ -8,6 +8,13 @@ import { describe, it, expect } from 'vitest'
 import { formatOpeningHoursJa } from '../openingHours'
 
 describe('formatOpeningHoursJa', () => {
+  it('複数行表示では曜日区分ごとに改行し、同じ曜日の複数の時間帯はまとめる', () => {
+    expect(formatOpeningHoursJa(
+      'Mo-Th 14:00-02:00, Fr-Sa 14:00-03:00, Su 13:00-24:00; PH 09:00-12:00,13:00-17:00',
+      { multiline: true },
+    )).toBe('月〜木 14:00〜2:00\n金〜土 14:00〜3:00\n日 13:00〜24:00\n祝日 9:00〜12:00,13:00〜17:00')
+  })
+
   it('空・null・undefined はそのまま返す（呼び出し側の truthy 判定を壊さない）', () => {
     expect(formatOpeningHoursJa('')).toBe('')
     expect(formatOpeningHoursJa(null)).toBeNull()

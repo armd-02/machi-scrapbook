@@ -1,5 +1,7 @@
 import { captureMapImage } from './mapCapture'
 
+const RESULT_THUMB_ZOOM = 17
+
 /**
  * 検索結果カードの地図サムネイル（メモリキャッシュのみ・localStorage 保存しない）。
  *
@@ -31,7 +33,7 @@ export function queueThumb(key, lat, lon) {
   const pending = inFlight.get(key)
   if (pending) return pending
   const p = queueTail.then(async () => {
-    const url = await captureMapImage(lat, lon)
+    const url = await captureMapImage(lat, lon, RESULT_THUMB_ZOOM)
     thumbCache.set(key, url)
     return url
   })

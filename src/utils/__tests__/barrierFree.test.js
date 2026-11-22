@@ -49,6 +49,7 @@ describe('buildBarrierFreeQuery (#62)', () => {
 );
 out geom;
 (
+  node[highway=crossing](34.700000,135.480000,34.710000,135.490000);
   node[barrier=kerb](34.700000,135.480000,34.710000,135.490000);
   node[kerb](34.700000,135.480000,34.710000,135.490000);
   node["traffic_signals:sound"](34.700000,135.480000,34.710000,135.490000);

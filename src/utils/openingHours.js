@@ -54,11 +54,15 @@ function convertRule(raw) {
  * opening_hours 値を表示用日本語表記に変換する。
  * - 空・null・undefined はそのまま返す（呼び出し側の truthy 判定を壊さない）
  * - '24/7' → '24時間営業'
- * - それ以外は ';' でルールに分割し、各ルールを変換して '／' でつなぐ
+ * - ';' でルールに分割し、変換後は通常 '／' でつなぐ
+ * - multiline のときはルールごとに改行。コンマで始まる別の曜日区分も改行する
  */
-export function formatOpeningHoursJa(value) {
+export function formatOpeningHoursJa(value, { multiline = false } = {}) {
   if (!value) return value
   const v = String(value).trim()
   if (v === '24/7') return '24時間営業'
-  return v.split(';').map(convertRule).join('／')
+  const rules = v.split(';').map(convertRule)
+  return multiline
+    ? rules.join('\n').replace(/,\s*(?=(?:[月火水木金土日]|祝日)(?:[〜・\s]|$))/g, '\n')
+    : rules.join('／')
 }

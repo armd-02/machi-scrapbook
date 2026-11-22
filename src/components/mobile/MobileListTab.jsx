@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 import { useApp } from '../../context/AppContext'
 import { applyResultFilters, hasActiveFilters, cuisineFacetValues } from '../../utils/resultFilters'
 import { activeSearchOf } from '../../state/appReducer'
 import EditPanel from '../EditPanel'
 import MobileFacilityCard from './MobileFacilityCard'
-import MobileResultsMap from './MobileResultsMap'
+import CollapsibleResultsMap from './CollapsibleResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
 import {
@@ -16,12 +16,13 @@ import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
 import { ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '../../utils/barrierFreeResults'
 import { barrierFreeLabel, KERB_VALUE_LABELS } from '../../utils/barrierFree'
-import { buildIdElementUrl } from '../../utils/editLinks'
+import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
+import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 
 /**
  * (#59) モバイル「一覧」タブ
  *
- * - 結果をカード形式で表示（タップで施設詳細ボトムシート）
+ * - 結果をカード形式で表示（施設名で地図上のピンを選択）
  * - クライアント側フィルタ: 施設名 / カテゴリ / Webサイト有無 / 並び順
  * - フィルタは AppContext（resultFilters）に保存するため、
  *   タブを離れても選択が保持される
@@ -31,15 +32,22 @@ import { buildIdElementUrl } from '../../utils/editLinks'
 
 const MAX_CARDS = 500
 
-export default function MobileListTab({ onOpenDetail }) {
+function scrollResultCard(list, cardId) {
+  const card = list?.ownerDocument.getElementById(cardId)
+  if (!card || !list.contains(card)) return
+  const cardBounds = card.getBoundingClientRect()
+  const listBounds = list.getBoundingClientRect()
+  const top = list.scrollTop + cardBounds.top - listBounds.top - (list.clientHeight - cardBounds.height) / 2
+  list.scrollTo?.({ top, behavior: 'smooth' })
+}
+
+export default function MobileListTab() {
+  const { state } = useApp()
+  return state.resultKind === 'barrier_free' ? <BarrierFreeMobileList /> : <PoiMobileList />
+}
+
+function PoiMobileList() {
   const { state, dispatch } = useApp()
-
-  // (#62) バリアフリー検索の結果: 施設カード（詳細シート導線）ではなく、
-  // タイプ・点字ブロック・長さ・案内信号を出す専用カードで表示する
-  if (state.resultKind === 'barrier_free') {
-    return <BarrierFreeMobileList />
-  }
-
   const { results, status, resultFilters, searchSource } = state
   const { nameFilter, sortDir } = resultFilters
 
@@ -63,9 +71,12 @@ export default function MobileListTab({ onOpenDetail }) {
   )
   const filtersActive = hasActiveFilters(poiFilters)
 
-  // 料理ジャンルファセット: フィルタ適用前の結果から集計（結果にcuisineタグが
-  // 無ければ空配列になりチップ行は非表示）
-  const cuisineFacets = useMemo(() => cuisineFacetValues(results), [results])
+  // 料理ジャンルの件数は、同じジャンルでさらに絞る前の結果から集計する。
+  const cuisineFacets = useMemo(() => cuisineFacetValues(
+    applyResultFilters(results, { ...poiFilters, cuisine: '', sortDir: 'none' }),
+    10,
+    poiFilters.cuisine,
+  ), [results, poiFilters])
   // 「フィルタ適用中」マーカーはフィルタが実際に件数を減らしているときだけ出す
   // （検索時にカテゴリを選択済みの場合は結果が既に絞り込まれているため不要）
   const narrowing = filtersActive && filtered.length < (results || []).length
@@ -73,38 +84,16 @@ export default function MobileListTab({ onOpenDetail }) {
   const hasResults = status === 'success' && (results || []).length > 0
   const visible = useMemo(() => filtered.slice(0, MAX_CARDS), [filtered])
 
-  // (アイコンピン) 結果マップのピンタップで選択された施設キー（`${type}/${id}`）。
-  // タップで一覧を対応するカードへスクロールし、カードをハイライトする
-  // （詳細シートは開かない）。
-  const [selectedKey, setSelectedKey] = useState(null)
-
-  // 現在表示されているカードのキー集合（フィルタ適用・MAX_CARDS 截断後）
-  const visibleKeys = useMemo(
-    () => new Set(visible.map((r) => `${r.type}/${r.id}`)),
-    [visible]
-  )
-
-  // 再検索（結果の置換）で選択をクリアする
-  useEffect(() => {
-    setSelectedKey(null)
-  }, [results])
-
-  // 選択中カードが非表示になった場合（フィルタで除外された等）もクリアする
-  useEffect(() => {
-    if (selectedKey && !visibleKeys.has(selectedKey)) setSelectedKey(null)
-  }, [selectedKey, visibleKeys])
+  const { selection, selectedKey, selectFacility, selectPin } = useFacilityMapSelection(visible, results)
+  const listRef = useRef(null)
 
   // 結果マップのピンタップ: カードが表示されているならスクロールして選択する。
   // カードが非表示（フィルタ除外・MAX_CARDS を超える分）なら何もしない。
   const handleMarkerSelect = useCallback((result) => {
-    const key = `${result.type}/${result.id}`
-    if (!visibleKeys.has(key)) return
-    setSelectedKey(key)
-    const el = document.getElementById(`facility-card-${key}`)
-    if (el && typeof el.scrollIntoView === 'function') {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [visibleKeys])
+    const key = selectPin(result)
+    if (!key) return
+    scrollResultCard(listRef.current, `facility-card-${key}`)
+  }, [selectPin])
 
   const resetFilters = () => {
     // 検索フォームのカテゴリ・目的選択も一緒に解除する（状態の整合性）
@@ -113,8 +102,19 @@ export default function MobileListTab({ onOpenDetail }) {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-y-auto min-h-0 bg-slate-100 px-3 py-3 space-y-3">
+    <div className="h-full flex flex-col bg-slate-100 [container-type:size]">
+      {hasResults && (
+        <div className="shrink-0 px-3 pt-3 [--results-map-max-height:max(0px,calc(100cqh_-_12rem))]">
+          <CollapsibleResultsMap
+            results={filtered}
+            fitPoiDensity
+            showOsmLink
+            onMarkerClick={handleMarkerSelect}
+            selection={selection}
+          />
+        </div>
+      )}
+      <div ref={listRef} className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 px-3 py-3 space-y-3">
         {status === 'idle' && (
           <p className="text-sm text-slate-500 text-center pt-8">
             検索を実行すると、結果がこの一覧に表示されます。
@@ -125,12 +125,6 @@ export default function MobileListTab({ onOpenDetail }) {
 
         {hasResults && (
           <>
-            {/* (修正) 検索結果マップ: 折りたたみ式（初期は折りたたみ・非表示）。
-                見出しボタン「地図を表示／地図を隠す」で開閉する。
-                ピンタップで一覧を対応する施設カードへスクロールし、カードを
-                選択状態にする（詳細シートは開かない） */}
-            <CollapsibleResultsMap onMarkerClick={handleMarkerSelect} />
-
             <p className="text-xs text-slate-600">
               {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
               {narrowing ? '（フィルタ適用中）' : ''}
@@ -226,7 +220,7 @@ export default function MobileListTab({ onOpenDetail }) {
               cardId={`facility-card-${r.type}/${r.id}`}
               selected={selectedKey === `${r.type}/${r.id}`}
               showMapThumb
-              onOpen={(res) => onOpenDetail && onOpenDetail(res, 'list')}
+              onSelect={selectFacility}
             />
           ))}
         </div>
@@ -242,50 +236,6 @@ export default function MobileListTab({ onOpenDetail }) {
   )
 }
 
-/**
- * (修正) 折りたたみ式の検索結果マップ（POI・バリアフリー共通）
- *
- * 初期状態は initiallyOpen で決める（既定は折りたたみ・地図非表示。バリアフリー側は
- * initiallyOpen を true にして初期「開く」）。見出しボタン「地図を表示／地図を隠す」で
- * 開閉する。折りたたんでいる間は MobileResultsMap をマウントしない（地図を
- * 生成しない）。展開すると地図が新規マウントされ、結果範囲にfitBoundsされる
- * （地図の高さ設定 mapHeight.results / mapHeight.resultsBf は MobileResultsMap 内で
- * 従来どおり維持される）。
- *
- * - (修正) POI（kind='poi'）: 地図のマーカー（施設アイコン・フォールバック点）
- *   タップで、onMarkerClick(result) を呼ぶ。MobileListTab 側が対応する施設
- *   カードへスクロールし選択状態にする（詳細シートは開かない）。
- *   バリアフリー側（kind='barrier_free'）にはタップコールバックを渡さず、
- *   タップ挙動は変更しない。
- *
- * 折りたたみ状態はこの子コンポーネントのローカルstateに置く。MobileListTab 本体の
- * フック構成（早期returnとuseMemoの順序）を変えずに済むため、resultKind の
- * poi⇄barrier_free 切替によるフック数の変化で React がエラーを出すのを避ける。
- */
-function CollapsibleResultsMap({ kind = 'poi', initiallyOpen = false, onMarkerClick = null }) {
-  const [visible, setVisible] = useState(initiallyOpen)
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-        aria-expanded={visible}
-        className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between text-sm font-medium text-slate-700"
-      >
-        <span>🗺️ 検索結果マップ</span>
-        <span className="text-xs text-slate-500">{visible ? '地図を隠す' : '地図を表示'}</span>
-      </button>
-      {/* (修正) POI のみマーカータップ→対応カードのスクロール＋選択
-          （onMarkerClick(result)）。バリアフリー側はタップコールバックなし
-          （kind='barrier_free' のタップ挙動は変更しない） */}
-      {visible && (
-        kind === 'poi' && onMarkerClick
-          ? <MobileResultsMap kind={kind} onMarkerClick={onMarkerClick} />
-          : <MobileResultsMap kind={kind} />
-      )}
-    </div>
-  )
-}
 
 /**
  * (#62) バリアフリー検索の結果一覧（モバイル）
@@ -318,12 +268,35 @@ function BarrierFreeMobileList() {
   }
 
   const hasResults = status === 'success' && (results || []).length > 0
-  const visible = filtered.slice(0, MAX_CARDS)
+  const visible = useMemo(() => filtered.slice(0, MAX_CARDS), [filtered])
   const narrowing = filtered.length < (results || []).length
+  const { selection, selectedKey, selectFacility, selectPin } = useFacilityMapSelection(visible, results)
+  const listRef = useRef(null)
+
+  const selectFeature = (result) => {
+    const feature = barrierFreeToMapGeoJSON([result]).features[0]
+    if (feature) selectFacility(result, feature.geometry)
+  }
+  const handleMarkerSelect = useCallback((result) => {
+    const key = selectPin(result)
+    if (key) scrollResultCard(listRef.current, `barrier-free-card-${key}`)
+  }, [selectPin])
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-y-auto min-h-0 bg-slate-100 px-3 py-3 space-y-3">
+    <div className="h-full flex flex-col bg-slate-100 [container-type:size]">
+      {hasResults && (
+        <div className="shrink-0 px-3 pt-3 [--results-map-max-height:max(0px,calc(100cqh_-_12rem))]">
+          <CollapsibleResultsMap
+            kind="barrier_free"
+            results={filtered}
+            initiallyOpen
+            showOsmLink
+            selection={selection}
+            onMarkerClick={handleMarkerSelect}
+          />
+        </div>
+      )}
+      <div ref={listRef} className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 px-3 py-3 space-y-3">
         {status === 'idle' && (
           <p className="text-sm text-slate-500 text-center pt-8">
             検索を実行すると、結果がこの一覧に表示されます。
@@ -333,18 +306,12 @@ function BarrierFreeMobileList() {
         {status === 'success' && (results || []).length === 0 && (
           <div className="bg-white border border-dashed border-slate-200 rounded-xl p-4 text-center space-y-1">
             <p className="text-sm text-slate-500">この地域ではバリアフリー関連の登録がありません。</p>
-            <p className="text-xs text-slate-400">iDエディタで点字ブロック・音声案内などを追加できます。</p>
           </div>
         )}
 
         {hasResults && (
           <>
-            {/* (修正) 検索結果マップ: バリアフリー要素を線・点として表示。
-                POI側と同じ折りたたみで包むが、初期状態は「開く」
-                （折りたたみボタン・aria-expanded・閉じている間マウントしない）。
-                凡例は折りたたみの外に置き、常時表示のままにする */}
-            <CollapsibleResultsMap kind="barrier_free" initiallyOpen />
-            <BarrierFreeLegend />
+            <BarrierFreeLegend twoColumns />
 
             <p className="text-xs text-slate-600">
               {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
@@ -377,8 +344,8 @@ function BarrierFreeMobileList() {
                   filter="type"
                 >
                   <option value="all">タイプ: すべて</option>
-                  <option value="way">線 (way)</option>
-                  <option value="node">点 (node)</option>
+                  <option value="way">線</option>
+                  <option value="node">点</option>
                 </FilterSelect>
                 <button
                   type="button"
@@ -424,7 +391,12 @@ function BarrierFreeMobileList() {
 
         <div className="space-y-3">
           {visible.map((r) => (
-            <BarrierFreeCard key={`${r.type}/${r.id}`} result={r} />
+            <BarrierFreeCard
+              key={`${r.type}/${r.id}`}
+              result={r}
+              selected={selectedKey === `${r.type}/${r.id}`}
+              onSelect={selectFeature}
+            />
           ))}
         </div>
 
@@ -447,7 +419,7 @@ function BarrierFreeMobileList() {
  * 点字ブロックの状態はタイトルに含まず、バッジとして表示する。
  * barrierFreeLabel はこのカードでは使わない（地図ポップアップ・poiDescription 専用）。
  */
-function BarrierFreeCard({ result }) {
+function BarrierFreeCard({ result, selected, onSelect }) {
   const named = !!result.name
   const tags = result.tags || {}
   const tactile = tactileStatus(result)
@@ -492,7 +464,7 @@ function BarrierFreeCard({ result }) {
 
   // 追加チップ: バリアフリー関連タグがある場合だけ出す
   const extraChips = []
-  if (tags.footway === 'crossing' || tags.highway === 'crossing') extraChips.push('横断歩道')
+  if (title !== '横断歩道' && (tags.footway === 'crossing' || tags.highway === 'crossing')) extraChips.push('横断歩道')
   if (tags.wheelchair) {
     const wc = tags.wheelchair
     extraChips.push(
@@ -512,7 +484,22 @@ function BarrierFreeCard({ result }) {
     signals.length > 0 || kerbBadge != null || extraChips.length > 0
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-1.5">
+    <div
+      id={`barrier-free-card-${result.type}/${result.id}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${title}を地図で選択`}
+      aria-pressed={selected}
+      onClick={() => onSelect(result)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect(result)
+        }
+      }}
+      className={`cursor-pointer bg-white border rounded-xl p-3 shadow-sm space-y-1.5 focus-visible:outline-primary-500 ${
+        selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'}`}
+    >
       <div className="flex items-center gap-2">
         {showTypeBadge && (
           <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-xs shrink-0">
@@ -541,18 +528,6 @@ function BarrierFreeCard({ result }) {
           ))}
         </div>
       )}
-
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span className="font-mono">{result.osmId}</span>
-        <a
-          href={buildIdElementUrl(result)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary-600 flex items-center gap-1"
-        >
-          ✏️ iDで編集
-        </a>
-      </div>
     </div>
   )
 }

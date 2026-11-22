@@ -1,13 +1,13 @@
 import React, { useEffect, useRef } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../context/AppContext'
 import { setMapInstance } from '../hooks/useMapRef'
 import { isValidBbox } from '../utils/searchBbox'
 import { BASEMAP_STYLE } from '../utils/mapStyle'
 import { wheelchairBadge } from '../utils/accessibility'
-import { buildOsmElementUrl, buildIdElementUrl } from '../utils/editLinks'
-import { barrierFreeToMapGeoJSON, TACTILE_LINE_COLORS, NODE_ROLE_COLORS } from '../utils/barrierFreeGeoJSON'
+import { buildOsmElementUrl } from '../utils/editLinks'
+import { barrierFreeToMapGeoJSON, TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../utils/barrierFreeGeoJSON'
 import { barrierFreeLabel } from '../utils/barrierFree'
 
 // Default center: Osaka, Japan（MapLibreは[経度, 緯度]順）
@@ -95,10 +95,11 @@ export const BF_LINE_LAYER_DEF = {
   source: BF_SOURCE,
   filter: ['==', ['get', 'kind'], 'way'],
   paint: {
-    'line-color': ['match', ['get', 'tactile'],
-      'yes', TACTILE_LINE_COLORS.yes,
-      'no', TACTILE_LINE_COLORS.no,
-      TACTILE_LINE_COLORS.unknown],
+    'line-color': ['case', ['==', ['get', 'crossing'], true], CROSSING_COLOR,
+      ['match', ['get', 'tactile'],
+        'yes', TACTILE_LINE_COLORS.yes,
+        'no', TACTILE_LINE_COLORS.no,
+        TACTILE_LINE_COLORS.unknown]],
     'line-width': 4,
     'line-opacity': 0.9
   }
@@ -115,6 +116,7 @@ export const BF_NODE_LAYER_DEF = {
       'signal', NODE_ROLE_COLORS.signal,
       'kerb', NODE_ROLE_COLORS.kerb,
       'kerb+signal', NODE_ROLE_COLORS['kerb+signal'],
+      'crossing', NODE_ROLE_COLORS.crossing,
       NODE_ROLE_COLORS.other],
     'circle-stroke-width': 2,
     'circle-stroke-color': '#ffffff'
@@ -205,13 +207,7 @@ function buildPopupElement(result) {
   osmLink.rel = 'noopener'
   osmLink.className = 'map-popup-link'
   osmLink.textContent = '🔗 OSMで開く'
-  const idLink = document.createElement('a')
-  idLink.href = buildIdElementUrl(result)
-  idLink.target = '_blank'
-  idLink.rel = 'noopener'
-  idLink.className = 'map-popup-link'
-  idLink.textContent = '✏️ iDで編集'
-  linkRow.append(osmLink, idLink)
+  linkRow.appendChild(osmLink)
   root.appendChild(linkRow)
 
   // 主要タグ（name系・wheelchairを除く）を最大3件

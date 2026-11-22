@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { BASEMAP_STYLE } from '../utils/mapStyle'
 

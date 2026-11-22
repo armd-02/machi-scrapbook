@@ -55,12 +55,13 @@ function writeStored(storageKey, height) {
  * - onResize（任意）: 高さ変更の通知コールバック（引数は新しい高さpx）。
  *   ドラッグ中は RESIZE_THROTTLE_MS 間隔でスロットリング、ドラッグ終了時
  *   には最終高さで必ず呼ばれる。地図描画の追随（map.resize()等）に使う。
+ * - getRenderedHeight（任意）: CSS で高さを制限する場合に、ドラッグの起点となる実際の高さを取得する。
  *
  * ドラッグ計算: ハンドルは地図の下端なので、ポインタと同方向に動く。
  * 下方向ドラッグで高さを大きく、上方向で小さくする（ポインタ1pxあたり高さ1px）。
  * 変更後の高さは minHeight〜maxHeight の範囲に丸めてクランプされる。
  */
-export function useDraggableHeight({ defaultHeight, minHeight = 160, maxHeight = 800, storageKey = null, onResize = null } = {}) {
+export function useDraggableHeight({ defaultHeight, minHeight = 160, maxHeight = 800, storageKey = null, onResize = null, getRenderedHeight = null } = {}) {
   // 初期高さ = 保存値があればそれを、なければ defaultHeight（常に数値）。
   // containerStyle が初期状態から明示的な px を持つことで、既定クラスに頼らず
   // 高さが確定する（CSS レイヤによる上書きに左右されない）
@@ -76,7 +77,7 @@ export function useDraggableHeight({ defaultHeight, minHeight = 160, maxHeight =
   const onPointerDown = (e) => {
     if (e.button != null && e.button !== 0) return
     e.preventDefault()
-    dragRef.current = { startY: e.clientY, startHeight: height }
+    dragRef.current = { startY: e.clientY, startHeight: getRenderedHeight?.() || height }
     // 前回ドラッグの高さが残ったまま終了処理に渡ると、タップ（移動なし）でも
     // 保存・地図resizeが発生するため、ドラッグ開始時にリセットする
     lastHeightRef.current = null

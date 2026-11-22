@@ -12,8 +12,7 @@ import { geocodeCandidateLabel } from '../utils/geo'
  * @param {Array} candidates geocodeCandidates() の戻り値（候補の配列）。
  *   空配列・null のときは何も描画しない。
  * @param {(candidate: object) => void} [onSelect] 候補タップ時のコールバック。
- *   引数は候補オブジェクト（{ lat, lon, displayName, name, prefecture,
- *   city, type, boundingbox }）
+ *   引数は候補オブジェクト。履歴など表示名が決まっている候補は label を指定できる。
  * @param {string | null} [heading] リスト上部の案内文
  *   （例: 「候補が複数あります。選んでください。」）。サジェスト時は null。
  * @param {boolean} [disabled] 検索中などで無効化
@@ -49,7 +48,7 @@ export default function GeocodeCandidateList({
               onClick={() => onSelect && onSelect(candidate)}
               className="w-full text-left min-h-[44px] px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              {geocodeCandidateLabel(candidate)}
+              {candidate.label ?? geocodeCandidateLabel(candidate)}
             </button>
           </li>
         ))}

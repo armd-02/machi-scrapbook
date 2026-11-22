@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import { AppContext } from '../../context/AppContext'
-import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS } from '../../utils/barrierFreeGeoJSON'
+import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../../utils/barrierFreeGeoJSON'
 
 // 表示条件テスト用のバリアフリー結果（barrierFreeMapView.test.jsx と同一形状）
 const BF_RESULT = {
@@ -97,13 +97,14 @@ describe('表示条件（AppContextで判定）', () => {
 describe('内容（ラベルと色）', () => {
   const renderBf = () => renderLegend({ results: [BF_RESULT], resultKind: 'barrier_free' })
 
-  it('線（歩道）3項目と点（ノード）3項目のラベルを表示する', () => {
+  it('歩道・横断歩道と点の凡例を表示する', () => {
     const { view } = renderBf()
     const labels = [...view.container.querySelectorAll('li')].map((li) => li.textContent)
     expect(labels).toEqual([
       '歩道・点字ブロックあり',
       '歩道・点字ブロックなし',
       '歩道・点字ブロック未記録',
+      '横断歩道',
       '音声・振動案内信号',
       '縁石',
       '縁石＋案内信号'
@@ -112,8 +113,8 @@ describe('内容（ラベルと色）', () => {
 
   it('線項目のスウォッチ色が TACTILE_LINE_COLORS と一致する', () => {
     const { view } = renderBf()
-    const items = [...view.container.querySelectorAll('li')].slice(0, 3)
-    const expected = [TACTILE_LINE_COLORS.yes, TACTILE_LINE_COLORS.no, TACTILE_LINE_COLORS.unknown]
+    const items = [...view.container.querySelectorAll('li')].slice(0, 4)
+    const expected = [TACTILE_LINE_COLORS.yes, TACTILE_LINE_COLORS.no, TACTILE_LINE_COLORS.unknown, CROSSING_COLOR]
     items.forEach((li, i) => {
       const swatch = li.querySelector('span[aria-hidden="true"]')
       expect(swatch.style.backgroundColor).toBe(hexToRgb(expected[i]))
@@ -122,7 +123,7 @@ describe('内容（ラベルと色）', () => {
 
   it('点項目のスウォッチ色が NODE_ROLE_COLORS と一致する', () => {
     const { view } = renderBf()
-    const items = [...view.container.querySelectorAll('li')].slice(3, 6)
+    const items = [...view.container.querySelectorAll('li')].slice(4)
     const expected = [NODE_ROLE_COLORS.signal, NODE_ROLE_COLORS.kerb, NODE_ROLE_COLORS['kerb+signal']]
     items.forEach((li, i) => {
       const swatch = li.querySelector('span[aria-hidden="true"]')

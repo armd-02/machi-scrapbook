@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import MobileFacilityCard, { facilityName, formatAddress, safeWebsite } from '../MobileFacilityCard'
-import { facilityTypeLabel } from '../../../utils/facilityLabels'
+import { facilityTypeLabel, preferredFacilityLink } from '../../../utils/facilityLabels'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
 import * as mapCapture from '../../../utils/mapCapture'
@@ -40,6 +40,14 @@ const COFFEE = {
 }
 
 describe('ユーティリティ関数（facilityLabels.js 経由の再エクスポート）', () => {
+  it.each([
+    [{ website: 'https://www.instagram.com/cafe/', 'contact:twitter': '@cafe' }, 'Instagram', 'https://www.instagram.com/cafe/'],
+    [{ website: 'https://cafe.example/', 'contact:instagram': ' ', 'contact:twitter': '@cafe' }, 'X.com', 'https://x.com/cafe'],
+    [{ 'contact:website': 'https://cafe.example/', 'contact:instagram': 'https://other.example/cafe' }, '公式サイト', 'https://cafe.example/'],
+  ])('連絡先タグ %o から優先順位の高い有効なリンクを選ぶ', (tags, label, url) => {
+    expect(preferredFacilityLink(tags)).toMatchObject({ label, url })
+  })
+
   it('facilityName: name → name:ja → フォールバックの順で解決する', () => {
     expect(facilityName(COFFEE)).toBe('テスト珈琲店')
     expect(facilityName({ tags: { 'name:ja': '日本語名' } })).toBe('日本語名')
@@ -111,7 +119,7 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
   it('住所・営業時間が未登録なら行ごとに出ない（捏造しない）', () => {
     const bare = { type: 'node', id: 9, lat: 34.8, lon: 135.5, tags: { amenity: 'bench' } }
     render(<MobileFacilityCard result={bare} onOpen={vi.fn()} />)
-    expect(screen.getByRole('heading', { name: '（名称不明）' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '（名称無し）' })).toBeTruthy()
     expect(screen.queryByText(/大阪市/)).toBeNull()
     expect(screen.queryByText(/公式サイト/)).toBeNull()
     expect(screen.queryByText(/📞/)).toBeNull()
@@ -543,15 +551,74 @@ describe('MobileFacilityCard: 地図サムネイル（showMapThumb）', () => {
     vi.clearAllMocks()
   })
 
-  it('座標があるカードは生成完了後にサムネイル（dataURL・©表記）が表示される', async () => {
+  it('検索結果カードは連絡先を1つだけ表示し、電話の下で施設情報を開閉できる', async () => {
+    mapCapture.captureMapImage.mockResolvedValue(null)
+    const onSelect = vi.fn()
+    const result = {
+      ...COFFEE,
+      tags: {
+        ...COFFEE.tags,
+        'contact:instagram': '@coffee_shop',
+        'contact:twitter': 'coffee_news',
+        website: 'https://coffee.example/',
+        phone: '06-1234-5678',
+        wheelchair: 'yes',
+        internet_access: 'wlan',
+        opening_hours: 'Mo-Fr 09:00-17:00',
+      },
+    }
+    render(<MobileFacilityCard result={result} onSelect={onSelect} showMapThumb />)
+    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalled())
+    expect(screen.getByRole('link', { name: /Instagram/ }).getAttribute('href'))
+      .toBe('https://instagram.com/coffee_shop')
+    expect(screen.getAllByRole('link')).toHaveLength(2)
+    expect(screen.queryByText('営業時間')).toBeNull()
+    expect(screen.queryByText(/♿|Wi-Fi/)).toBeNull()
+
+    const details = screen.getByRole('button', { name: '施設情報' })
+    expect(details.previousElementSibling.querySelector('a').getAttribute('href')).toBe('tel:06-1234-5678')
+    fireEvent.click(details)
+    expect(details.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('営業時間')).toBeTruthy()
+    expect(screen.getByText('Wi-Fi')).toBeTruthy()
+    expect(screen.getByText(/♿/)).toBeTruthy()
+    fireEvent.click(details)
+    expect(screen.queryByText('営業時間')).toBeNull()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('メモ帳追加ボタンは地図サムネイルの右上にあり、店舗を選択せず登録できる', async () => {
+    mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
+    const onSelect = vi.fn()
+    const result = { ...COFFEE, id: 10011 }
+    const { container } = render(<MobileFacilityCard result={result} onSelect={onSelect} showMapThumb />)
+    const web = screen.getByText('Web').parentElement
+    expect(web.textContent).toBe('Web -')
+    expect(web.previousElementSibling.contains(screen.getByRole('heading', { name: 'テスト珈琲店' }))).toBe(true)
+    await waitFor(() => expect(thumbImg(container)).toBeTruthy())
+    const button = screen.getByRole('button', { name: /メモ帳に追加/ })
+    const mapFrame = button.parentElement
+    expect(mapFrame.contains(thumbImg(container))).toBe(true)
+    expect(mapFrame.className).toContain('h-[112px] w-[136px]')
+    fireEvent.click(screen.getByRole('button', { name: '施設情報' }))
+    expect(screen.getByText('住所')).toBeTruthy()
+    expect(button.parentElement).toBe(mapFrame)
+    expect(button.className).toContain('right-1 top-1')
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.click(button)
+  })
+
+  it('座標があるカードは生成完了後にサムネイル（dataURL）が表示される', async () => {
     mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,THUMB')
     const { container } = render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} showMapThumb />)
-    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledWith(34.85, 135.5))
+    await waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledWith(34.85, 135.5, 17))
     await waitFor(() => expect(thumbImg(container)).toBeTruthy())
     const img = thumbImg(container)
     expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,THUMB')
-    // © 表記がオーバーレイされる
-    expect(screen.getByText('© OpenStreetMap contributors')).toBeTruthy()
+    // サムネイルには©表示オーバーレイが無い（ユーザー決定で廃止）
+    expect(screen.queryByText('© OpenStreetMap contributors')).toBeNull()
     // 施設名など既存表示は維持される
     expect(screen.getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
   })

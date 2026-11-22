@@ -2,6 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/index.css'
+// (#maplibre v6) ESM のみ・ワーカー別ファイルのため、Map 生成前に
+// setWorkerUrl を一度だけ呼ぶ。どの地図コンポーネントより先に実行させる。
+import './utils/maplibreSetup'
 import { installPullToRefreshGuard } from './utils/pullToRefreshGuard'
 import { installPageZoomGuard } from './utils/pageZoomGuard'
 

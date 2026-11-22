@@ -33,12 +33,12 @@ const NAME_SENTINELS = new Set(['名称なし'])
  * 名前の無い施設は NAME_FALLBACK（（名称不明））を返す。
  * データ側のセンチネル（名称なし）は「名前がない」として扱い、表示では NAME_FALLBACK を使う。
  */
-export function facilityName(result) {
-  if (!result) return NAME_FALLBACK
+export function facilityName(result, fallback = NAME_FALLBACK) {
+  if (!result) return fallback
   const name = result.name
   const realName =
     typeof name === 'string' && name !== '' && !NAME_SENTINELS.has(name) ? name : null
-  return realName || result.tags?.['name:ja'] || NAME_FALLBACK
+  return realName || result.tags?.['name:ja'] || fallback
 }
 
 /**
@@ -64,6 +64,50 @@ export function safeWebsite(tags) {
   if (!tags) return ''
   const url = tags.website || tags.official_website || ''
   return /^https?:\/\//.test(url) ? url : ''
+}
+
+/** SNSタグのURLまたはアカウント名をリンクにする。 */
+export function buildSnsLink({ label, domain }, value) {
+  if (typeof value !== 'string') return null
+  const directUrl = value.trim()
+  if (/^https?:\/\//i.test(directUrl)) {
+    return { label, url: directUrl, display: directUrl }
+  }
+  const account = directUrl.replace(/^@/, '')
+  if (!account) return null
+  return { label, url: `https://${domain}/${account}`, display: account }
+}
+
+const CONTACT_SOURCES = [
+  { label: 'Instagram', domain: 'instagram.com', domains: ['instagram.com'], keys: ['contact:instagram', 'instagram'] },
+  { label: 'X.com', domain: 'x.com', domains: ['x.com', 'twitter.com'], keys: ['contact:x', 'contact:twitter', 'x', 'twitter'] },
+]
+
+function matchesDomain(url, domains) {
+  if (!url) return false
+  try {
+    const { hostname } = new URL(url)
+    return domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+  } catch {
+    return false
+  }
+}
+
+/** 施設カードに出す連絡先を Instagram、X.com、公式サイトの順で選ぶ。 */
+export function preferredFacilityLink(tags) {
+  const website = safeWebsite(tags) || safeWebsite({ website: tags?.['contact:website'] })
+  for (const source of CONTACT_SOURCES) {
+    for (const key of source.keys) {
+      const value = tags?.[key]
+      if (typeof value !== 'string') continue
+      const accountOrUrl = value.trim()
+      if (!/^https?:\/\//i.test(accountOrUrl) && !/^@?[\w.]+$/.test(accountOrUrl)) continue
+      const link = buildSnsLink(source, accountOrUrl)
+      if (link && matchesDomain(link.url, source.domains)) return link
+    }
+    if (matchesDomain(website, source.domains)) return { label: source.label, url: website }
+  }
+  return website ? { label: '公式サイト', url: website } : null
 }
 
 // ===== 日本語ラベル辞書 =====

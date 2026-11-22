@@ -14,19 +14,21 @@
 
 // 線（way）の色: 点字ブロックの登録状態による。
 // 明るいベクタベースマップ（OSMFJ）上で目立つよう高彩度の色を使う。
-// あり（緑: 点字情報の登録が進んだ状態を肯定的に示す）／なし（濃い赤）／未記録（薄い赤）。
-// 状態間は色相と濃度の差で区別する。
+// あり（緑）／なし（赤）／未記録（濃いグレー）。
 export const TACTILE_LINE_COLORS = {
   yes: '#16a34a',      // 点字ブロックあり（緑）
   no: '#dc2626',       // 点字ブロックなし（濃い赤）
-  unknown: '#f87171'   // 未記録（薄い赤: なしより優先度が低いことを濃度差で表現）
+  unknown: '#475569'   // 未記録
 }
+
+export const CROSSING_COLOR = '#db2777'
 
 // 点（node）の色: 役割（role）による（仕様: 縁石=オレンジ、音声案内=紫、両方=別の色）
 export const NODE_ROLE_COLORS = {
   kerb: '#f59e0b',          // 縁石（オレンジ）
   signal: '#7c3aed',        // 音声/振動案内信号（紫）
   'kerb+signal': '#0d9488', // 縁石+案内信号（ティール: 上記どちらとも異なる色）
+  crossing: CROSSING_COLOR,
   other: '#64748b'          // それ以外のバリアフリー要素（スレート）
 }
 
@@ -35,7 +37,8 @@ export const NODE_ROLE_COLORS = {
  * - kerb と signal の両方: 'kerb+signal'
  * - kerb のみ: 'kerb'
  * - hasSound または hasVibration のみ: 'signal'
- * - どちらでもない: 'other'
+ * - 上記に当てはまらない横断歩道: 'crossing'
+ * - どれにも当てはまらない: 'other'
  * kerb 判定は barrierFreeTypeLabel（barrierFreeResults.js）と同一
  * （barrier=kerb か kerb タグがある）。
  */
@@ -48,6 +51,7 @@ export function roleOf(result) {
   if (isKerb && isSignal) return 'kerb+signal'
   if (isKerb) return 'kerb'
   if (isSignal) return 'signal'
+  if (tags.highway === 'crossing') return 'crossing'
   return 'other'
 }
 
@@ -83,6 +87,7 @@ export function barrierFreeToMapGeoJSON(results) {
           key,
           kind: 'way',
           name: r.name || null,
+          ...(r.tags?.footway === 'crossing' ? { crossing: true } : {}),
           // tactile は yes / no / null の3値に正規化（その他は未記録扱い）
           tactile: (r.bf.tactile === 'yes' || r.bf.tactile === 'no') ? r.bf.tactile : null
         }

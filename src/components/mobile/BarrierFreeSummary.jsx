@@ -41,7 +41,7 @@ export default function BarrierFreeSummary({ results }) {
         歩道 {s.ways} 件のうち点字ブロック登録あり {registered} 件（{registeredPct}%）
       </p>
 
-      {/* 積み上げ横バー: あり（緑）/ なし（濃い赤）/ 未記録（薄い赤）の幅比 */}
+      {/* 積み上げ横バー: あり（緑）/ なし（赤）/ 未記録（濃いグレー）の幅比 */}
       <div
         className="flex h-2.5 w-full overflow-hidden rounded-full"
         role="img"

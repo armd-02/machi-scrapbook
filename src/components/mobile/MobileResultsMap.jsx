@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useApp } from '../../context/AppContext'
 import { BASEMAP_STYLE } from '../../utils/mapStyle'
@@ -23,10 +23,9 @@ import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
  *   setMapInstance/getMapInstance には登録しない）。検索タブの地図と
  *   干渉しない。
  * - 操作可能（通常の MapLibre マップ）。ドラッグで移動し、ピンチ・
- *   ホイール・ダブルタップでズームできる。一覧タブの縦スクロール領域内に
- *   埋め込まれるが、タッチ操作は地図に渡る（interactive 既定値・
- *   pointer-events なし）。
- * - kind='poi'      → 結果を施設アイコン（symbolレイヤ）として表示
+ *   ホイール・ダブルタップでズームできる。検索結果画面では地図を一覧の
+ *   スクロール領域の外に置き、表示領域に収まるよう高さを制限する。
+ * - kind='poi'      → 白い円の上に施設アイコンを表示（circle + symbol レイヤ）
  *   kind='barrier_free' → 歩道を線・縁石/案内信号を点として表示
  *   （MapView と同じレイヤ定義・色を使うため、見た目が一致する）
  * - (アイコンピン) kind='poi': アイコン解決は施設カードと同じ getFacilityIcon /
@@ -35,12 +34,11 @@ import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
  *   施設アイコンで描画する。未解決・読込失敗の施設は青い点（MapView の
  *   POINT_LAYER_DEF と同じ見たみの circle レイヤ）で描画する。検索タブの地図
  *   （MapView）は従来どおり青い点のまま（アイコン化しない）。
- * - (修正) kind='poi': アイコン・フォールバック点のマーカータップで
+ * - (修正) kind='poi': アイコン・円の背景・フォールバック点のタップで
  *   onMarkerClick(result) プロパティを呼び出す（feature の key（type/id）から
  *   結果を解決してコールバックに渡す）。一覧タブ側はこれを受け、対応する施設
  *   カードへスクロールして選択状態にする（詳細シートは開かない）。
- *   kind='barrier_free' にはタップコールバックを設けない
- *   （従来どおりクリックでのポップアップ等も無い挙動を維持）
+ *   kind='barrier_free' の線・点も同じコールバックで対応カードへ移動する。
  * - 結果の範囲（extent）に fitBounds でカメラを合わせる。範囲が算出できない
  *   場合は前回の検索 bbox に合わせる。
  * - (修正) MobileShell は全タブを常時マウントし非活性タブに hidden を付けるため、
@@ -60,6 +58,8 @@ import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
  *   単純化する。
  * - 地図の高さを地図下のドラッグハンドルで変更できる（検索タブの地図と同じ
  *   useDraggableHeight）。範囲は160〜480px。既定の高さ・保存キーは kind で分ける:
+ *   （heightStorageKey prop が指定されていればそれを優先する。メモ帳一覧の
+ *   メモマップは mapHeight.memocho を使い、結果マップの高さと独立させる）:
  *   kind='poi' → 既定200px・キー mapHeight.results（従来どおり）
  *   kind='barrier_free' → 既定320px・キー mapHeight.resultsBf（POI地図のキーとは
  *   独立するため、POI側で小さくした高さがバリアフリー地図に引き継がれない）
@@ -78,14 +78,33 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 const DEFAULT_CENTER = [135.5023, 34.6937]
 const DEFAULT_ZOOM = 12
 
-// fitBounds の共通オプション（コンパクトな地図のため padding 24px・
-// maxZoom 16。duration 0 は再検索時のカメラ遷移を即時にするため）
+// 通常はズーム16まで。近接した検索結果がある場合は最大19まで拡大を許す。
 const FIT_OPTIONS = { padding: 24, maxZoom: 16, duration: 0 }
+const MAX_DENSE_ZOOM = 19
+const SELECTED_POI_MIN_ZOOM = 17
+const MARKER_DIAMETER_PX = 44
+const WORLD_SIZE_AT_FIT_ZOOM = 512 * 2 ** FIT_OPTIONS.maxZoom
 
 // 結果マップの高さの保存キー（検索タブの mapHeight.mobile とは独立）
 const RESULTS_MAP_HEIGHT_KEY = 'mapHeight.results'
 // (修正) バリアフリー結果マップ専用の高さ保存キー（POI地図のキーとは独立）
 const BF_RESULTS_MAP_HEIGHT_KEY = 'mapHeight.resultsBf'
+
+const HAS_POI_ICON = ['!=', ['get', 'icon'], '']
+
+// コミュニティマップメーカーと同じく、施設アイコンの下に白い円を重ねる。
+const POI_BACKGROUND_LAYER_DEF = {
+  id: 'poi-background',
+  type: 'circle',
+  source: POI_SOURCE_ID,
+  filter: HAS_POI_ICON,
+  paint: {
+    'circle-radius': ['step', ['zoom'], 14, 16, 17, 17, 20],
+    'circle-color': '#ffffff',
+    'circle-stroke-color': '#bfbfe1',
+    'circle-stroke-width': 2,
+  },
+}
 
 // (アイコンピン) properties.icon が空でない（= 画像の登録に成功した）機能を
 // 施設アイコンで描画する。アイコン画像は buildPoiIconGeoJSON が
@@ -95,10 +114,10 @@ const POI_ICON_LAYER_DEF = {
   id: 'poi-icon',
   type: 'symbol',
   source: POI_SOURCE_ID,
-  filter: ['!=', ['get', 'icon'], ''],
+  filter: HAS_POI_ICON,
   layout: {
     'icon-image': ['get', 'icon'],
-    'icon-size': 0.5, // 64px のアイコンを約32pxで描画
+    'icon-size': ['step', ['zoom'], 0.25, 16, 0.3125, 17, 0.375],
     'icon-allow-overlap': true,
   },
 }
@@ -119,11 +138,61 @@ const POI_FALLBACK_LAYER_DEF = {
   },
 }
 
-// map.loadImage(url, cb) を Promise 化する
-const loadImageAsync = (map, url) =>
-  new Promise((resolve, reject) =>
-    map.loadImage(url, (err, img) => (err ? reject(err) : resolve(img)))
-  )
+// 選択中の背景とアイコンを通常のピンより手前に重ねる。
+const SELECTED_POI_BACKGROUND = {
+  ...POI_BACKGROUND_LAYER_DEF,
+  id: 'poi-selected-background',
+  paint: {
+    ...POI_BACKGROUND_LAYER_DEF.paint,
+    'circle-color': '#93c5fd',
+    'circle-stroke-color': '#2563eb',
+  },
+}
+const SELECTED_POI_ICON = { ...POI_ICON_LAYER_DEF, id: 'poi-selected-icon' }
+const SELECTED_BF_LINE = {
+  ...BF_LINE_LAYER_DEF,
+  id: 'bf-selected-line',
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
+  paint: { 'line-color': '#2563eb', 'line-width': 8 },
+}
+const SELECTED_BF_NODE = {
+  ...BF_NODE_LAYER_DEF,
+  id: 'bf-selected-node',
+  paint: {
+    'circle-radius': 9,
+    'circle-color': '#93c5fd',
+    'circle-stroke-color': '#2563eb',
+    'circle-stroke-width': 2,
+  },
+}
+
+function selectedKeyFilter(selection) {
+  return ['==', ['get', 'key'], selection?.key ?? '']
+}
+
+function focusSelection(map, selection) {
+  const geometry = selection?.geometry
+  if (geometry?.type === 'LineString') {
+    const extent = extentOfGeoJSON({ features: [{ geometry }] })
+    if (extent) {
+      map.fitBounds([[extent.west, extent.south], [extent.east, extent.north]], {
+        padding: 24, maxZoom: 18, duration: 350
+      })
+    }
+    return
+  }
+  const [lon, lat] = geometry?.coordinates ?? [selection?.lon, selection?.lat]
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
+  map.easeTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), SELECTED_POI_MIN_ZOOM) })
+}
+
+// (修正) maplibre-gl v6 の map.loadImage(url) は Promise 専用API
+// （旧バージョンの loadImage(url, cb) コールバック形式は廃止）。戻り値は
+// { data } 形で、data が HTMLImageElement | ImageBitmap
+const loadImageAsync = async (map, url) => {
+  const res = await map.loadImage(url)
+  return res.data
+}
 
 /**
  * (アイコンピン) 結果バッチに必要なアイコンをマップへ登録し、各機能に
@@ -131,27 +200,27 @@ const loadImageAsync = (map, url) =>
  *
  * - アイコン解決は getFacilityIcon（施設カードと同じロジック・未対応は
  *   フォールバックアイコン）
- * - 未試行のアイコンのみを loadImage → addImage で並行読み込む（Promise.all）
- * - 読込成功/失敗は iconStatus（Map: アイコン名 → boolean）にキャッシュされ、
- *   再検索などで同じアイコンが再び出てきても再読込しない
+ * - 読み込み中の Promise をキャッシュし、連続で絞り込んでも同じ画像の登録を1回にする。
  */
-async function buildPoiIconGeoJSON(map, results, iconStatus) {
+async function buildPoiIconGeoJSON(map, results, iconLoads) {
   const rs = (Array.isArray(results) ? results : [])
     .filter((r) => !r.bf && r.lat != null && r.lon != null)
   if (rs.length === 0) return { type: 'FeatureCollection', features: [] }
 
   const icons = [...new Set(rs.map((r) => getFacilityIcon(r.tags || {})))]
-  await Promise.all(
-    icons.filter((icon) => !iconStatus.has(icon)).map(async (icon) => {
-      try {
-        const image = await loadImageAsync(map, facilityIconUrl(icon))
-        map.addImage(icon, image)
-        iconStatus.set(icon, true)
-      } catch {
-        iconStatus.set(icon, false)
-      }
-    })
-  )
+  const statuses = await Promise.all(icons.map((icon) => {
+    if (!iconLoads.has(icon)) {
+      const loading = loadImageAsync(map, facilityIconUrl(icon)).then((image) => {
+        // 縦長・横長の画像も長辺を基準に縮め、円の内側に収める。
+        const pixelRatio = Math.max(1, image.width / 64, image.height / 64)
+        map.addImage(icon, image, { pixelRatio })
+        return true
+      }).catch(() => false)
+      iconLoads.set(icon, loading)
+    }
+    return iconLoads.get(icon)
+  }))
+  const loadedIcons = new Set(icons.filter((_, index) => statuses[index]))
 
   return {
     type: 'FeatureCollection',
@@ -165,7 +234,7 @@ async function buildPoiIconGeoJSON(map, results, iconStatus) {
           id: r.id,
           key: `${r.type}/${r.id}`,
           name: r.name || null,
-          icon: iconStatus.get(icon) === true ? icon : '',
+          icon: loadedIcons.has(icon) ? icon : '',
         },
       }
     }),
@@ -216,10 +285,46 @@ function extentOfGeoJSON(fc) {
   return { west, south, east, north }
 }
 
-export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null }) {
+function poiFitOptions(features) {
+  if (features.length < 2) return FIT_OPTIONS
+  // ズーム16で円の直径より近いピンを、周辺のマスだけ調べて検出する。
+  // 同じ座標のピンはズームを上げても離れないので計算から除く。
+  const cells = new Map()
+  const seen = new Set()
+  const minDistance = MARKER_DIAMETER_PX / 2 ** (MAX_DENSE_ZOOM - FIT_OPTIONS.maxZoom)
+  let closest = MARKER_DIAMETER_PX
+  for (const { geometry: { coordinates } } of features) {
+    const [lon, lat] = coordinates
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) >= 90) continue
+    const id = coordinates.join(',')
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    const x = (lon / 360) * WORLD_SIZE_AT_FIT_ZOOM
+    const y = Math.asinh(Math.tan(lat * Math.PI / 180)) * WORLD_SIZE_AT_FIT_ZOOM / (2 * Math.PI)
+    const col = Math.floor(x / MARKER_DIAMETER_PX)
+    const row = Math.floor(y / MARKER_DIAMETER_PX)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const point of cells.get(`${col + dx},${row + dy}`) ?? []) {
+          closest = Math.min(closest, Math.hypot(x - point.x, y - point.y))
+          if (closest <= minDistance) return { ...FIT_OPTIONS, maxZoom: MAX_DENSE_ZOOM }
+        }
+      }
+    }
+    const cell = `${col},${row}`
+    if (!cells.has(cell)) cells.set(cell, [])
+    cells.get(cell).push({ x, y })
+  }
+  return { ...FIT_OPTIONS, maxZoom: FIT_OPTIONS.maxZoom + Math.log2(MARKER_DIAMETER_PX / closest) }
+}
+
+export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, onMapReady = null, selection = null, results = null, fitPoiDensity = results === null, bbox = null, heightStorageKey = null }) {
   const { state } = useApp()
-  const results = state.results || []
-  const bbox = state.bbox
+  // 検索結果の絞り込み後のデータやメモ帳のデータが渡されていれば優先する。
+  const poiResults = results ?? (state.results || [])
+  const poiBbox = bbox ?? state.bbox
+  const adjustPoiZoom = kind === 'poi' && fitPoiDensity
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const loadedRef = useRef(false)
@@ -230,11 +335,10 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
   // 初期コールバック（map の 'load' より前に必ず発火する）で実際の表示/非表示を
   // 反映する。非表示（display:none・幅高さ0）の間は fitBounds せず保留する。
   const visibleRef = useRef(true)
-  // 隠れている間に保留した fitBounds の対象範囲 [[sw],[ne]]（null で保留なし）
-  const pendingBoundsRef = useRef(null)
-  // (アイコンピン) アイコン画像の読込状態（アイコン名 → true=登録成功 /
-  // false=失敗）。マップ生成時に初期化し、再検索での再読込を防ぐ
-  const iconStatusRef = useRef(new Map())
+  // 隠れている間に保留した表示範囲とズーム設定。
+  const pendingFitRef = useRef(null)
+  // マップごとのアイコン読込 Promise（アイコン名 → 登録に成功したか）。
+  const iconLoadsRef = useRef(new Map())
   // (アイコンピン) applyData の実行番号。非同期のアイコン読込中に新しい
   // applyData が始まったら、古い方の setData をスキップする
   const applySeqRef = useRef(0)
@@ -253,18 +357,35 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
     defaultHeight: isBarrierFree ? 320 : 200,
     minHeight: 160,
     maxHeight: 480,
-    storageKey: isBarrierFree ? BF_RESULTS_MAP_HEIGHT_KEY : RESULTS_MAP_HEIGHT_KEY,
+    storageKey: heightStorageKey || (isBarrierFree ? BF_RESULTS_MAP_HEIGHT_KEY : RESULTS_MAP_HEIGHT_KEY),
+    getRenderedHeight: () => containerRef.current?.clientHeight,
     onResize: handleMapResize
   })
 
   useEffect(() => {
-    latestRef.current = { results, bbox }
-  }, [results, bbox])
+    latestRef.current = { results: poiResults, bbox: poiBbox }
+  }, [poiResults, poiBbox])
 
   // (修正) onMarkerClick の最新値。イベントハンドラは地図生成時に一度だけ
   // 登録されるため、旧クロージャを防ぐために ref 経由で読む（MapView と同様）
   const onMarkerClickRef = useRef(onMarkerClick)
   useEffect(() => { onMarkerClickRef.current = onMarkerClick }, [onMarkerClick])
+
+  const selectionRef = useRef(selection)
+  useEffect(() => {
+    selectionRef.current = selection
+    if (!loadedRef.current) return
+    const map = mapRef.current
+    const filter = selectedKeyFilter(selection)
+    if (kind === 'barrier_free') {
+      map.setFilter(SELECTED_BF_LINE.id, ['all', SELECTED_BF_LINE.filter, filter])
+      map.setFilter(SELECTED_BF_NODE.id, ['all', SELECTED_BF_NODE.filter, filter])
+    } else {
+      map.setFilter(SELECTED_POI_BACKGROUND.id, filter)
+      map.setFilter(SELECTED_POI_ICON.id, ['all', HAS_POI_ICON, filter])
+    }
+    if (visibleRef.current) focusSelection(map, selection)
+  }, [kind, selection])
 
   // 最新の結果をソースに反映し、結果範囲にカメラを合わせる
   // (修正) fitBounds はコンテナに実際の表示サイズがあるときだけ行う。
@@ -279,8 +400,8 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
     // （非同期）。バリアフリーは従来どおり
     const fc = kind === 'barrier_free'
       ? barrierFreeToMapGeoJSON(rs)
-      : await buildPoiIconGeoJSON(map, rs, iconStatusRef.current)
-    if (seq !== applySeqRef.current) return // 新しい applyData に引き継ぐ
+      : await buildPoiIconGeoJSON(map, rs, iconLoadsRef.current)
+    if (seq !== applySeqRef.current || map !== mapRef.current) return
     const source = map.getSource(sourceId)
     if (source) source.setData(fc)
 
@@ -293,15 +414,15 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
       target = [[bb.west, bb.south], [bb.east, bb.north]]
     }
 
-    const visible = visibleRef.current
-    if (target && visible) {
-      map.fitBounds(target, FIT_OPTIONS)
-      pendingBoundsRef.current = null
+    const fitOptions = adjustPoiZoom ? poiFitOptions(fc.features) : FIT_OPTIONS
+    if (target && visibleRef.current) {
+      map.fitBounds(target, fitOptions)
+      focusSelection(map, selectionRef.current)
+      pendingFitRef.current = null
     } else {
-      // 隠れている（または対象範囲なし）間はフィットを保留
-      pendingBoundsRef.current = target
+      pendingFitRef.current = target ? { target, fitOptions } : null
     }
-  }, [kind])
+  }, [kind, adjustPoiZoom])
 
   // マップ生成（kind 変化時は remount されるため、ここでは kind ごとに
   // 必要なソース/レイヤだけを作る）
@@ -325,33 +446,39 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
     loadedRef.current = false
     // (アイコンピン) 新マップのためアイコン読込状態を初期化（旧マップで登録した
     // 画像は新マップには存在しないため、再読込が必要）
-    iconStatusRef.current = new Map()
+    iconLoadsRef.current = new Map()
 
     map.on('load', () => {
       loadedRef.current = true
+      onMapReady?.(map)
+      const filter = selectedKeyFilter(selectionRef.current)
+      let clickableLayers
       if (kind === 'barrier_free') {
         map.addSource(BF_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
         map.addLayer(BF_LINE_LAYER_DEF)
         map.addLayer(BF_NODE_LAYER_DEF)
+        map.addLayer({ ...SELECTED_BF_LINE, filter: ['all', SELECTED_BF_LINE.filter, filter] })
+        map.addLayer({ ...SELECTED_BF_NODE, filter: ['all', SELECTED_BF_NODE.filter, filter] })
+        clickableLayers = [BF_LINE_LAYER_DEF.id, BF_NODE_LAYER_DEF.id, SELECTED_BF_LINE.id, SELECTED_BF_NODE.id]
       } else {
         map.addSource(POI_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
-        // (アイコンピン) 施設アイコン（symbol）＋読込失敗時のフォールバック点
-        // （circle・MapView の POINT_LAYER_DEF と同じ見た目）
+        map.addLayer(POI_BACKGROUND_LAYER_DEF)
         map.addLayer(POI_ICON_LAYER_DEF)
         map.addLayer(POI_FALLBACK_LAYER_DEF)
-        // マーカータップ → onMarkerClick。アイコン・フォールバックの両レイヤに
-        // 同じハンドラを付ける（2つの filter は排他的なので重複しない）。
-        const handlePoiClick = (e) => {
-          const key = e.features?.[0]?.properties?.key
-          if (!key) return
-          const result = latestRef.current.results.find((r) => `${r.type}/${r.id}` === key)
-          if (!result) return
-          const cb = onMarkerClickRef.current
-          if (cb) cb(result)
-        }
-        map.on('click', POI_ICON_LAYER_DEF.id, handlePoiClick)
-        map.on('click', POI_FALLBACK_LAYER_DEF.id, handlePoiClick)
+        map.addLayer({ ...SELECTED_POI_BACKGROUND, filter })
+        map.addLayer({ ...SELECTED_POI_ICON, filter: ['all', HAS_POI_ICON, filter] })
+        clickableLayers = [
+          POI_ICON_LAYER_DEF.id, POI_BACKGROUND_LAYER_DEF.id, POI_FALLBACK_LAYER_DEF.id,
+          SELECTED_POI_BACKGROUND.id, SELECTED_POI_ICON.id
+        ]
       }
+      // 重なったレイヤをタップしても選択は1回にする。
+      map.on('click', clickableLayers, (event) => {
+        const key = event.features?.[0]?.properties?.key
+        if (!key) return
+        const result = latestRef.current.results.find((r) => `${r.type}/${r.id}` === key)
+        if (result) onMarkerClickRef.current?.(result)
+      })
       applyData()
     })
 
@@ -378,9 +505,11 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
         if (isVisible && !wasVisible) {
           // 0サイズ→表示 遷移: 再描画 ＋ 保留フィットの実行
           m.resize()
-          if (pendingBoundsRef.current) {
-            m.fitBounds(pendingBoundsRef.current, FIT_OPTIONS)
-            pendingBoundsRef.current = null
+          if (pendingFitRef.current) {
+            const { target, fitOptions } = pendingFitRef.current
+            m.fitBounds(target, fitOptions)
+            focusSelection(m, selectionRef.current)
+            pendingFitRef.current = null
           }
         } else if (isVisible && wasVisible) {
           // 表示サイズ同士（高さドラッグ等）: resize のみ（再フィットしない）
@@ -392,6 +521,7 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
 
     return () => {
       if (ro) ro.disconnect()
+      onMapReady?.(null)
       map.remove()
       mapRef.current = null
       loadedRef.current = false
@@ -400,10 +530,10 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind])
 
-  // 結果変化（再検索など）時はソース更新 + 範囲に再配置
+  // 結果変化（再検索・フィルタ変更など）時はソース更新 + 範囲に再配置
   useEffect(() => {
     applyData()
-  }, [results, bbox, applyData])
+  }, [poiResults, poiBbox, applyData])
 
   const label = kind === 'barrier_free' ? 'バリアフリー要素マップ' : '検索結果マップ'
   // ラウンド枠（rounded-lg）は地図+ハンドルの外側wrapperに持ち、
@@ -416,7 +546,7 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null })
         role="application"
         aria-label={label}
         className={isBarrierFree ? 'h-[320px] bg-slate-100' : 'h-[200px] bg-slate-100'}
-        style={mapHeight.containerStyle}
+        style={{ ...mapHeight.containerStyle, maxHeight: 'var(--results-map-max-height, none)' }}
       />
       {/* 高さドラッグハンドル（検索タブの地図と同一のフック・見た目） */}
       <div

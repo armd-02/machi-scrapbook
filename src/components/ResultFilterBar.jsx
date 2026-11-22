@@ -25,7 +25,7 @@ import { cuisineLabelOf, normalizeWheelchair } from '../utils/resultFilters'
 
 const FIELD_CLASS =
   'px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
-const CHIP_BASE = 'min-h-[44px] px-3 text-xs font-medium rounded-full border transition-colors'
+const CHIP_BASE = 'min-h-[44px] min-w-0 break-words px-2 py-2 text-xs font-medium rounded-lg border transition-colors'
 const CHIP_SELECTED = 'bg-primary-600 text-white border-primary-600'
 const CHIP_UNSELECTED = 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
 
@@ -33,9 +33,6 @@ const CHIP_UNSELECTED = 'bg-white text-slate-600 border-slate-200 hover:bg-slate
 
 /** 1行1コントロールの共通行クラス（見出しとコントロールを横に並べる） */
 const ROW_CLASS = 'min-h-[44px] flex items-center gap-2'
-/** チップ群を1行で横スクロールさせる（改行しない）。スクロールバーは隠す */
-const CHIP_SCROLL_CLASS =
-  'flex-1 min-w-0 flex gap-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none]'
 /** 行内見出しのクラス（縦積みの HEADING_CLASS と同じ style token を含み、幅・padding を落とす） */
 const INLINE_HEADING_CLASS =
   'shrink-0 flex items-center gap-1.5 min-h-[44px] text-sm font-medium text-slate-700'
@@ -408,7 +405,7 @@ export function RatingStarsRow({ value, onChange, filter = 'rating', className =
  *
  * - 初期状態は折りたたみ（チップ群非表示）。トグル（「料理ジャンル」＋開閉表示）は
  *   常に表示され、タップでチップ群を展開／収納する（トグルに aria-expanded）。
- * - 展開中はトグルと同じ行の右側にチップ群を横スクロールで出す（1行で収める）。
+ * - 展開中はトグルの下にチップを並べる。表示領域の幅で2列と3列を切り替える。
  * - facets が空（料理タグのある結果・アイテムが無い）ときは、見出し行も含め行ごと非表示。
  * - チップ自体の挙動（単一選択・再タップで解除・件数表示）は従来どおり。
  *
@@ -433,13 +430,12 @@ export function CuisineChips({ facets, value, onChange }) {
   }
 
   return (
-    <div className={ROW_CLASS}>
-      {/* トグル: 常時表示。選択中ジャンルのラベルもここで出す（shrink-0 で幅固定） */}
+    <div className="@container/cuisine space-y-2">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="shrink-0 min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+        className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
         <span className="flex items-center gap-2 min-w-0">
           <span aria-hidden="true" className="shrink-0 leading-none">{FILTER_META.cuisine.icon}</span>
@@ -448,7 +444,11 @@ export function CuisineChips({ facets, value, onChange }) {
         <span className="shrink-0 text-xs text-slate-500">{open ? '折りたたむ' : '展開'}</span>
       </button>
       {open && (
-        <div className={CHIP_SCROLL_CLASS} role="group" aria-label="料理ジャンル">
+        <div
+          className="grid grid-cols-[repeat(2,minmax(min(7rem,40%),1fr))] gap-2 @[24rem]/cuisine:grid-cols-[repeat(3,minmax(7rem,1fr))]"
+          role="group"
+          aria-label="料理ジャンル"
+        >
           {facets.map((f) => (
             <FilterChip
               key={f.value}

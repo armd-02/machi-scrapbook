@@ -215,6 +215,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     // 公園2 + スポーツ1 + 博物館1 + 寺院神社2 + 宿泊2 = 8条件
     expect(filters).toHaveLength(8)
     expect(filters).toContain('leisure~"^(park|playground|garden|pitch)$"')
+    expect(filters).toContain('leisure~"^(sports_centre|stadium|swimming_pool|pitch|golf_course|tennis_court|basketball_court|volleyball_court|dance)$"')
     expect(filters).toContain('amenity=plaza')
     expect(filters).toContain('amenity=place_of_worship')
     expect(filters).toContain('building=hotel')

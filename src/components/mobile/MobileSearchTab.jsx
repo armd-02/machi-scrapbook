@@ -9,6 +9,7 @@ import { matchNearbyCandidates } from '../../utils/nearbyCandidates'
 import { loadStationFile, stationFileToCandidates, matchStationCandidates, combineSuggestCandidates, unifySuggestCandidates } from '../../utils/stationCandidates'
 import { useNearbyPlaceCandidates } from '../../hooks/useNearbyPlaceCandidates'
 import { loadMunicipalities, matchMunicipalities, exactMatchMunicipalities, municipalityToCandidate } from '../../utils/municipalities'
+import { loadPlaceHistory, rememberPlace } from '../../utils/placeHistory'
 import SimpleSearch from '../SimpleSearch'
 import MunicipalitySearch from '../MunicipalitySearch'
 import AdvancedSearch from '../AdvancedSearch'
@@ -99,6 +100,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // (#63) 場所指定（クイックトップの地名入力）。親コンポーネントがview切替に
   // 関係なく同じインスタンスを維持するため、入力状態はこのコンポーネントが保持する
   const [placeQuery, setPlaceQuery] = useState('')
+  const [placeFocused, setPlaceFocused] = useState(false)
+  const [placeHistory, setPlaceHistory] = useState(loadPlaceHistory)
   const [searchError, setSearchError] = useState(null)
   // 検索エリアとして設定した場所の表示名（成功フィードバック用）
   const [areaName, setAreaName] = useState(null)
@@ -152,8 +155,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 地名入力欄フォーカス時: 周辺候補の現在位置取得・Overpass キャッシュ
   // （nearby.request）。駅ファイルはトップ表示時に読み込むためここではしない
   const handlePlaceFocus = useCallback(() => {
+    setPlaceFocused(true)
     nearby.request()
   }, [nearby.request])
+  const handlePlaceBlur = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setPlaceFocused(false)
+  }
 
   // (top) トップ表示時に自治体データと全国駅ファイルを読み込む。
   // 両方ともモジュールキャッシュで二重取得しない（loadMunicipalities は
@@ -217,6 +224,19 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 「地名検索」を再度押したときは、geocode せず設定済みエリアを再利用する
   // （複数候補の提示→選択→再度「地名検索」の流れで、提示がループしないように）
   const [areaSetQuery, setAreaSetQuery] = useState(null)
+
+  const confirmPlace = ({ query, displayName, bbox }) => {
+    dispatch({ type: 'SET_BBOX', payload: bbox })
+    setAreaName(displayName)
+    setPlaceAreaSet(true)
+    setPlaceQuery(displayName)
+    setAreaSetQuery(displayName)
+    setSearchError(null)
+    setSuggestCandidates([])
+    setMuniSuggest([])
+    setPendingCandidates(null)
+    setPlaceHistory(rememberPlace(placeHistory, { query, displayName, bbox }))
+  }
 
   // (top) 目的タイル → 検索条件（handleTopSearch と自治体セクションへの引き継ぎで共用）
   const tileConditions = (tile) => (tile.purpose
@@ -342,14 +362,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       if (exact.length === 1) {
         const result = municipalityToCandidate(exact[0])
         const areaBbox = searchAreaFromGeocode(result)
-        dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'municipality' } })
-        setAreaName(result.displayName)
-        setPlaceAreaSet(true)
-        // 候補の表示名（displayName）を入力欄に入れる（何が確定したか欄から分かるように）。
-        // areaSetQuery も同じ文字列に更新し、「同じ地名のエリアが既に設定済みなら
-        // 何もしない」のショートカットが働き続ける
-        setPlaceQuery(result.displayName)
-        setAreaSetQuery(result.displayName)
+        confirmPlace({ query: q, displayName: result.displayName, bbox: { ...areaBbox, source: 'municipality' } })
         return
       }
       if (exact.length >= 2) {
@@ -391,13 +404,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         return
       }
       const areaBbox = searchAreaFromGeocode(result)
-      dispatch({ type: 'SET_BBOX', payload: { ...areaBbox, source: 'geocode' } })
-      setAreaName(result.displayName)
-      setPlaceAreaSet(true)
-      // 候補1件で確定: その表示名（displayName）を入力欄に入れる
-      // （areaSetQuery も同じ文字列に更新し、再「地名検索」のショートカットを保つ）
-      setPlaceQuery(result.displayName)
-      setAreaSetQuery(result.displayName)
+      confirmPlace({ query: q, displayName: result.displayName, bbox: { ...areaBbox, source: 'geocode' } })
     } catch (error) {
       setSearchError(error.message || '地名検索に失敗しました')
     } finally {
@@ -504,23 +511,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     )
     // 候補の由来: 自治体（静的データ由来 kind='自治体'・市区町村レベルのaddresstype）→
     // 'municipality'、それ以外（Nominatim・周辺Overpassキャッシュ由来）→ 'geocode'
-    dispatch({
-      type: 'SET_BBOX',
-      payload: {
+    confirmPlace({
+      query: placeQuery.trim() || candidate.displayName,
+      displayName: candidate.displayName,
+      bbox: {
         ...areaBbox,
         source: isMunicipalityCandidate(candidate) ? 'municipality' : 'geocode'
       }
     })
-    setAreaName(candidate.displayName)
-    setPlaceAreaSet(true)
-    // 候補の表示名（displayName）を入力欄に入れる（何が選ばれたか欄から分かるように）。
-    // areaSetQuery も同じ文字列に更新し、「同じ地名のエリアが既に設定済みなら
-    // 何もしない」のショートカットが働き続ける
-    setPlaceQuery(candidate.displayName)
-    setAreaSetQuery(candidate.displayName)
-    setSuggestCandidates([])
-    setMuniSuggest([])
-    setPendingCandidates(null)
   }
 
   // (#xx) 場所入力欄のキー操作: Enter で「地名検索」実行（geocode→エリア設定）、
@@ -650,9 +648,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 現在位置（nearby.center）が分かっている場合は3種を合せて距離の近い順、
   // 分からない場合は現行の並び（自治体→駅・周辺）を維持。選択待ちなら
   // pendingCandidates を表示
-  const unifiedSuggest = pendingCandidates
-    ? pendingCandidates
-    : unifySuggestCandidates(muniSuggest, suggestCandidates, nearby.center)
+  const showHistory = placeFocused && !placeQuery.trim() && placeHistory.length > 0
+  const unifiedSuggest = showHistory
+    ? placeHistory.map((entry) => ({
+        ...entry,
+        label: entry.query === entry.displayName ? entry.query : `${entry.query}（${entry.displayName}）`,
+      }))
+    : pendingCandidates ?? unifySuggestCandidates(muniSuggest, suggestCandidates, nearby.center)
+  const candidatesHeading = showHistory
+    ? '最近使った地名'
+    : pendingCandidates ? '候補が複数あります。選んでください。' : null
+  const onPlaceSelect = showHistory ? confirmPlace : handleCandidateSelect
 
   // (#xx) 地図モードの場所入力用候補（トップの QuickTopIntro と同じ組み立て）
   const mapCandidates = unifiedSuggest
@@ -732,7 +738,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
             で確定→緑＋フィードバック）。確定場所は検索エリア（state.bbox）になり、
             地図がその範囲にfitし青い矩形が描画される。入力をクリアすると矩形が消え、
             地図の表示範囲で検索する（AreaCard が「地図の現在表示範囲」を表示） */}
-        <div className="space-y-2">
+        <div className="space-y-2" onBlur={handlePlaceBlur}>
           <PlaceNameInput
             value={placeQuery}
             onChange={handlePlaceQueryChange}
@@ -749,8 +755,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
           {mapCandidates.length > 0 && (
             <GeocodeCandidateList
               candidates={mapCandidates}
-              heading={pendingCandidates ? '候補が複数あります。選んでください。' : null}
-              onSelect={handleCandidateSelect}
+              heading={candidatesHeading}
+              onSelect={onPlaceSelect}
               disabled={state.status === 'loading'}
             />
           )}
@@ -795,6 +801,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               onPlaceQueryChange={handlePlaceQueryChange}
               onGeocode={handleGeocodePlace}
               onFocus={handlePlaceFocus}
+              onPlaceBlur={handlePlaceBlur}
               geocodeDisabled={geocoding}
               searchError={searchError}
               stationError={stationError}
@@ -802,8 +809,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               geocoding={geocoding}
               disabled={state.status === 'loading'}
               candidates={unifiedSuggest}
-              candidatesHeading={pendingCandidates ? '候補が複数あります。選んでください。' : null}
-              onCandidateSelect={handleCandidateSelect}
+              candidatesHeading={candidatesHeading}
+              onCandidateSelect={onPlaceSelect}
             />
 
             {/* (top) 「都道府県から探す」入口: 折りたたみセクション（既定は閉じた状態、見出しタップで開閉）

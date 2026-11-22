@@ -141,14 +141,13 @@ export default function MobileShell() {
           />
         </div>
         <div className="absolute inset-0" {...panelProps('list')}>
-          <MobileListTab onOpenDetail={openDetail} />
+          <MobileListTab />
         </div>
         <div className="absolute inset-0" {...panelProps('memo')}>
-          {/* まちメモ帳: 独立タブ。カードタップで施設詳細シートを開く。
+          {/* まちメモ帳: 独立タブ。
               view/onViewChange: ヘッダーメニューの「ごみ箱」と連動したサブビュー */}
           <div className="h-full overflow-y-auto">
             <MemochoSection
-              onOpenDetail={openDetail}
               view={state.memochoView}
               onViewChange={(v) => dispatch({ type: 'SET_MEMOCHO_VIEW', payload: v })}
             />

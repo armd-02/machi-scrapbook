@@ -24,7 +24,7 @@ describe('queueThumb（逐次キュー＋メモリキャッシュ）', () => {
   it('サムネイルを生成して dataURL を返す', async () => {
     mapCapture.captureMapImage.mockResolvedValue('data:image/jpeg;base64,AAA')
     const p = queueThumb('node/1', 34.8, 135.5)
-    await vi.waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledWith(34.8, 135.5))
+    await vi.waitFor(() => expect(mapCapture.captureMapImage).toHaveBeenCalledWith(34.8, 135.5, 17))
     await expect(p).resolves.toBe('data:image/jpeg;base64,AAA')
   })
 

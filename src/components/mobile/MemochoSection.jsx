@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import MobileFacilityCard from './MobileFacilityCard'
 import MemochoTrash from './MemochoTrash'
+import CollapsibleResultsMap from './CollapsibleResultsMap'
 import { useMemocho } from '../../hooks/useMemocho'
+import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 import { memochoKeyOf, activeItems } from '../../utils/memocho'
 import { captureMapImage } from '../../utils/mapCapture'
 import { linkifySegments } from '../../utils/linkify'
@@ -15,9 +17,8 @@ import {
 /**
  * (まちメモ帳 第3ピース) まちメモ帳セクション
  *
- * モバイル「その他」タブの先頭に置く。保存済みの施設を
- * MobileFacilityCard と同じ見た目のカードで一覧表示する（スナップショットを
- * result として渡す）。カードタップで施設詳細シートが開く（onOpenDetail prop）。
+ * 保存済みの施設を検索結果と同じ MobileFacilityCard で表示する。
+ * 施設情報やサムネイルのタップでメモマップのピンを選択する。
  *
  * - 各カードに複数行メモ欄: 未編集中は表示モード（改行を保持して描画し、http(s)://
  *   URL を target=_blank のリンク化）、タップで編集モード（複数行 textarea）に切替、
@@ -57,7 +58,7 @@ import {
  *     （右側の固定幅スロットは常時確保されるため、表示・非表示でレイアウトがずれない）
  */
 
-// リンクタップ時のイベント伝播を止める（編集モードへの切替・詳細シート展開を防止）
+// メモのリンクを押してもメモの編集モードに切り替えない。
 const stopMemoLink = (e) => e.stopPropagation()
 
 /**
@@ -89,7 +90,7 @@ const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細
 // 地図サムネイルの生成を試行済みのキー（セッション内のみ。失敗の再試行防止）
 const attemptedMapKeys = new Set()
 
-export default function MemochoSection({ onOpenDetail, view = 'list', onViewChange }) {
+export default function MemochoSection({ view = 'list', onViewChange }) {
   // items = 全件（アクティブ＋ごみ箱）/ active = アクティブ（deletedAt 無し）のみ
   const {
     items, active, trashItems: trashList,
@@ -109,13 +110,35 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
     [items, memoFilters]
   )
 
-  // 料理ジャンルの選択肢: アクティブアイテム（フィルタ適用前）の tags.cuisine を集計
-  const cuisineFacets = useMemo(() => cuisineFacetValues(activeItems(items)), [items])
+  const cuisineFacets = useMemo(() => cuisineFacetValues(
+    applyMemochoFilters(activeItems(items), { ...memoFilters, cuisine: '' }),
+    10,
+    memoFilters.cuisine,
+  ), [items, memoFilters])
 
   // いずれかの条件が有効なら「絞り込み中」（純粋関数 isMemoFilterActive）
   const filtersActive = isMemoFilterActive(memoFilters)
 
   const resetMemoFilters = () => setMemoFilters(DEFAULT_MEMO_FILTERS)
+
+  // (メモマップ) ピンになるのは座標を持つアイテムのみ（無いものはカードだけ表示）
+  const mapItems = useMemo(
+    () => filtered.filter((it) => it.lat != null && it.lon != null),
+    [filtered]
+  )
+
+  const { selection, selectedKey, selectFacility, selectPin } = useFacilityMapSelection(filtered)
+
+  // メモマップのピンタップ: カードが表示されているならスクロールして選択する。
+  // カードが非表示（フィルタ除外）なら何もしない。
+  const handlePinSelect = useCallback((item) => {
+    const key = selectPin(item)
+    if (!key) return
+    const el = document.getElementById(`memocho-card-${key}`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [selectPin])
 
   // 地図サムネイル: 座標があり未生成のアイテムを1件ずつ順番に生成して保存する。
   // 失敗したアイテムはセッション内では再試行しない（attemptedMapKeys）。
@@ -243,6 +266,22 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
         </div>
       )}
 
+      {/* (メモマップ) 現在表示中のアイテム（フィルタ適用後）を施設アイコンピンで表示。
+          検索結果マップと同じ折りたたみ式（既定は折りたたみ・地図非表示）。
+          ピンタップで対応カードへスクロール＋選択。座標を持つアイテムが
+          1件以上あるときだけ表示される（ごみ箱ビューには地図を出さない） */}
+      {mapItems.length > 0 && (
+        <div className="px-3 pb-2">
+          <CollapsibleResultsMap
+            title="メモマップ"
+            results={mapItems}
+            onMarkerClick={handlePinSelect}
+            selection={selection}
+            heightStorageKey="mapHeight.memocho"
+          />
+        </div>
+      )}
+
       {/* 一覧（0件のときは案内文、絞り込みで0件のときはリセット案内） */}
       <div className="px-3 pb-3">
         {active.length === 0 ? (
@@ -266,13 +305,14 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
               <MemochoCard
                 key={memochoKeyOf(item)}
                 item={item}
-                onOpenDetail={onOpenDetail}
+                onSelect={selectFacility}
                 draft={memoDrafts[memochoKeyOf(item)]}
                 onDraftChange={onDraftChange}
                 onDraftCommit={onDraftCommit}
                 onSetRating={setRating}
                 // 論理削除: deletedAt を付けてごみ箱へ移動する
                 onRemove={trashItem}
+                selected={selectedKey === memochoKeyOf(item)}
               />
             ))}
           </div>
@@ -285,7 +325,7 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
 /**
  * 登録済み1件分のカード: MobileFacilityCard（同じ見た目）＋評価行＋メモ欄。
  *
- * - カード本体タップで施設詳細シートが開く（onOpenDetail）。地図サムネイルのタップでも開く
+ * - 施設部分とサムネイルは MobileFacilityCard で選択する。
  * - 評価行（星5つ）はメモ欄の上に置く。タップでその値を設定し、現在の値と
  *   同じ星をタップすると 0（未評価）に解除される。状態は aria-pressed で表現する
  * - 右上の✕は2段階確認: 1回目で「削除しますか？（ごみ箱へ移動します）」の確認
@@ -293,14 +333,14 @@ export default function MemochoSection({ onOpenDetail, view = 'list', onViewChan
  *   （window.confirm は使わない。HeaderMenu の全消去と同じ方式）
  * - メモ欄は表示モード/編集モードの2状態: 未編集中（draft なし）はメモ文字を
  *   表示モードで描画（改行保持・http(s):// URL を target=_blank のリンク化、
- *   リンクタップは stopPropagation で詳細シート・編集開始を防止）。表示をタップ
+ *   リンクタップは stopPropagation で編集開始を防止）。表示をタップ
  *   すると編集モード（複数行 textarea・現在の値からドラフト開始・textarea は
  *   自動フォーカスされ従来の input と同等に編集が開始される）に切替し、
  *   フォーカスを外したとき（onBlur）に onDraftCommit 経由で setMemo されて確定し表示モードに戻る。
  *   評価行・メモ欄はカード枠の中に置くが、施設カード本体（クリック領域）の
- *   外に置くことで、編集操作が詳細シートの開閉に伝播しない。
+ *   外に置くことで、編集操作がピン選択に伝播しない。
  */
-function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, onSetRating, onRemove }) {
+function MemochoCard({ item, onSelect, draft, onDraftChange, onDraftCommit, onSetRating, onRemove, selected = false }) {
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
   const rating = item.rating ?? 0 // 旧データ（rating 無し）は未評価として扱う
@@ -317,7 +357,12 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
   }, [isEditing])
 
   return (
-    <div className="relative bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <div
+      id={`memocho-card-${key}`}
+      className={`relative bg-white border rounded-xl shadow-sm overflow-hidden ${
+        selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'
+      }`}
+    >
       {/* 2段階確認中: 上部に確認帯を表示（カード内容を押下して配置） */}
       {confirmDelete && (
         <div className="flex items-center gap-1.5 bg-red-50 border-b border-red-200 px-2 py-1.5">
@@ -343,29 +388,14 @@ function MemochoCard({ item, onOpenDetail, draft, onDraftChange, onDraftCommit, 
           </button>
         </div>
       )}
-      <div className="flex items-stretch">
-        <div className={`flex-1 min-w-0 ${item.mapImage ? '' : 'pr-8'}`}>
-          <MobileFacilityCard
-            bare
-            hideMemoToggle
-            result={item}
-            onOpen={(res) => onOpenDetail && onOpenDetail(res, 'memocho')}
-          />
-        </div>
-        {item.mapImage && (
-          <div
-            className="relative shrink-0 w-[120px] cursor-pointer"
-            role="button"
-            aria-label={`${item.name}の詳細を表示`}
-            onClick={() => onOpenDetail && onOpenDetail(item, 'memocho')}
-          >
-            <img src={item.mapImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
-            <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
-              © OpenStreetMap contributors
-            </span>
-          </div>
-        )}
-      </div>
+      <MobileFacilityCard
+        bare
+        hideMemoToggle
+        showMapThumb
+        mapImage={item.mapImage ?? null}
+        result={item}
+        onSelect={onSelect}
+      />
       {!confirmDelete && (
         <button
           type="button"

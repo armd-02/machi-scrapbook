@@ -134,7 +134,7 @@ describe('BarrierFreeSummary: 積み上げ横バー', () => {
     const colors = [...segments].map((el) => el.style.backgroundColor)
     expect(colors[0]).toBe('rgb(22, 163, 74)')   // yes: 緑 (#16a34a)
     expect(colors[1]).toBe('rgb(220, 38, 38)')   // no: 濃い赤 (#dc2626)
-    expect(colors[2]).toBe('rgb(248, 113, 113)') // unknown: 薄い赤 (#f87171)
+    expect(colors[2]).toBe('rgb(71, 85, 105)') // unknown: 濃いグレー (#475569)
   })
 
   it('該当が0件の区画は描画しない', () => {

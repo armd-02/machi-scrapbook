@@ -31,6 +31,7 @@ export function buildBarrierFreeQuery(bbox) {
     ');',
     'out geom;',
     '(',
+    `  node[highway=crossing](${bboxStr});`,
     `  node[barrier=kerb](${bboxStr});`,
     `  node[kerb](${bboxStr});`,
     `  node["traffic_signals:sound"](${bboxStr});`,

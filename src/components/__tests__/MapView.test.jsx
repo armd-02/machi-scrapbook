@@ -28,7 +28,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock({ autoLoad: false })
-  return { default: mockState.api }
+  return mockState.api
 })
 
 class MockResizeObserver { observe() {} unobserve() {} disconnect() {} }
@@ -340,6 +340,8 @@ describe('#38: プレーンテキストポップアップ（HTML注入対策）'
     expect(nameEl.textContent).toBe('<script>alert(1)</script>')
     expect(nameEl.innerHTML).not.toContain('<script>')
     expect(popup._element.querySelector('script')).toBeNull()
+    const links = popup._element.querySelectorAll('a')
+    expect(Array.from(links, (link) => link.href)).toEqual(['https://www.openstreetmap.org/node/9001'])
   })
 
   it('結果が更新されると旧ポップアップは閉じる', () => {

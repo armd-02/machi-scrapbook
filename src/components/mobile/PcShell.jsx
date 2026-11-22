@@ -42,7 +42,7 @@ export default function PcShell() {
   const [mode, setMode] = useState('main')
   // 右ペインの内容: 'list' | 'memo'（初期: メモ帳）
   const [rightTab, setRightTab] = useState('memo')
-  // 施設詳細シートの状態 { result, origin }（origin: 'map' | 'list' | 'memocho'）
+  // 施設詳細シートの状態 { result, origin }
   const [detail, setDetail] = useState(null)
   // MobileShell と同じく、検索タブの表示（'top' | 'form'）をシェル側が持つ。
   // 検索成功で右ペインが一覧へ切替されても左ペインの状態は保持される
@@ -188,12 +188,11 @@ export default function PcShell() {
           className="flex-1 min-w-0 min-h-0 relative"
         >
           <div data-testid="pc-right-list" hidden={rightTab !== 'list'} className="absolute inset-0">
-            <MobileListTab onOpenDetail={openDetail} />
+            <MobileListTab />
           </div>
           <div data-testid="pc-right-memo" hidden={rightTab !== 'memo'} className="absolute inset-0">
             <div className="h-full overflow-y-auto">
               <MemochoSection
-                onOpenDetail={openDetail}
                 view={state.memochoView}
                 onViewChange={(v) => dispatch({ type: 'SET_MEMOCHO_VIEW', payload: v })}
               />

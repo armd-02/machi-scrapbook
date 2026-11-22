@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { getMapInstance } from '../hooks/useMapRef'
-import { buildIdMapUrl, buildNoteUrl } from '../utils/editLinks'
+import { buildNoteUrl } from '../utils/editLinks'
 
 /**
- * OSM編集・Note作成の導線
+ * OSM地図の確認・Note作成の導線
  * 検索結果が0件または候補が不十分な場合に表示
  */
 function EditPanel() {
@@ -30,14 +30,12 @@ function EditPanel() {
     return { lat: 34.6937, lon: 135.5023, zoom: 16 }
   }
 
-  // 表示条件: 結果が0件のとき、または結果があるが「編集を提案」したいとき
+  // 検索が成功して結果が0件の場合に表示する。
   const showPanel = results.length === 0 && state.status === 'success'
 
   if (!showPanel && !expanded) return null
 
   const center = getCenter()
-  // (B3) iD/Note導線URLは editLinks.js で共通化する
-  const idUrl = buildIdMapUrl(center.lat, center.lon, center.zoom)
   const noteUrl = buildNoteUrl(center.lat, center.lon)
   const mapUrl = "https://www.openstreetmap.org/?mlat=" + center.lat.toFixed(6) + "&mlon=" + center.lon.toFixed(6) + "#map/" + center.zoom + "/" + center.lat.toFixed(4) + "/" + center.lon.toFixed(4)
 
@@ -74,16 +72,8 @@ function EditPanel() {
               検索結果が見つかりませんでした。この地域ではまだOSMにデータが登録されていない可能性があります。
               新しい施設をOSMに追加するのは、あなたからかもしれません。
             </p>
-            {/* (A4/B3) 編集・報告への即時ジャンプ（展開不要） */}
+            {/* 展開前から Note へ移動できる。 */}
             <div className="flex flex-wrap items-center gap-2">
-              <a
-                href={idUrl}
-                target="_blank"
-                rel="noopener"
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs rounded font-medium"
-              >
-                ✏️ iDエディタで追加する
-              </a>
               <a
                 href={noteUrl}
                 target="_blank"
@@ -117,27 +107,9 @@ function EditPanel() {
             </p>
           </div>
 
-          {/* iDエディタ */}
-          <div>
-            <p className="text-[11px] font-medium text-amber-800 mb-1.5">② 直接編集する（OSMアカウント必要）</p>
-            <a
-              href={idUrl}
-              target="_blank"
-              rel="noopener"
-              className="inline-flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800"
-            >
-              ✏️ iDエディタで編集
-            </a>
-            <p className="text-[10px] text-amber-700 mt-1">
-              ・OSMアカウントが必要です（無料）
-              ・現地確認可能な情報のみ登録してください
-              ・イベント限定情報は恒常的POIとして登録しないでください
-            </p>
-          </div>
-
           {/* OSM Note */}
           <div>
-            <p className="text-[11px] font-medium text-amber-800 mb-1.5">③ Noteで報告する（アカウント不要）</p>
+            <p className="text-[11px] font-medium text-amber-800 mb-1.5">② Noteで報告する（アカウント不要）</p>
             <textarea
               value={noteText || defaultNote}
               onChange={(e) => setNoteText(e.target.value)}

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useApp } from '../context/AppContext'
-import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS } from '../utils/barrierFreeGeoJSON'
+import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../utils/barrierFreeGeoJSON'
 
 /**
  * (#62) バリアフリー検索の地図凡例（第4ピース）
@@ -19,7 +19,8 @@ import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS } from '../utils/barrierFreeGeoJS
 const LINE_ITEMS = [
   { color: TACTILE_LINE_COLORS.yes, label: '歩道・点字ブロックあり' },
   { color: TACTILE_LINE_COLORS.no, label: '歩道・点字ブロックなし' },
-  { color: TACTILE_LINE_COLORS.unknown, label: '歩道・点字ブロック未記録' }
+  { color: TACTILE_LINE_COLORS.unknown, label: '歩道・点字ブロック未記録' },
+  { color: CROSSING_COLOR, label: '横断歩道' }
 ]
 
 const POINT_ITEMS = [
@@ -28,7 +29,7 @@ const POINT_ITEMS = [
   { color: NODE_ROLE_COLORS['kerb+signal'], label: '縁石＋案内信号' }
 ]
 
-export default function BarrierFreeLegend() {
+export default function BarrierFreeLegend({ twoColumns = false }) {
   const { state } = useApp()
   const results = state.results || []
   if (state.resultKind !== 'barrier_free' || results.length === 0) return null
@@ -36,7 +37,9 @@ export default function BarrierFreeLegend() {
   return (
     <div className="rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-md">
       <div className="mb-1 text-xs font-semibold text-slate-700">凡例</div>
-      <ul className="space-y-1 text-[11px] text-slate-600">
+      <ul className={`text-[11px] text-slate-600 ${
+        twoColumns ? 'grid grid-flow-col grid-cols-2 grid-rows-4 gap-x-3 gap-y-1' : 'space-y-1'
+      }`}>
         {LINE_ITEMS.map((item) => (
           <li key={item.label} className="flex items-center gap-1.5">
             <span

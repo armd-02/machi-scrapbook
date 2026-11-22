@@ -134,6 +134,15 @@ describe('barrierFreeToMapGeoJSON', () => {
 })
 
 describe('roleOf（ノードの役割）', () => {
+  it('横断歩道の線と点を識別する', () => {
+    const { features } = barrierFreeToMapGeoJSON([
+      wayResult(1, { highway: 'footway', footway: 'crossing' }, 'yes', [[135.48, 34.67], [135.49, 34.68]]),
+      nodeResult(2, { highway: 'crossing' }),
+    ])
+    expect(features[0].properties.crossing).toBe(true)
+    expect(features[1].properties.role).toBe('crossing')
+  })
+
   it('hasSound または hasVibration のみなら signal', () => {
     expect(roleOf(nodeResult(1, { 'traffic_signals:sound': 'yes' }, { hasSound: true, hasVibration: true }))).toBe('signal')
     expect(roleOf(nodeResult(1, { 'traffic_signals:vibration': 'yes' }, { hasVibration: true }))).toBe('signal')
@@ -163,7 +172,7 @@ describe('色定数（凡例・レイヤ定義の共有）', () => {
   })
 
   it('NODE_ROLE_COLORS は signal/kerb/kerb+signal/other の16進カラーを持つ', () => {
-    expect(Object.keys(NODE_ROLE_COLORS).sort()).toEqual(['kerb', 'kerb+signal', 'other', 'signal'])
+    expect(Object.keys(NODE_ROLE_COLORS).sort()).toEqual(['crossing', 'kerb', 'kerb+signal', 'other', 'signal'])
     for (const v of Object.values(NODE_ROLE_COLORS)) expect(v).toMatch(/^#[0-9a-f]{6}$/i)
   })
 })

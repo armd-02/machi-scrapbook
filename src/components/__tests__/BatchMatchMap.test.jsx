@@ -17,7 +17,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock({ autoLoad: false })
-  return { default: mockState.api }
+  return mockState.api
 })
 
 beforeEach(() => {

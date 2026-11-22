@@ -4,7 +4,7 @@
  * - tilePlan（純粋関数）: 中心タイル・枚数・オフセットの妥当性
  * - captureMapImage: 不正な座標では null（canvas に触れない）
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { tilePlan, captureMapImage } from '../mapCapture'
 
 describe('tilePlan', () => {
@@ -40,6 +40,24 @@ describe('tilePlan', () => {
 })
 
 describe('captureMapImage', () => {
+  it('指定されたズームのタイル座標とURLを使う', async () => {
+    const requested = []
+    vi.stubGlobal('Image', class {
+      set src(url) {
+        requested.push(url)
+        this.onerror()
+      }
+    })
+    try {
+      await captureMapImage(34.85, 135.5, 17)
+      expect(requested).toEqual(tilePlan(34.85, 135.5, 17).tiles.map(
+        ({ x, y }) => `https://tile.openstreetmap.jp/17/${x}/${y}.png`,
+      ))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('座標が数値でない場合は null', async () => {
     expect(await captureMapImage(null, 135.5)).toBeNull()
     expect(await captureMapImage(34.7, undefined)).toBeNull()

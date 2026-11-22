@@ -111,6 +111,7 @@ export function QuickTopIntro({
   onPlaceQueryChange = () => {},
   onGeocode = null,
   onFocus = null,
+  onPlaceBlur,
   geocodeDisabled = false,
   searchError = null,
   stationError = null,
@@ -136,7 +137,7 @@ export function QuickTopIntro({
 
       {/* 場所指定: 地名・駅名を入力し、「地名検索」を押すと
           geocode → 検索エリア確定 が実行される */}
-      <section className="bg-white rounded-xl p-3 shadow-sm space-y-2" aria-label="どこで探すか">
+      <section className="bg-white rounded-xl p-3 shadow-sm space-y-2" aria-label="どこで探すか" onBlur={onPlaceBlur}>
         <label htmlFor="quick-place-input" className="block text-sm font-semibold text-slate-700">
           どこあたりの場所？
         </label>

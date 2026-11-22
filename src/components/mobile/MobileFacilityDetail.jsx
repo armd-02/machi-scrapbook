@@ -3,10 +3,11 @@ import {
   facilityName,
   facilityTypeLabel,
   formatAddress,
-  safeWebsite
+  safeWebsite,
+  buildSnsLink
 } from '../../utils/facilityLabels'
 import { parseAccessibility } from '../../utils/accessibility'
-import { buildIdElementUrl, buildOsmElementUrl } from '../../utils/editLinks'
+import { buildOsmElementUrl } from '../../utils/editLinks'
 import { keyInfoFor } from '../../utils/categoryProfiles'
 import { formatOpeningHoursJa } from '../../utils/openingHours'
 import { memochoKeyOf } from '../../utils/memocho'
@@ -67,24 +68,6 @@ const SNS_SOURCES = [
   { label: 'X', key: 'contact:twitter', domain: 'x.com' },
   { label: 'YouTube', key: 'contact:youtube', domain: 'youtube.com' }
 ]
-
-/**
- * SNSタグ値 → リンク情報
- * http で始まる値はそのままURLとして使う。それ以外はアカウント名として扱い、
- * 先頭の @ を除いて各サービスのURLを組み立てる（https://<ドメイン>/<名>）。
- */
-function buildSnsLink(source, value) {
-  if (/^http/.test(value)) {
-    return { label: source.label, url: value, display: value }
-  }
-  const account = value.replace(/^@/, '')
-  if (!account) return null
-  return {
-    label: source.label,
-    url: `https://${source.domain}/${account}`,
-    display: account
-  }
-}
 
 /** タグからSNSリンク一覧を生成（登録がある場合のみ） */
 function snsLinksFromTags(tags) {
@@ -296,16 +279,6 @@ export default function MobileFacilityDetail({ detail, onClose }) {
               🧭 経路検索
             </a>
           )}
-          {/* (B3) iD編集導線: 対象施設を特定した状態でiDへジャンプ */}
-          <a
-            href={buildIdElementUrl(result)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 min-h-[44px] px-4 flex items-center justify-center bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-sm font-medium rounded-lg"
-            title="iDエディタで編集（OSMアカウント必要）"
-          >
-            ✏️ iDで編集
-          </a>
           {/* まちメモ帳（第2ピース）: 追加/削除トグル（既存ボタンの見た目に合わせる） */}
           <button
             type="button"

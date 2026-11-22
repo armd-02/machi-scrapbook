@@ -25,7 +25,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock({ autoLoad: false })
-  return { default: mockState.api }
+  return mockState.api
 })
 
 class MockResizeObserver { observe() {} unobserve() {} disconnect() {} }
@@ -303,7 +303,8 @@ describe('bf レイヤ定義（MapLibre仕様）', () => {
       filter: ['==', ['get', 'kind'], 'way']
     })
     expect(BF_LINE_LAYER_DEF.paint['line-color']).toEqual([
-      'match', ['get', 'tactile'], 'yes', '#16a34a', 'no', '#dc2626', '#f87171'
+      'case', ['==', ['get', 'crossing'], true], '#db2777',
+      ['match', ['get', 'tactile'], 'yes', '#16a34a', 'no', '#dc2626', '#475569']
     ])
     expect(BF_LINE_LAYER_DEF.paint['line-width']).toBe(4)
     // トップレベルにcamelCaseプロパティが無い
@@ -321,6 +322,7 @@ describe('bf レイヤ定義（MapLibre仕様）', () => {
       'signal', '#7c3aed',
       'kerb', '#f59e0b',
       'kerb+signal', '#0d9488',
+      'crossing', '#db2777',
       '#64748b'
     ])
     expect(BF_NODE_LAYER_DEF.paint['circle-radius']).toBe(6)

@@ -176,8 +176,9 @@ const CUISINE_LABELS = {
  * - count の多い順に並び、同件数の場合は値の昇順で決める（安定した表示）。
  * - 最大 limit 件（既定10）まで返す。
  *
- * @param {Array} results - Overpass result 配列（フィルタ適用前の結果を渡す）
+ * @param {Array} results - 料理ジャンル以外の条件を適用した結果
  * @param {number} limit - 返すファセット値の最大件数（既定10）
+ * @param {string} selected - 選択中の値。0件や上位外でも解除できるように残す
  * @returns {Array<{value:string, label:string, count:number}>}
  */
 /**
@@ -191,7 +192,7 @@ export function cuisineLabelOf(value) {
   return CUISINE_LABELS[value] || value
 }
 
-export function cuisineFacetValues(results, limit = 10) {
+export function cuisineFacetValues(results, limit = 10, selected = '') {
   const counts = new Map()
   for (const r of Array.isArray(results) ? results : []) {
     const raw = r && r.tags ? r.tags.cuisine : null
@@ -208,7 +209,15 @@ export function cuisineFacetValues(results, limit = 10) {
     count
   }))
   items.sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-  return items.slice(0, limit)
+  const facets = items.slice(0, limit)
+  if (selected && limit > 0 && !facets.some((item) => item.value === selected)) {
+    return [...facets.slice(0, limit - 1), {
+      value: selected,
+      label: cuisineLabelOf(selected),
+      count: counts.get(selected) ?? 0,
+    }]
+  }
+  return facets
 }
 
 /**

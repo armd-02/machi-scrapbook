@@ -223,6 +223,7 @@ export function barrierFreeTypeLabel(result) {
   if (hasSound) return '音声案内信号'
   if (hasVibration) return '振動案内信号'
   if (tags.barrier === 'kerb' || tags.kerb != null) return '縁石'
+  if (tags.highway === 'crossing') return '横断歩道'
   return 'バリアフリー要素'
 }
 

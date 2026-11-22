@@ -17,7 +17,7 @@ import { resetMemochoStore } from '../../../hooks/useMemocho'
  * - カテゴリ別追加項目（keyInfoFor の items を基本4項目・wheelchair で除外）
  * - メール・FAX（登録時のみ）・SNSリンク（タグがある場合のみ）
  * - OSMリンク。タグ一覧（<details>折りたたみ）は廃止
- * - フッター: 「経路検索」（座標がある場合のみ）・「iDで編集」。「閉じる」は右上の✕ボタン
+ * - フッター: 「経路検索」（座標がある場合のみ）・「メモ帳に追加」。「閉じる」は右上の✕ボタン
  * (#62)
  * - 座標がある場合、ヘッダーと情報エリアの間（スクロール領域の外）に位置マップ
  *   （MiniLocationMap）＋マーカーを表示。地図エリアは flex-1（最小高さ220px）で
@@ -43,7 +43,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
 
 beforeEach(() => {
@@ -151,11 +151,11 @@ describe('MobileFacilityDetail', () => {
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 
-  it('座標がない要素では「経路検索」リンクが表示されず、iDで編集・閉じるが残る', () => {
+  it('座標がない要素では「経路検索」リンクが表示されず、閉じるボタンは表示される', () => {
     renderDetail({ type: 'node', id: 9, tags: { amenity: 'bench' } })
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByRole('link', { name: /経路検索/ })).toBeNull()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
+    expect(within(dialog).queryByRole('link', { name: /iDで編集/ })).toBeNull()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 
@@ -195,24 +195,6 @@ describe('MobileFacilityDetail', () => {
     const mail = within(dialog).getByRole('link', { name: /shop@example.com/ })
     expect(mail.getAttribute('href')).toBe('mailto:shop@example.com')
     expect(within(dialog).getByText(/FAX: \+81-6-9999-8888/)).toBeTruthy()
-  })
-})
-
-describe('MobileFacilityDetail: iD編集導線 (B3)', () => {
-  it('フッターに「iDで編集」リンクがあり、要素ディープリンクを指す', () => {
-    renderDetail()
-    const dialog = screen.getByRole('dialog')
-    const idLink = within(dialog).getByRole('link', { name: /iDで編集/ })
-    expect(idLink.getAttribute('href')).toBe('https://www.openstreetmap.org/edit?node=node%2F1001')
-    expect(idLink.getAttribute('target')).toBe('_blank')
-    expect(idLink.getAttribute('rel')).toContain('noopener')
-  })
-
-  it('座標がない要素でもiDリンクは表示される', () => {
-    renderDetail({ type: 'way', id: 8, tags: { amenity: 'supermarket' } })
-    const dialog = screen.getByRole('dialog')
-    const idLink = within(dialog).getByRole('link', { name: /iDで編集/ })
-    expect(idLink.getAttribute('href')).toBe('https://www.openstreetmap.org/edit?node=way%2F8')
   })
 })
 
@@ -280,11 +262,10 @@ describe('MobileFacilityDetail: 位置マップ（#62）', () => {
     expect(flexChildren[0]).toBe(dialog.querySelector('.overflow-y-auto'))
   })
 
-  it('位置マップの追加でアクション（経路検索/iDで編集/閉じる）は維持される', () => {
+  it('位置マップの追加でアクション（経路検索/閉じる）は維持される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 
@@ -313,12 +294,11 @@ describe('MobileFacilityDetail: 経路検索ボタン', () => {
     expect(within(dialog).queryByRole('link', { name: /経路検索/ })).toBeNull()
   })
 
-  it('アクションは経路検索/iDで編集/閉じる（右上✕）で、「地図で見る」は含まれない', () => {
+  it('アクションは経路検索/閉じる（右上✕）で、「地図で見る」は含まれない', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByRole('button', { name: '地図で見る' })).toBeNull()
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 })
@@ -443,9 +423,8 @@ describe('まちメモ帳ボタン（第2ピース・フッター）', () => {
   it('フッターに「メモ帳に追加」ボタンがあり、既存ボタンと同じ並び', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
-    // 経路検索・iDで編集・メモ帳に追加 の3アクションが並ぶ
+    // 経路検索・メモ帳に追加 の2アクションが並ぶ
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
   })
 
@@ -473,11 +452,10 @@ describe('まちメモ帳ボタン（第2ピース・フッター）', () => {
     expect(stored2[0].deletedAt).toBeTruthy()
   })
 
-  it('既存アクション（経路検索・iDで編集・閉じる）はメモ帳ボタンの追加後も維持される', () => {
+  it('既存アクション（経路検索・閉じる）はメモ帳ボタンの追加後も維持される', () => {
     renderDetail()
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })
 
@@ -534,9 +512,8 @@ describe('MobileFacilityDetail: 固定高さシート（h-[85dvh]）', () => {
     expect(within(dialog).getByRole('link', { name: /OSMで見る/ })).toBeTruthy()
     expect(within(dialog).getByRole('link', { name: /^Instagram/ })).toBeTruthy()
     expect(within(dialog).getByText(/バリアフリー情報/)).toBeTruthy()
-    // フッター3ボタン＋閉じる
+    // フッター2ボタン＋閉じる
     expect(within(dialog).getByRole('link', { name: /経路検索/ })).toBeTruthy()
-    expect(within(dialog).getByRole('link', { name: /iDで編集/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: '閉じる' })).toBeTruthy()
   })

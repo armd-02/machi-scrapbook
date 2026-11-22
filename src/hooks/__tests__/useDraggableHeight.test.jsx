@@ -60,6 +60,15 @@ describe('useDraggableHeight', () => {
     fireEvent.pointerUp(handle)
   })
 
+  it('CSSで高さを制限しているときは、描画された高さからドラッグする', () => {
+    const view = render(<TestMap over={{ getRenderedHeight: () => 340 }} />)
+    const handle = view.getByTestId('handle')
+    fireEvent.pointerDown(handle, { clientY: 500 })
+    fireEvent.pointerMove(handle, { clientY: 450 })
+    fireEvent.pointerUp(handle)
+    expect(view.getByTestId('container').style.height).toBe('290px')
+  })
+
   it('maxHeight を超えるドラッグは上限値にクランプされる', () => {
     const view = render(<TestMap />)
     const handle = view.getByTestId('handle')

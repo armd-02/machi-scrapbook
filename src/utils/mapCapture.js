@@ -5,9 +5,8 @@
  * 静止画を1回だけ合成して dataURL 化し、localStorage に保存する。
  * タイルはアプリの地図と同じ tile.openstreetmap.jp を使う
  * （Access-Control-Allow-Origin: * のため canvas が汚染されない）。
- * 生成サイズは 240×240（メモ帳カード右側の 120px 列に合わせた正方形）。
- * 帰属表示は画像に焼き込まず、表示側（MemochoSection）が重ねて出す
- * （切り取り表示でも常に見えるようにするため）。
+ * 生成サイズは 240×240。既定のズームはメモ帳カードに合わせる。
+ * 帰属表示は画像に焼き込まない（サムネイルへの©表示はユーザー決定で廃止）。
  */
 
 export const MAP_THUMB_ZOOM = 16
@@ -88,15 +87,15 @@ function drawPin(ctx, cx, cy) {
  * 座標が不正・タイル読み込み失敗・canvas 書き出し失敗の場合は null
  * （例外は投げない）。
  */
-export async function captureMapImage(lat, lon) {
+export async function captureMapImage(lat, lon, zoom = MAP_THUMB_ZOOM) {
   if (typeof lat !== 'number' || typeof lon !== 'number') return null
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
   try {
-    const plan = tilePlan(lat, lon)
+    const plan = tilePlan(lat, lon, zoom)
     if (plan.tiles.length === 0) return null
     const images = await Promise.all(
       plan.tiles.map((t) =>
-        loadTileImage(TILE_URL.replace('{z}', MAP_THUMB_ZOOM).replace('{x}', t.x).replace('{y}', t.y)),
+        loadTileImage(TILE_URL.replace('{z}', zoom).replace('{x}', t.x).replace('{y}', t.y)),
       ),
     )
     if (images.some((img) => img === null)) return null

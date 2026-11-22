@@ -20,7 +20,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
 
 const cafeWithWeb = { type: 'node', id: 1, name: 'カフェA', tags: { amenity: 'cafe', website: 'https://cafe.example.jp', name: 'カフェA' } }
@@ -38,7 +38,7 @@ function Harness({ preActions = [], log = [], children }) {
   }
   return (
     <AppContext.Provider value={{ state, dispatch }}>
-      {children || <MobileListTab onOpenDetail={vi.fn()} />}
+      {children || <MobileListTab />}
     </AppContext.Provider>
   )
 }
@@ -270,8 +270,7 @@ const bfSoundNode = {
 
 // 指定のosmIdのカード要素を取得（凡例等の同じ文字列マッチを除外するため）
 function cardOf(osmId) {
-  const idEl = screen.getByText(osmId)
-  return idEl.closest('.shadow-sm')
+  return document.getElementById(`barrier-free-card-${osmId}`)
 }
 
 const BF_MOBILE_RESULTS = [bfFootway, bfKerb]
@@ -285,7 +284,7 @@ function bfMobileActions(results = BF_MOBILE_RESULTS) {
 }
 
 describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
-  it('専用カード（タイプ・点字ブロック・長さ・OSM ID・iDリンク）を表示する', () => {
+  it('専用カードにタイプ・点字ブロック・長さを表示する', () => {
     render(<Harness preActions={bfMobileActions()} />)
 
     expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
@@ -297,11 +296,10 @@ describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
     const kerbCard = cardOf('node/200')
     expect(within(kerbCard).getAllByText('縁石')).toHaveLength(2)
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
-    expect(screen.getByText('way/100')).toBeTruthy()
-    const links = screen.getAllByRole('link', { name: /iDで編集/ })
-    const hrefs = links.map((a) => a.getAttribute('href'))
-    expect(hrefs).toContain('https://www.openstreetmap.org/edit?node=way%2F100')
-    expect(hrefs).toContain('https://www.openstreetmap.org/edit?node=node%2F200')
+    expect(cardOf('way/100')).toBeTruthy()
+    expect(screen.queryByText('way/100')).toBeNull()
+    expect(screen.queryByText('node/200')).toBeNull()
+    expect(screen.queryByRole('link', { name: /iDで編集/ })).toBeNull()
   })
 
   it('施設向けのコントロール（カテゴリ選択・Webサイトチェック）は表示しない', () => {
@@ -382,7 +380,8 @@ describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
     render(<Harness preActions={bfMobileActions([withTags, plain])} />)
 
     // タグがあるカードにチップが出る
-    expect(screen.getByText('横断歩道')).toBeTruthy()
+    expect(within(cardOf('way/320')).getByText('横断歩道')).toBeTruthy()
+    expect(within(cardOf('way/321')).queryByText('横断歩道')).toBeNull()
     expect(screen.getByText('車椅子 制限あり')).toBeTruthy()
     expect(screen.getByText('幅 3 m')).toBeTruthy()
     expect(screen.getByText('路面 asphalt')).toBeTruthy()
@@ -437,17 +436,6 @@ const poiWithCoords = [
 ]
 
 describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () => {
-  // jsdom には Element.prototype.scrollIntoView が無いのでスタブする
-  // （ピンタップでのカードスクロール検証用。afterEach で元に戻す）
-  let origScrollIntoView
-  beforeEach(() => {
-    origScrollIntoView = Element.prototype.scrollIntoView
-    Element.prototype.scrollIntoView = vi.fn()
-  })
-  afterEach(() => {
-    Element.prototype.scrollIntoView = origScrollIntoView
-  })
-
   it('POI検索結果: 初期は折りたたみ（地図非表示）で、「地図を表示」を押すと結果範囲にフィットして表示される', async () => {
     render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: poiWithCoords },
@@ -496,15 +484,134 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
+  it('OSMリンクは地図の中心・ズームと選択した施設に追従する', async () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: poiWithCoords },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    const osmLink = () => screen.getByRole('link', { name: 'OpenStreetMapで開く' })
+    expect(osmLink().getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
+    await waitFor(() => expect(osmLink().getAttribute('href')).toContain('#map='))
+
+    const map = mockState.api._state.maps.at(-1)
+    map.getCenter = () => ({ lat: 34.70123, lng: 135.50678 })
+    map.getZoom = () => 16.8
+    act(() => { map.fire('moveend') })
+    const view = '#map=17/34.7012300/135.5067800'
+    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/${view}`)
+    expect(osmLink().getAttribute('target')).toBe('_blank')
+
+    const cafe = screen.getByRole('button', { name: 'カフェAを地図で選択' })
+    fireEvent.click(cafe)
+    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/node/30${view}`)
+    fireEvent.click(cafe)
+    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/${view}`)
+  })
+
+  it('一覧のWi-Fi・電源・車椅子・料理ジャンルの絞り込みを地図のピンにも反映する', async () => {
+    const [cafe, park] = poiWithCoords
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [
+        { ...cafe, tags: { ...cafe.tags, internet_access: 'wlan', wheelchair: 'yes', cuisine: 'coffee' } },
+        { ...park, tags: { ...park.tags, power_supply: 'yes', cuisine: 'japanese' } },
+      ] },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
+    const map = mockState.api._state.maps.at(-1)
+    const expectPins = (...keys) => waitFor(() => {
+      expect(map._lastGeoJSON?.data.features.map((f) => f.properties.key)).toEqual(keys)
+    })
+    await expectPins('node/30', 'node/31')
+
+    const wifi = screen.getByRole('checkbox', { name: 'WiFiあり' })
+    const power = screen.getByRole('checkbox', { name: '電源あり' })
+    const wheelchair = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+    fireEvent.click(cuisineHeader())
+    expect(screen.getByRole('button', { name: '和食（1件）' })).toBeTruthy()
+    fireEvent.click(wifi)
+    await expectPins('node/30')
+    expect(screen.queryByRole('button', { name: '和食（1件）' })).toBeNull()
+    fireEvent.click(power)
+    await expectPins()
+    fireEvent.click(wifi)
+    await expectPins('node/31')
+    expect(screen.getByRole('button', { name: '和食（1件）' })).toBeTruthy()
+    fireEvent.click(power)
+    fireEvent.change(wheelchair, { target: { value: 'gte_yes' } })
+    await expectPins('node/30')
+    expect(screen.queryByRole('button', { name: '和食（1件）' })).toBeNull()
+    fireEvent.change(wheelchair, { target: { value: 'all' } })
+    const japanese = screen.getByRole('button', { name: '和食（1件）' })
+    fireEvent.click(japanese)
+    await expectPins('node/31')
+    fireEvent.click(wifi)
+    await expectPins()
+    fireEvent.click(screen.getByRole('button', { name: '和食（0件）' }))
+    await expectPins('node/30')
+    fireEvent.click(wifi)
+    await expectPins('node/30', 'node/31')
+    expect(mockState.api._state.maps.at(-1)).toBe(map)
+  })
+
+  it('施設カードを選ぶと地図を開き、選んだピンにズームする', async () => {
+    const [cafe, park] = poiWithCoords
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [cafe, { ...park, tags: { ...park.tags, website: 'https://park.example' } }] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]} />
+    )
+
+    expect(screen.queryByRole('application', { name: '検索結果マップ' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'カフェAを地図で選択' }))
+    expect(screen.getByRole('button', { name: /地図を隠す/ }).getAttribute('aria-expanded')).toBe('true')
+    const map = mockState.api._state.maps.at(-1)
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+
+    const backgroundFilter = (instance) => instance._layers.find((layer) => layer.id === 'poi-selected-background').filter
+    const selectedKeyFilter = (key) => ['==', ['get', 'key'], key]
+    const focusCalls = (instance) => instance._calls
+      .filter((call) => call.name === 'easeTo')
+      .map((call) => call.args[0])
+    expect(backgroundFilter(map)).toEqual(selectedKeyFilter('node/30'))
+    expect(focusCalls(map)).toEqual([{ center: [135.5, 34.7], zoom: 17 }])
+
+    const parkCard = document.getElementById('facility-card-node/31')
+    fireEvent.click(within(parkCard).getByRole('link', { name: /公式サイト/ }))
+    expect(backgroundFilter(map)).toEqual(selectedKeyFilter('node/30'))
+    expect(focusCalls(map)).toHaveLength(1)
+
+    fireEvent.click(within(parkCard).getByText('電話'))
+    expect(backgroundFilter(map)).toEqual(selectedKeyFilter('node/31'))
+    expect(focusCalls(map).at(-1)).toEqual({ center: [135.51, 34.71], zoom: 17 })
+    map.getZoom = () => 19
+    fireEvent.click(parkCard)
+    expect(backgroundFilter(map)).toEqual(selectedKeyFilter(''))
+    expect(parkCard.className).not.toContain('ring-primary-500')
+    fireEvent.click(parkCard)
+    expect(focusCalls(map).at(-1)).toEqual({ center: [135.51, 34.71], zoom: 19 })
+    expect(map._calls.filter((call) => call.name === 'fitBounds')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /地図を隠す/ }))
+    expect(screen.queryByRole('application', { name: '検索結果マップ' })).toBeNull()
+    fireEvent.click(parkCard)
+    expect(screen.queryByRole('application', { name: '検索結果マップ' })).toBeNull()
+    fireEvent.click(parkCard)
+    expect(screen.getByRole('application', { name: '検索結果マップ' })).toBeTruthy()
+    const reopened = mockState.api._state.maps.at(-1)
+    await waitFor(() => expect(reopened._lastGeoJSON?.data.features).toHaveLength(2))
+    expect(backgroundFilter(reopened)).toEqual(selectedKeyFilter('node/31'))
+    expect(focusCalls(reopened)).toEqual([{ center: [135.51, 34.71], zoom: 17 }])
+  })
+
   it('POI: 結果マップのピンタップで一覧を対応する施設カードへスクロールして選択状態にする（詳細シートは開かない）', async () => {
-    const onOpenDetail = vi.fn()
     render(
       <Harness preActions={[
         { type: 'SET_RESULTS', payload: poiWithCoords },
         { type: 'SET_STATUS', payload: 'success' }
-      ]}>
-        <MobileListTab onOpenDetail={onOpenDetail} />
-      </Harness>
+      ]} />
     )
 
     // 折りたたみを展開して結果マップをマウントし、結果の設定を待つ
@@ -519,6 +626,16 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/30')
     expect(feature).toBeTruthy()
     expect(feature.properties.icon).toBe('cafe.png')
+    const card = document.getElementById('facility-card-node/30')
+    const list = card.closest('.overflow-y-auto')
+    expect(list).toBeTruthy()
+    expect(list.contains(screen.getByRole('application', { name: '検索結果マップ' }))).toBe(false)
+    expect(list.contains(screen.getByRole('button', { name: /地図を隠す/ }))).toBe(false)
+    list.scrollTo = vi.fn()
+    list.scrollTop = 40
+    Object.defineProperty(list, 'clientHeight', { value: 300 })
+    list.getBoundingClientRect = () => ({ top: 280 })
+    card.getBoundingClientRect = () => ({ top: 800, height: 100 })
     act(() => {
       map.fire('click', 'poi-icon', {
         features: [feature],
@@ -526,11 +643,8 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
       })
     })
 
-    // 詳細シートは開かない
-    expect(onOpenDetail).not.toHaveBeenCalled()
     // 対応するカード（id: facility-card-node/30）へスクロールして選択状態にする
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
-    const card = document.getElementById('facility-card-node/30')
+    expect(list.scrollTo).toHaveBeenCalledWith({ top: 460, behavior: 'smooth' })
     expect(card).toBeTruthy()
     expect(card.className).toContain('ring-primary-500')
     expect(card.className).toContain('border-primary-400')
@@ -540,14 +654,11 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
 
   it('POI: フォールバック点（アイコン読込失敗）のタップでも対応するカードが選択される', async () => {
     mockState.api.setImageLoadFailures([facilityIconUrl('cafe.png')])
-    const onOpenDetail = vi.fn()
     render(
       <Harness preActions={[
         { type: 'SET_RESULTS', payload: poiWithCoords },
         { type: 'SET_STATUS', payload: 'success' }
-      ]}>
-        <MobileListTab onOpenDetail={onOpenDetail} />
-      </Harness>
+      ]} />
     )
 
     // 折りたたみを展開して結果マップをマウントし、結果の設定を待つ
@@ -568,8 +679,6 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
       })
     })
 
-    // 詳細シートは開かず、対応するカードが選択される
-    expect(onOpenDetail).not.toHaveBeenCalled()
     const card = document.getElementById('facility-card-node/30')
     expect(card.className).toContain('ring-primary-500')
   })
@@ -585,7 +694,7 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
       dispatchRef = dispatch
       return (
         <AppContext.Provider value={{ state, dispatch }}>
-          <MobileListTab onOpenDetail={vi.fn()} />
+          <MobileListTab />
         </AppContext.Provider>
       )
     }
@@ -622,11 +731,14 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     render(<Harness preActions={bfMobileActions()} />)
 
     // 初期状態は展開: 地図が表示され、トグルは「地図を隠す」（aria-expanded=true）
-    expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
+    const mapCanvas = screen.getByRole('application', { name: 'バリアフリー要素マップ' })
     const toggle = screen.getByRole('button', { name: /地図を隠す/ })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     // 凡例は折りたたみの外なので、常に一緒に表示される
-    expect(screen.getByText('凡例')).toBeTruthy()
+    const list = screen.getByText('凡例').closest('.overflow-y-auto')
+    expect(list).toBeTruthy()
+    expect(list.contains(mapCanvas)).toBe(false)
+    expect(screen.getByText('凡例').nextElementSibling.className).toContain('grid-cols-2')
 
     // 線（LineString）と点（Point）が設定され、結果範囲にfitBoundsされる
     await waitFor(async () => {
@@ -639,6 +751,9 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     // 線（135.0〜135.02, 34.0〜34.01）と点（135.1, 34.1）を含む範囲
     const fit = map._calls.find((c) => c.name === 'fitBounds')
     expect(fit.args[0]).toEqual([[135.0, 34.0], [135.1, 34.1]])
+
+    fireEvent.change(screen.getByRole('combobox', { name: '要素種別で絞り込む' }), { target: { value: 'node' } })
+    await waitFor(() => expect(map._lastGeoJSON.data.features.map((f) => f.geometry.type)).toEqual(['Point']))
   })
 
   it('バリアフリー地図: トグルで閉じられる（地図非表示・破棄）し、もう一度開くと結果範囲に再フィットする', async () => {
@@ -667,6 +782,58 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(screen.getByRole('button', { name: /地図を隠す/ }).getAttribute('aria-expanded')).toBe('true')
     const fit = map._calls.find((c) => c.name === 'fitBounds')
     expect(fit.args[0]).toEqual([[135.0, 34.0], [135.1, 34.1]])
+  })
+
+  it('バリアフリーのカードを選ぶと地図が開き、対応する線や点を強調する', async () => {
+    render(<Harness preActions={bfMobileActions()} />)
+    fireEvent.click(screen.getByRole('button', { name: /地図を隠す/ }))
+    fireEvent.keyDown(screen.getByRole('button', { name: '中央通り歩道を地図で選択' }), { key: 'Enter' })
+    expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
+
+    const map = mockState.api._state.maps.at(-1)
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+    const highlight = (id) => map._layers.find((layer) => layer.id === id).filter
+    const keyFilter = (key) => ['==', ['get', 'key'], key]
+    expect(highlight('bf-selected-line')).toEqual(['all', ['==', ['get', 'kind'], 'way'], keyFilter('way/100')])
+    expect(screen.getByRole('link', { name: 'OpenStreetMapで開く' }).getAttribute('href'))
+      .toMatch(/^https:\/\/www\.openstreetmap\.org\/way\/100#map=/)
+    expect(cardOf('way/100').className).toContain('ring-primary-500')
+    expect(map._calls.filter((c) => c.name === 'fitBounds').at(-1).args[0]).toEqual([[135.0, 34.0], [135.02, 34.01]])
+
+    fireEvent.click(screen.getByRole('button', { name: '縁石を地図で選択' }))
+    expect(highlight('bf-selected-node')).toEqual(['all', ['==', ['get', 'kind'], 'node'], keyFilter('node/200')])
+    expect(cardOf('way/100').className).not.toContain('ring-primary-500')
+    expect(cardOf('node/200').className).toContain('ring-primary-500')
+    expect(map._calls.filter((c) => c.name === 'easeTo').at(-1).args[0]).toMatchObject({ center: [135.1, 34.1], zoom: 17 })
+
+    fireEvent.click(screen.getByRole('button', { name: '縁石を地図で選択' }))
+    expect(cardOf('node/200').getAttribute('aria-pressed')).toBe('false')
+    expect(highlight('bf-selected-node')).toEqual(['all', ['==', ['get', 'kind'], 'node'], keyFilter('')])
+    fireEvent.click(screen.getByRole('button', { name: '縁石を地図で選択' }))
+
+    fireEvent.change(screen.getByRole('combobox', { name: '要素種別で絞り込む' }), { target: { value: 'way' } })
+    expect(highlight('bf-selected-node')).toEqual(['all', ['==', ['get', 'kind'], 'node'], keyFilter('')])
+  })
+
+  it('バリアフリー地図の地物を選ぶと、固定された地図の下で対応カードへスクロールする', async () => {
+    render(<Harness preActions={bfMobileActions()} />)
+    const map = mockState.api._state.maps.at(-1)
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+    const card = document.getElementById('barrier-free-card-node/200')
+    const list = card.closest('.overflow-y-auto')
+    list.scrollTo = vi.fn()
+    Object.defineProperty(list, 'clientHeight', { value: 300 })
+    list.getBoundingClientRect = () => ({ top: 300 })
+    card.getBoundingClientRect = () => ({ top: 800, height: 100 })
+
+    const point = map._lastGeoJSON.data.features.find((feature) => feature.properties.key === 'node/200')
+    act(() => { map.fire('click', 'bf-node', { features: [point] }) })
+
+    expect(card.getAttribute('aria-pressed')).toBe('true')
+    expect(list.scrollTo).toHaveBeenCalledWith({ top: 400, behavior: 'smooth' })
+    expect(map._layers.find((layer) => layer.id === 'bf-selected-node').filter)
+      .toEqual(['all', ['==', ['get', 'kind'], 'node'], ['==', ['get', 'key'], 'node/200']])
+    expect(map._calls.filter((call) => call.name === 'easeTo')).toHaveLength(0)
   })
 })
 
@@ -818,7 +985,7 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'flat' } })
 
-    expect(screen.getByText('node/501')).toBeTruthy()
+    expect(cardOf('node/501')).toBeTruthy()
     for (const id of ['node/502', 'node/503', 'node/504', 'node/505', 'way/506']) {
       expect(screen.queryByText(id)).toBeNull()
     }
@@ -831,10 +998,10 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'low' } })
 
-    expect(screen.getByText('node/502')).toBeTruthy()
-    expect(screen.getByText('node/507')).toBeTruthy()
-    expect(screen.queryByText('node/505')).toBeNull()
-    expect(screen.queryByText('way/506')).toBeNull()
+    expect(cardOf('node/502')).toBeTruthy()
+    expect(cardOf('node/507')).toBeTruthy()
+    expect(cardOf('node/505')).toBeNull()
+    expect(cardOf('way/506')).toBeNull()
     expect(screen.getByText(/4件中、2件を表示/)).toBeTruthy()
   })
 
@@ -843,11 +1010,11 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'high' } })
 
-    expect(screen.getByText('node/503')).toBeTruthy()
-    expect(screen.getByText('node/505')).toBeTruthy()
-    expect(screen.queryByText('node/501')).toBeNull()
-    expect(screen.queryByText('node/502')).toBeNull()
-    expect(screen.queryByText('way/506')).toBeNull()
+    expect(cardOf('node/503')).toBeTruthy()
+    expect(cardOf('node/505')).toBeTruthy()
+    expect(cardOf('node/501')).toBeNull()
+    expect(cardOf('node/502')).toBeNull()
+    expect(cardOf('way/506')).toBeNull()
     expect(screen.getByText(/6件中、2件を表示/)).toBeTruthy()
   })
 
@@ -856,7 +1023,7 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'unknown' } })
 
-    expect(screen.getByText('node/504')).toBeTruthy()
+    expect(cardOf('node/504')).toBeTruthy()
     for (const id of ['node/501', 'node/502', 'node/503', 'node/505', 'way/506']) {
       expect(screen.queryByText(id)).toBeNull()
     }
@@ -866,11 +1033,11 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
     render(<Harness preActions={bfMobileActions(KERB_BF_RESULTS)} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'flat' } })
-    expect(screen.queryByText('way/506')).toBeNull()
+    expect(cardOf('way/506')).toBeNull()
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'any' } })
     await waitFor(() => {
-      expect(screen.getByText('way/506')).toBeTruthy()
+      expect(cardOf('way/506')).toBeTruthy()
     })
     expect(screen.getByText(/6件中、6件を表示/)).toBeTruthy()
   })
@@ -880,13 +1047,13 @@ describe('MobileListTab: 縁石の高さセレクト（バリアフリー一覧�
     render(<Harness preActions={bfMobileActions(KERB_BF_RESULTS)} log={log} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: '縁石の高さ' }), { target: { value: 'flat' } })
-    expect(screen.queryByText('way/506')).toBeNull()
+    expect(cardOf('way/506')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'リセット' }))
     expect(log.some((a) => a.type === 'SET_RESULT_FILTERS' && a.payload.kerbHeight === 'any')).toBe(true)
     await waitFor(() => {
-      expect(screen.getByText('way/506')).toBeTruthy()
-      expect(screen.getByText('node/504')).toBeTruthy()
+      expect(cardOf('way/506')).toBeTruthy()
+      expect(cardOf('node/504')).toBeTruthy()
     })
   })
 

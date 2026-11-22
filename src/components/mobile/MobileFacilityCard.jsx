@@ -3,6 +3,7 @@ import {
   facilityName,
   formatAddress,
   safeWebsite,
+  preferredFacilityLink,
   facilityTypeLabel
 } from '../../utils/facilityLabels'
 import { wheelchairBadge } from '../../utils/accessibility'
@@ -57,33 +58,29 @@ function PowerWifiValue({ state, icon }) {
  *       未登録ならリンクにせず「-」と表記する。
  *     - 住所・営業時間は従来どおり登録がある場合だけ行を表示する。
  *     - 個別にタップできるようにカードは button ではなく div。
- *       詳細シートの展開は施設名行（role=button）または地図サムネイルの
- *       タップのみ（情報行のタップでは詳細は開かない）。
+ *       施設名行（role=button）と地図サムネイルを個別に操作できる。
  *   - カテゴリ別の追加情報（keyInfoFor のプロファイル項目）のうち、
  *     基本4項目と重ならないものは基本項目の下に続けて表示。
  *   - 車椅子バッジ・欠落フィルタ時の「未登録」表示は従来どおり。
  *
- * 詳細シートは施設名行（role=button・aria-label: {施設名}の詳細を表示）または
- * 地図サムネイルのタップで onOpen(result) で開く（メモ帳カードと共通の形）。
+ * onSelect があればカード全体で施設を選択する。詳細モードでは施設名行と地図サムネイルから onOpen を呼ぶ。
  * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
  * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
  *
- * showMapThumb: 地図サムネイルを右側に表示（検索結果カード用）。
- *   240×240 の captureMapImage で遅延・逐次生成しメモリキャッシュする
- *   （localStorage には保存しない・生成失敗は画像なしの通常表示）。
- *   サムネイルはタップで詳細を開く（role=button・aria-label は施設名行と
- *   同じ。帰属表示オーバーレイは pointer-events-none で常時表示）。
- *   サムネイルが出ていないカード（座標なし・生成失敗）は施設名行の
- *   タップで詳細を開く。
+ * showMapThumb: 固定サイズの地図サムネイルを右上に表示。
+ *   mapImage が渡された場合は保存済み画像を使い、それ以外は遅延生成する。
  */
-export default function MobileFacilityCard({ result, onOpen, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false }) {
+export default function MobileFacilityCard({ result, onOpen, onSelect, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false, mapImage }) {
   const tags = result.tags || {}
-  const name = facilityName(result)
+  const name = facilityName(result, '（名称無し）')
   const typeLabel = facilityTypeLabel(result)
   const address = formatAddress(tags)
   const phone = tags.phone || tags['contact:phone']
-  const website = safeWebsite(tags)
-  const openingHours = formatOpeningHoursJa(tags.opening_hours) || ''
+  const compact = Boolean(onSelect)
+  const contactLink = compact
+    ? preferredFacilityLink(tags)
+    : { label: '公式サイト', url: safeWebsite(tags) }
+  const openingHours = formatOpeningHoursJa(tags.opening_hours, { multiline: true }) || ''
   // (A3) カテゴリプロファイルの追加項目（基本4項目・wheelchair は除外）
   const extraItems = keyInfoFor(result).items.filter(
     (it) => !BASE_KEYS.has(it.key) && it.key !== 'wheelchair'
@@ -102,29 +99,29 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
   const { has, toggle } = useMemocho()
   const registered = has(memochoKeyOf(result))
 
-  // （レガシー）カード全体の onClick は撤去済みで、これらの stopPropagation は
-  // 現状では何もしない。それでも上位コンポーネント側で新たな伝播ハンドラが
-  // 増えた場合に備え、従来どおり残す（リンク・トグルの操作自体は不変）。
+  // リンクはカードの選択と独立して動作する。
   const stopOpen = (e) => e.stopPropagation()
 
   // メモ帳ボタンのタップ: 追加/削除を切り替える（toggle）。
-  // stopPropagation は上記のレガシーパターン（伝播防御）として維持する。
   const onToggleMemo = (e) => {
     e.stopPropagation()
     toggle(result)
   }
 
   // (地図サムネイル) 検索結果カード用: カード右側に地図サムネイルを表示する
-  // （まちメモ帳カードと同じ見た目: 表示列120px・240×240生成・©表記オーバーレイ）。
+  // 240×240 の画像を固定サイズの枠に表示する。
   // - 生成は遅延（IntersectionObserver で画面に入ったら）＋逐次キュー（同時1件）
   // - メモリキャッシュのみ（localStorage には保存しない）。再表示しても再生成しない
   // - 生成失敗はセッション内でリトライせず、画像なしの通常表示に落とす
   const [thumb, setThumb] = useState(undefined) // undefined=未生成・null=失敗・string=dataURL
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const thumbnail = mapImage === undefined ? thumb : mapImage
+  const hasThumbnail = showMapThumb && typeof thumbnail === 'string' && Boolean(thumbnail)
   const rootRef = useRef(null)
   const thumbKey = memochoKeyOf(result)
   const thumbLat = typeof result.lat === 'number' && Number.isFinite(result.lat) ? result.lat : null
   const thumbLon = typeof result.lon === 'number' && Number.isFinite(result.lon) ? result.lon : null
-  const hasThumbCoords = showMapThumb && thumbLat !== null && thumbLon !== null
+  const hasThumbCoords = showMapThumb && mapImage === undefined && thumbLat !== null && thumbLon !== null
 
   useEffect(() => {
     if (!hasThumbCoords) return
@@ -157,23 +154,42 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
     return () => { cancelled = true; io.disconnect() }
   }, [hasThumbCoords, thumbKey, thumbLat, thumbLon])
 
-  const content = (
-    <>
-      {/* 施設名（大きめ・太字）。タップで詳細シートを開く（role=button）。
-          名前の左に施設種別アイコン（高さ24px）を表示。
-          種別チップ・「🔎詳細」ボタンは廃止（#84）: 種別は下方の情報行で
-          表示し、詳細は施設名行または地図サムネイルのタップで開く */}
+  const activateFacility = () => (onSelect ?? onOpen)?.(result)
+  const selectFromCard = (event) => {
+    if (!event.target.closest('a, button, [role="button"]')) activateFacility()
+  }
+  const nameAction = onSelect ? {} : {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': `${name}の詳細を表示`,
+    onClick: activateFacility,
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        activateFacility()
+      }
+    },
+  }
+  const Thumbnail = onSelect ? 'div' : 'button'
+  const thumbAction = onSelect ? {} : {
+    type: 'button',
+    'aria-label': `${name}の詳細を表示`,
+    onClick: activateFacility,
+  }
+  const memoToggle = !hideMemoToggle && (
+    <button
+      type="button"
+      onClick={onToggleMemo}
+      aria-pressed={registered}
+      className={`shrink-0 whitespace-nowrap text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200${compact && hasThumbnail ? ' absolute right-1 top-1 z-20' : ''}`}
+    >
+      {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
+    </button>
+  )
+  const titleRow = (
+    <div className="flex items-start justify-between gap-1">
       <div
-        role="button"
-        tabIndex={0}
-        aria-label={`${name}の詳細を表示`}
-        onClick={() => onOpen && onOpen(result)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onOpen && onOpen(result)
-          }
-        }}
+        {...nameAction}
         className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
       >
         <img
@@ -185,9 +201,11 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
         />
         <h3 className="min-w-0 break-words text-base font-bold text-slate-800">{name}</h3>
       </div>
-
-      {/* 基本項目行。種別は常時・住所・営業時間は登録済みのみ。
-          電話・Webサイトは常時表示し、未登録なら「-」（リンクにはしない） */}
+      {compact && !hasThumbnail && memoToggle}
+    </div>
+  )
+  const locationRows = (
+    <>
       <p className="text-xs text-slate-600 break-words">
         <span className="text-slate-400">種別</span>
         <span className="ml-1">{typeLabel}</span>
@@ -198,45 +216,48 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
           <span className="ml-1">📍 {address}</span>
         </p>
       )}
-      {phone ? (
-        <a
-          href={`tel:${phone}`}
-          onClick={stopOpen}
-          className="inline-flex items-center gap-1 text-xs text-primary-600"
-        >
-          <span className="text-slate-400">電話</span>
-          <span>📞 {phone}</span>
-        </a>
-      ) : (
-        <p className="text-xs text-slate-600">
-          <span className="text-slate-400">電話</span>
-          <span className="ml-1">-</span>
-        </p>
-      )}
-      {openingHours && (
-        <p className="text-xs text-slate-600 break-words">
-          <span className="text-slate-400">営業時間</span>
-          <span className="ml-1">🕐 {openingHours}</span>
-        </p>
-      )}
-      {website ? (
-        <a
-          href={website}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={stopOpen}
-          className="inline-flex items-center gap-1 text-xs text-primary-600 break-all"
-        >
-          <span className="text-slate-400">Webサイト</span>
-          <span>🌐 公式サイト</span>
-        </a>
-      ) : (
-        <p className="text-xs text-slate-600">
-          <span className="text-slate-400">Webサイト</span>
-          <span className="ml-1">-</span>
-        </p>
-      )}
-
+    </>
+  )
+  const phoneRow = phone ? (
+    <a
+      href={`tel:${phone}`}
+      onClick={stopOpen}
+      className="inline-flex items-center gap-1 text-xs text-primary-600"
+    >
+      <span className="text-slate-400">電話</span>
+      <span>📞 {phone}</span>
+    </a>
+  ) : (
+    <p className="text-xs text-slate-600">
+      <span className="text-slate-400">電話</span>
+      <span className="ml-1">-</span>
+    </p>
+  )
+  const openingHoursRow = openingHours && (
+    <p className="flex items-start gap-1 text-xs text-slate-600">
+      <span className="shrink-0 text-slate-400">営業時間</span>
+      <span className="min-w-0 whitespace-pre-line break-words">🕐 {openingHours}</span>
+    </p>
+  )
+  const contactRow = contactLink?.url ? (
+    <a
+      href={contactLink.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={stopOpen}
+      className="inline-flex items-center gap-1 text-xs text-primary-600 break-all"
+    >
+      {!compact && <span className="text-slate-400">Webサイト</span>}
+      <span>🌐 {contactLink.label}</span>
+    </a>
+  ) : (
+    <p className="text-xs text-slate-600">
+      <span className="text-slate-400">{compact ? 'Web' : 'Webサイト'}</span>{' '}
+      <span>-</span>
+    </p>
+  )
+  const additionalRows = (
+    <>
       {/* (作業スペース系) 電源・Wi-Fi の状態。基本4項目のあと・カテゴリ追加項目の前。
           対象施設のみ表示。あり/なしはバッジ（登録済みの事実）、
           未登録は控えめなプレーン表示（電話・Webサイトの「-」と同様） */}
@@ -252,7 +273,6 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
           </span>
         </p>
       )}
-
       {/* (A3) カテゴリ別の追加項目（基本4項目と重ならないもの） */}
       {extraItems.length > 0 && (
         <ul className="space-y-1">
@@ -270,44 +290,69 @@ export default function MobileFacilityCard({ result, onOpen, bare = false, hideM
         </p>
       )}
 
-      {/* まちメモ帳（第2ピース）: 追加/削除トグルボタン（小さい・左寄せ）。
-          メモ帳内では右上の✕で削除するため hideMemoToggle で出さない */}
-      {!hideMemoToggle && (
-        <button
-          type="button"
-          onClick={onToggleMemo}
-          aria-pressed={registered}
-          className="self-start text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200"
-        >
-          {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
-        </button>
+    </>
+  )
+  const content = compact ? (
+    <>
+      {titleRow}
+      {contactRow}
+      <div>{phoneRow}</div>
+      <button
+        type="button"
+        aria-expanded={detailsOpen}
+        onClick={() => setDetailsOpen((open) => !open)}
+        className="flex min-h-7 items-center gap-1 text-xs font-medium text-slate-600"
+      >
+        <span aria-hidden="true">{detailsOpen ? '▼' : '▶'}</span>
+        施設情報
+      </button>
+      {detailsOpen && (
+        <div className="space-y-1.5">
+          {locationRows}
+          {openingHoursRow}
+          {additionalRows}
+        </div>
       )}
+    </>
+  ) : (
+    <>
+      {titleRow}
+      {locationRows}
+      {phoneRow}
+      {openingHoursRow}
+      {contactRow}
+      {additionalRows}
+      {memoToggle}
     </>
   )
 
-  // (地図サムネイル) 表示モード: 右側に120pxのサムネイル列を併設する
-  // （まちメモ帳カードと同じ構造・©表記オーバーレイ付き）
+  // 地図はカードの高さや施設情報の開閉にかかわらず、右上に固定サイズで表示する。
   if (showMapThumb) {
+    const frameClass = bare ? '' : `bg-white border rounded-xl shadow-sm overflow-hidden ${
+      selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'
+    }`
     return (
       <div
         ref={rootRef}
         id={cardId || undefined}
-        className={`w-full bg-white border rounded-xl shadow-sm overflow-hidden flex items-stretch ${
-          selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'}`}
+        onClick={onSelect ? selectFromCard : undefined}
+        className={`relative w-full flex items-stretch ${frameClass}${onSelect ? ' cursor-pointer' : ''}`}
       >
-        <div className="flex-1 min-w-0 p-3 space-y-1.5">{content}</div>
-        {typeof thumb === 'string' && (
-          // タップで詳細を開く（メモ帳カードのサムネイルと同じ振る舞い・セマンティクス）
-          <div
-            className="relative shrink-0 w-[120px] cursor-pointer"
-            role="button"
-            aria-label={`${name}の詳細を表示`}
-            onClick={() => onOpen && onOpen(result)}
-          >
-            <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />
-            <span className="absolute bottom-1 right-1 text-[8px] leading-tight text-right text-slate-600 bg-white/75 rounded px-0.5 pointer-events-none">
-              © OpenStreetMap contributors
-            </span>
+        {onSelect && (
+          <button
+            type="button"
+            aria-label={`${name}を地図で選択`}
+            onClick={activateFacility}
+            className="pointer-events-none absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
+          />
+        )}
+        <div className={`flex-1 min-w-0 p-3 space-y-1.5${bare && !hasThumbnail ? ' pr-10' : ''}`}>{content}</div>
+        {hasThumbnail && (
+          <div className="relative h-[112px] w-[136px] shrink-0 self-start">
+            <Thumbnail {...thumbAction} className="absolute inset-0 w-full cursor-pointer">
+              <img src={thumbnail} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            </Thumbnail>
+            {compact && memoToggle}
           </div>
         )}
       </div>

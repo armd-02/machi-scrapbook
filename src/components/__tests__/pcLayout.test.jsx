@@ -72,7 +72,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
 
 // jsdomにResizeObserverがないためスタブ（MapViewが使用）
@@ -389,29 +389,24 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(dialog).toBeTruthy()
   }, IT_TIMEOUT)
 
-  it('施設詳細シートは右ペインの一覧カード・メモ帳カードから開ける', async () => {
+  it('メモ帳と検索結果で施設を選ぶと、それぞれの地図が開く', async () => {
     seedMemocho()
     renderApp()
 
-    // 初期表示（右ペイン＝メモ帳）でメモ帳カードの施設名行（role=button）から開く
-    // （情報行のタップでは詳細は開かない）
-    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'メモ珈琲店の詳細を表示' }))
-    let dialog = await screen.findByRole('dialog', { name: /施設詳細: メモ珈琲店/ })
-    // 詳細シートはメモ本文を表示しない。登録済み状態（「メモ帳から削除」トグル）を確認する
-    expect(within(dialog).getByText(/メモ帳から削除/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'メモ珈琲店を地図で選択' }))
+    expect(within(getRightPane()).getByRole('button', { name: /メモマップ.*地図を隠す/ })).toBeTruthy()
+    expect(document.getElementById('memocho-card-node/999').className).toContain('ring-primary-500')
+    expect(screen.queryByRole('dialog')).toBeNull()
 
-    // 検索して一覧へ切替し、一覧カードから開く
+    // 検索結果の施設名を押すと、施設カードが選択される
     openFormView()
     switchToMapMode()
     expect(selectCategoryChip('カフェ')).toBe(true)
     await runMapSearch()
     await expectRightListVisible()
-    // 一覧カードの施設名行（role=button）から開く
-    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
-    dialog = await screen.findByRole('dialog', { name: /施設詳細: テスト珈琲店/ })
-    expect(dialog).toBeTruthy()
+    fireEvent.click(within(getRightPane()).getByRole('button', { name: 'テスト珈琲店を地図で選択' }))
+    expect(document.getElementById('facility-card-node/1').className).toContain('ring-primary-500')
+    expect(screen.queryByRole('dialog')).toBeNull()
   }, IT_TIMEOUT)
 
   it('幅<1024px: 従来のモバイルシェル（MobileShell）が表示される', async () => {

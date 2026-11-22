@@ -12,7 +12,7 @@
  * - カードの✕は2段階確認＋論理削除（deletedAt 付けてごみ箱へ移動）
  * - ごみ箱ビュー（view='trash'）: 削除日時・復元・完全に削除（2段階確認）・
  *   ごみ箱を空にする（2段階確認）・一覧に戻る
- * - 施設名行（role=button）または地図サムネイルのタップで onOpenDetail が呼ばれる
+ * - 施設情報や地図サムネイルのタップでメモマップ上の施設を選択する
  *   （情報行のタップでは詳細は開かない）
  * - 地図サムネイルの生成・表示
  *
@@ -36,16 +36,27 @@
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within, act } from '@testing-library/react'
 import MemochoSection from '../MemochoSection'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
 import { captureMapImage } from '../../../utils/mapCapture'
+import { AppContext } from '../../../context/AppContext'
+import { appReducer, createInitialState } from '../../../state/appReducer'
 
 vi.mock('../../../utils/mapCapture', () => ({
   captureMapImage: vi.fn(async () => 'data:image/jpeg;base64,QUJD'),
 }))
 const captureMapImageMock = captureMapImage
+
+// (メモマップ) MapLibre GLはWebGLが必要でjsdomでは初期化できないため、
+// モジュール全体をモックで置き換える（MobileResultsMap 共用のモック）
+const mockState = vi.hoisted(() => ({ api: null }))
+vi.mock('maplibre-gl', async () => {
+  const mod = await import('../../../test/maplibreMock')
+  mockState.api = mod.createMapLibreMock()
+  return mockState.api
+})
 
 function makeItem(overrides = {}) {
   return {
@@ -77,15 +88,31 @@ function storedItems() {
   return raw == null ? null : JSON.parse(raw)
 }
 
+// (メモマップ) MobileResultsMap が AppContext を必要とするため Provider で包む
+function SectionHarness(props) {
+  const [state, dispatch] = React.useReducer(appReducer, createInitialState())
+  return (
+    <AppContext.Provider value={{ state, dispatch }}>
+      <MemochoSection {...props} />
+    </AppContext.Provider>
+  )
+}
+
 function renderSection(overrides = {}) {
-  const onOpenDetail = vi.fn()
-  const view = render(<MemochoSection onOpenDetail={onOpenDetail} {...overrides} />)
-  return { view, onOpenDetail }
+  const view = render(<SectionHarness {...overrides} />)
+  return { view }
 }
 
 beforeEach(() => {
   localStorage.clear()
   resetMemochoStore()
+  if (mockState.api) mockState.api.resetState()
+  // jsdom に ResizeObserver がないため no-op スタブ（MobileResultsMap が生成する）
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
 })
 afterEach(() => {
   cleanup()
@@ -118,34 +145,27 @@ describe('MemochoSection: 基本表示', () => {
     // MobileFacilityCard と同じ見た目: 施設名（h3）＋カテゴリラベル
     expect(screen.getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'みらい公園' })).toBeTruthy()
-    expect(screen.getByText('カフェ')).toBeTruthy()
-    expect(screen.getByText('公園')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: '施設情報' })).toHaveLength(2)
     // メモ欄は未編集中なので表示モード: 保存済みメモはテキスト表示・空メモは案内表示
     expect(screen.getByLabelText('テスト珈琲店のメモ').textContent).toBe('前回訪問済み')
     expect(screen.getByLabelText('みらい公園のメモ').textContent).toBe('メモを追加')
   })
 
-  it('情報行（電話等）のタップでは onOpenDetail は呼ばれない（詳細は開かない）', () => {
+  it('施設カードを押すとメモマップが開いて、対応するピンを強調する', async () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const { onOpenDetail } = renderSection()
+    renderSection()
 
-    // 情報行をタップしても詳細は開かない（開くのは施設名行と地図サムネイルのみ）
-    fireEvent.click(screen.getByText('電話'))
-    expect(onOpenDetail).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('heading', { name: 'テスト珈琲店' }))
+    expect(screen.getByRole('button', { name: /メモマップ.*地図を隠す/ })).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const map = getMemoMap()
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(1))
+    expect(map._layers.find((layer) => layer.id === 'poi-selected-background').filter)
+      .toEqual(['==', ['get', 'key'], 'node/1001'])
+    expect(map._calls.filter((call) => call.name === 'easeTo').at(-1).args[0])
+      .toMatchObject({ center: [135.5, 34.85], zoom: 17 })
   })
 
-  it('施設名行（role=button）のタップで onOpenDetail（スナップショット＋origin "memocho"）が呼ばれる', () => {
-    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
-    const { onOpenDetail } = renderSection()
-
-    // 施設名行のボタン（サムネイルが生成されて2つになっても先頭は施設名行）
-    fireEvent.click(screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })[0])
-    expect(onOpenDetail).toHaveBeenCalledTimes(1)
-    expect(onOpenDetail).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'node', id: 1001, name: 'テスト珈琲店' }),
-      'memocho'
-    )
-  })
 })
 
 describe('MemochoSection: メモ欄', () => {
@@ -242,11 +262,11 @@ describe('MemochoSection: メモ内の URL リンク（表示モード）', () =
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
       makeItem({ memo: '参照 https://example.com' }),
     ]))
-    const { onOpenDetail } = renderSection()
+    renderSection()
 
     fireEvent.click(screen.getByRole('link', { name: 'https://example.com' }))
 
-    expect(onOpenDetail).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
     // まだ表示モード（textarea は出ていない）
     expect(screen.getByLabelText('テスト珈琲店のメモ').tagName).toBe('DIV')
   })
@@ -327,7 +347,7 @@ describe('MemochoSection: 評価（星5つ）', () => {
 
   it('星をタップするとその値に設定され、表示と localStorage が更新される', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()])) // rating 無し
-    const { onOpenDetail } = renderSection()
+    renderSection()
 
     fireEvent.click(star(2))
 
@@ -338,7 +358,7 @@ describe('MemochoSection: 評価（星5つ）', () => {
     expect(star(2).getAttribute('aria-pressed')).toBe('true')
     expect(star(1).getAttribute('aria-pressed')).toBe('false')
     // 評価行のタップで詳細シートは開かない（クリック領域の外）
-    expect(onOpenDetail).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('現在の値と同じ星をタップすると 0（未評価）に解除される', () => {
@@ -378,13 +398,14 @@ describe('MemochoSection: 地図サムネイル', () => {
     expect(img).toBeTruthy()
   })
 
-  it('地図（サムネイル）をタップすると onOpenDetail が呼ばれる', () => {
+  it('保存済みの地図サムネイルからもメモマップの施設を選択できる', () => {
     const item = makeItem({ mapImage: 'data:image/jpeg;base64,QUJD' })
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([item]))
-    const { onOpenDetail } = renderSection()
-    // 施設名行と同じ名前なので2つマッチするが、DOM順の2つ目（後方）がサムネイル
-    fireEvent.click(screen.getAllByRole('button', { name: 'テスト珈琲店の詳細を表示' })[1])
-    expect(onOpenDetail).toHaveBeenCalledWith(item, 'memocho')
+    renderSection()
+    expect(screen.queryByText('© OpenStreetMap contributors')).toBeNull()
+    fireEvent.click(document.querySelector('img[src="data:image/jpeg;base64,QUJD"]'))
+    expect(screen.getByRole('button', { name: /メモマップ.*地図を隠す/ })).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('mapImage が無いアイテムでは生成して保存する', async () => {
@@ -554,6 +575,18 @@ const cuisineGroup = () => screen.queryByRole('group', { name: '料理ジャン�
 // 折りたたみ見出し行（「料理ジャンル」＋開閉トグル）。選択中ラベル有無の両方で一致する。
 const cuisineHeader = () => screen.queryByRole('button', { name: /料理ジャンル/ })
 const keywordInput = () => screen.getByRole('textbox', { name: '名前・メモで絞り込む' })
+
+// (メモマップ) 折りたたみトグル（「🗺️ メモマップ」＋「地図を表示／地図を隠す」）
+const memoMapToggle = () => screen.getByRole('button', { name: /メモマップ/ })
+
+// 折りたたみ展開 → モックmapの load をフラッシュ
+async function openMemoMap() {
+  fireEvent.click(memoMapToggle())
+  await act(async () => {})
+}
+
+// 展開済みのメモマップのモックmapインスタンス
+const getMemoMap = () => mockState.api._state.maps.at(-1)
 
 function seedFilterItems() {
   localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify(FILTER_ITEMS))
@@ -860,6 +893,7 @@ describe('MemochoSection: フィルタバー', () => {
 
     fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
     fireEvent.click(cuisineHeader())
+    expect(within(cuisineGroup()).queryByRole('button', { name: '寿司（1件）' })).toBeNull()
     fireEvent.click(within(cuisineGroup()).getByRole('button', { name: 'ラーメン（2件）' }))
 
     expect(screen.getByRole('heading', { name: 'ラーメンC' })).toBeTruthy()
@@ -921,7 +955,7 @@ describe('MemochoSection: フィルタバー', () => {
     fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
     fireEvent.change(wcSelect(), { target: { value: 'gte_partial' } })
     fireEvent.click(cuisineHeader())
-    fireEvent.click(within(cuisineGroup()).getByRole('button', { name: 'ラーメン（2件）' }))
+    fireEvent.click(within(cuisineGroup()).getByRole('button', { name: 'ラーメン（1件）' }))
     fireEvent.click(ratingStar(2))
 
     // 5条件の AND で一致するのはラーメンCだけ（rating 3 が ★2以上を満足）
@@ -1057,7 +1091,7 @@ describe('MemochoSection: 横長コンパクトフィルタバー（id 28。1行
     expect(rating.previousElementSibling.className).toContain('min-h-[44px]')
   })
 
-  it('料理ジャンルはトグル＋チップが同じ行で、展開中はチップが横スクロールで右に出る', () => {
+  it('料理ジャンルを展開すると、トグルの下に幅に応じた2列か3列のチップが並ぶ', () => {
     seedFilterItems()
     renderSection()
 
@@ -1069,12 +1103,149 @@ describe('MemochoSection: 横長コンパクトフィルタバー（id 28。1行
     expect(header.getAttribute('aria-expanded')).toBe('true')
 
     const group = cuisineGroup()
-    // チップ群はトグルと同じ行（1行で横スクロール）
     expect(group.parentElement).toBe(header.parentElement)
-    expect(group.parentElement.className).toContain('flex')
-    expect(group.parentElement.className).toContain('min-h-[44px]')
-    expect(group.previousElementSibling).toBe(header) // トグルが直前の子
-    expect(group.className).toContain('overflow-x-auto')
-    expect(group.className).not.toContain('flex-wrap')
+    expect(group.parentElement.className).toContain('@container/cuisine')
+    expect(group.previousElementSibling).toBe(header)
+    expect(group.className).toContain('grid-cols-[repeat(2,minmax(min(7rem,40%),1fr))]')
+    expect(group.className).toContain('@[24rem]/cuisine:grid-cols-[repeat(3,minmax(7rem,1fr))]')
+  })
+})
+
+describe('MemochoSection: メモマップ（保存済み施設を地図で表示）', () => {
+  it('座標を持つアイテムが施設アイコンピンで地図に表示される（既定は折りたたみ・展開でピンが出る）', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem(), PARK]))
+    renderSection()
+
+    // 地図ブロックは出るが既定は折りたたみ（地図は生成されない）
+    const toggle = memoMapToggle()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(mockState.api._state.maps).toHaveLength(0)
+
+    // 展開 → 地図がマウントされ、アイテムがアイコンピンで表示される
+    await openMemoMap()
+    const map = getMemoMap()
+    expect(map).toBeTruthy()
+
+    await waitFor(() => {
+      const features = map._lastGeoJSON.data.features
+      expect(features).toHaveLength(2)
+      expect(features.map((f) => f.properties.key).sort()).toEqual(['node/1001', 'way/77'])
+      expect(features.find((f) => f.properties.key === 'node/1001').properties.icon).toBe('cafe.png')
+      expect(features.find((f) => f.properties.key === 'way/77').properties.icon).toBe('tree_and_bench.png')
+    })
+  })
+
+  it('ピンはフィルタに連動する（フィルタで除外されたアイテムは地図に出ない）', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem(), // テスト珈琲店
+      makeItem({ id: 2002, name: 'ラーメン屋', tags: { name: 'ラーメン屋', cuisine: 'ramen' } }),
+    ]))
+    renderSection()
+    await openMemoMap()
+    const map = getMemoMap()
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(2))
+
+    // キーワード「珈琲」で絞り込む → 珈琲店だけ残る
+    fireEvent.change(keywordInput(), { target: { value: '珈琲' } })
+    await waitFor(() => {
+      const features = map._lastGeoJSON.data.features
+      expect(features).toHaveLength(1)
+      expect(features[0].properties.key).toBe('node/1001')
+    })
+  })
+
+  it('ピンをタップすると対応するカードが選択される（スクロール＋ハイライト・詳細シートは開かない）', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem(), PARK]))
+    renderSection()
+    await openMemoMap()
+    const map = getMemoMap()
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(2))
+
+    // 公園のピンをタップ
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'way/77')
+    act(() => {
+      map.fire('click', 'poi-icon', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+
+    // 対応するカードがハイライトされる
+    const card = document.getElementById('memocho-card-way/77')
+    expect(card).toBeTruthy()
+    await waitFor(() => {
+      expect(card.className).toContain('ring-primary-500')
+    })
+    // 詳細シートは開かない
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('ピンをタップすると対応カードへスクロールする（scrollIntoView が呼ばれる）', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+    renderSection()
+    await openMemoMap()
+    const map = getMemoMap()
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(1))
+
+    // jsdom には Element.prototype.scrollIntoView が無いのでスタブする
+    const scrollSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollSpy
+    const feature = map._lastGeoJSON.data.features[0]
+    act(() => {
+      map.fire('click', 'poi-icon', {
+        features: [feature],
+        lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+      })
+    })
+
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    delete Element.prototype.scrollIntoView
+  })
+
+  it('非表示（フィルタで除外された）カードのピンをタップしても何も起きない', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem(),
+      makeItem({ id: 2002, name: 'ラーメン屋', tags: { name: 'ラーメン屋', cuisine: 'ramen' } }),
+    ]))
+    renderSection()
+    await openMemoMap()
+    const map = getMemoMap()
+    await waitFor(() => expect(map._lastGeoJSON.data.features).toHaveLength(2))
+
+    // キーワード「珈琲」で絞り込む（ラーメン屋が除外される）
+    fireEvent.change(keywordInput(), { target: { value: '珈琲' } })
+    await waitFor(() => expect(getMemoMap()._lastGeoJSON.data.features).toHaveLength(1))
+
+    // 除外されたラーメン屋のピンをタップ → 選択されない
+    act(() => {
+      map.fire('click', 'poi-icon', {
+        features: [{ properties: { key: 'node/2002' } }],
+        lngLat: { lat: 34.85, lng: 135.5 }
+      })
+    })
+    expect(document.getElementById('memocho-card-node/2002')).toBeNull()
+    expect(document.getElementById('memocho-card-node/1001').className).not.toContain('ring-primary-500')
+  })
+
+  it('座標を持たないアイテムはピンにならない（全アイテムが座標なしなら地図は出ない）', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      makeItem({ lat: null, lon: null }),
+    ]))
+    renderSection()
+
+    // カードは表示されるが、地図ブロックは出ない
+    expect(screen.getByText('テスト珈琲店')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /メモマップ/ })).toBeNull()
+    expect(mockState.api._state.maps).toHaveLength(0)
+  })
+
+  it('ごみ箱ビューでは地図が表示されない', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+      { ...makeItem(), deletedAt: '2026-01-03T00:00:00.000Z' },
+    ]))
+    renderSection({ view: 'trash' })
+
+    expect(screen.queryByRole('button', { name: /メモマップ/ })).toBeNull()
+    expect(mockState.api._state.maps).toHaveLength(0)
   })
 })

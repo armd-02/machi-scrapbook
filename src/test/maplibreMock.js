@@ -9,8 +9,13 @@
  *   vi.mock('maplibre-gl', async () => {
  *     const mod = await import('../../test/maplibreMock')
  *     mockState.api = mod.createMapLibreMock()
- *     return { default: mockState.api }
+ *     return mockState.api
  *   })
+ *
+ * 注: maplibre-gl v6 は ESM のみ・default エクスポートが無い（名前エクスポートだけ）。
+ * 本アプリの地図コンポーネントは `import * as maplibregl from 'maplibre-gl'`
+ * （ネームスペースインポート）で使うため、ファクトリは api オブジェクト自体を
+ * 返す（{ default: ... } ではなくなる）。
  *   // テスト内:
  *   const map = mockState.api._state.maps[0]
  *   map.fire('load')            // style loadイベントを擬似発火
@@ -23,8 +28,9 @@
  *   querySourceFeatures, fitBounds/panTo/easeTo/jumpTo,
  *   getBounds/getZoom/getCenter, getCanvas, addControl, resize, remove
  * - Map: loadImage/addImage/getImage/removeImage（施設アイコンの読み込み・登録）
- *   - loadImage(url, cb) はマイクロタスクで cb(error, image) を発火。
- *     setImageLoadFailures([url, ...]) で読込失敗を擬装できる。
+ *   - loadImage(url) は Promise 専用API（実物 maplibre-gl v6 と同じ形）。
+ *     マイクロタスクで { data } を解決する。
+ *     setImageLoadFailures([url, ...]) で読込失敗（reject）を擬装できる。
  *   - addImage(name, image) は map._images（name → image）に登録される。
  * - touchZoomRotate: enable/disable/enableRotation/disableRotation
  *   （disableRotation の呼び出し・状態を検証するため _rotationDisabled を保持）
@@ -68,9 +74,12 @@ export function createMapLibreMock(options = {}) {
 
   function makeMap(mapOptions) {
     // MapLibreの map.on(type, target?, listener) に対応:
-    // (type, cb) と (type, target, cb) の両方を composite key で管理する
-    const handlerKey = (type, target, listener) =>
-      (listener !== undefined) ? `${type}:${target}` : type
+    // レイヤー別の登録は、テストからレイヤーを指定して発火できるようにする。
+    const handlerKeys = (type, target, listener) => {
+      if (listener === undefined) return [type]
+      const layers = Array.isArray(target) ? target : [target]
+      return layers.map((layer) => `${type}:${layer}`)
+    }
 
     const map = {
       _options: mapOptions || {},
@@ -87,9 +96,10 @@ export function createMapLibreMock(options = {}) {
       on(type, target, listener) {
         const cb = listener !== undefined ? listener : target
         if (typeof cb !== 'function') return this
-        const key = handlerKey(type, target, listener)
-        if (!this._handlers[key]) this._handlers[key] = []
-        this._handlers[key].push(cb)
+        for (const key of handlerKeys(type, target, listener)) {
+          if (!this._handlers[key]) this._handlers[key] = []
+          this._handlers[key].push(cb)
+        }
         return this
       },
       off(type, target, listener) {
@@ -98,11 +108,12 @@ export function createMapLibreMock(options = {}) {
           this._handlers = {}
           return this
         }
-        const key = handlerKey(type, target, listener)
-        if (typeof cb === 'function') {
-          this._handlers[key] = (this._handlers[key] || []).filter((f) => f !== cb)
-        } else {
-          delete this._handlers[key]
+        for (const key of handlerKeys(type, target, listener)) {
+          if (typeof cb === 'function') {
+            this._handlers[key] = (this._handlers[key] || []).filter((f) => f !== cb)
+          } else {
+            delete this._handlers[key]
+          }
         }
         return this
       },
@@ -145,6 +156,12 @@ export function createMapLibreMock(options = {}) {
       removeSource(id) { this._sources.delete(id); return this },
       addLayer(layer) { this._layers.push(layer); return this },
       removeLayer(id) { this._layers = this._layers.filter((l) => l.id !== id); return this },
+      setFilter(id, filter) {
+        this._layers = this._layers.map((layer) => layer.id === id
+          ? { ...layer, filter }
+          : layer)
+        return this
+      },
       querySourceFeatures(id, query) {
         const fn = state._querySourceFeatures || this._queryFeaturesFn
         return fn ? fn(id, query) : []
@@ -168,17 +185,18 @@ export function createMapLibreMock(options = {}) {
       resize() { return this._record('resize') },
       remove() { this._removed = true },
 
-      // 実MapLibreの map.loadImage(url, cb) を模す。cb(error, image) 形式で
-      // 非同期（マイクロタスク）に呼ばれる。URL が失敗リスト（setImageLoadFailures）
-      // に含まれる場合は cb(error)、それ以外は cb(null, {_image, _url})。
-      loadImage(url, cb) {
+      // (修正) 実MapLibre（v6）の map.loadImage(url) は Promise 専用API。
+      // 非同期（マイクロタスク）で { data } を解決し、URL が失敗リスト
+      // （setImageLoadFailures）に含まれる場合は reject する。
+      loadImage(url) {
         this._record('loadImage', url)
         const fail = state._imageFailures.has(url)
-        queueMicrotask(() => cb(
-          fail ? new Error(`イメージ読込失敗: ${url}`) : null,
-          fail ? undefined : { _image: true, _url: url }
-        ))
-        return this
+        return new Promise((resolve, reject) => {
+          queueMicrotask(() => (
+            fail ? reject(new Error(`イメージ読込失敗: ${url}`))
+                 : resolve({ data: { _image: true, _url: url, width: 64, height: 64 } })
+          ))
+        })
       },
       addImage(name, image) { this._images.set(name, image); return this },
       getImage(name) { return this._images.has(name) ? this._images.get(name) : null },

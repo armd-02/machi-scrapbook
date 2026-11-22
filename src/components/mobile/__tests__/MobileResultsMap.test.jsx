@@ -42,7 +42,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
 
 // (修正) 制御可能な ResizeObserver モック。jsdom はレイアウトを計算しないため
@@ -150,13 +150,22 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     const map = getMap()
     expect(map).toBeTruthy()
 
-    // ソース・レイヤ: 'results'（geojson・非クラスタ）+ poi-icon（symbol）
-    // + poi-fallback（circle・青い点）
+    // 白い円を施設アイコンの背面に描画する。
     const src = map._sources.get('results')
     expect(src).toBeTruthy()
     expect(src.type).toBe('geojson')
     expect(src.cluster).toBeFalsy()
-    expect(map._layers.map((l) => l.id)).toEqual(['poi-icon', 'poi-fallback'])
+    const [background, icon, fallback] = map._layers
+    expect(map._layers.map((l) => l.id)).toEqual([
+      'poi-background', 'poi-icon', 'poi-fallback', 'poi-selected-background', 'poi-selected-icon',
+    ])
+    expect(background).toMatchObject({
+      type: 'circle',
+      source: 'results',
+      filter: icon.filter,
+      paint: { 'circle-color': '#ffffff', 'circle-stroke-width': 2 },
+    })
+    expect(fallback.filter).toEqual(['==', ['get', 'icon'], ''])
 
     // (アイコンピン) 結果がGeoJSONとして設定され、properties.icon に
     // 解決されたアイコン名（施設カードと同じ getFacilityIcon）が付く
@@ -197,6 +206,25 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
     expect(e).toBeGreaterThan(135.55)
     expect(s).toBeLessThan(34.75)
     expect(n).toBeGreaterThan(34.75)
+  })
+
+  it.each([
+    { label: '数メートル離れた施設', longitude: 135.50001, maxZoom: 19 },
+    { label: '座標が同じ施設', longitude: 135.5, maxZoom: 16 },
+  ])('$label のズーム設定を地図が見えるまで保留する', async ({ longitude, maxZoom }) => {
+    const results = [poiA, { ...poiB, lat: poiA.lat, lon: longitude }]
+    render(
+      <Harness preActions={[{ type: 'SET_RESULTS', payload: results }]}>
+        <MobileResultsMap />
+      </Harness>
+    )
+    await hideContainer()
+    const map = getMap()
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+    expect(callsOf(map, 'fitBounds')).toHaveLength(0)
+
+    await showContainer()
+    expect(callsOf(map, 'fitBounds')[0].args[1]).toMatchObject({ maxZoom })
   })
 
   it('座標がnoneば結果は範囲算出不能 → state.bboxにfitBoundsする', async () => {
@@ -263,6 +291,36 @@ describe('MobileResultsMap: POI結果（kind="poi"）', () => {
   })
 })
 
+describe('MobileResultsMap: loadImage の Promise 化（回帰）', () => {
+  it('map.loadImage(url) の Promise が解決してから setData・fitBounds が実行される', async () => {
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [poiA, poiB] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="poi" />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    // (修正) maplibre-gl v6 の loadImage は Promise 専用API（url のみ引数）。
+    // 旧コールバック形式 map.loadImage(url, cb) を呼び続けると Promise が永遠に
+    // 解決せず setData・fitBounds に到達しない（ピンが一切出ない不具合）
+    // (注) loadImage の _record は url をそのまま args として記録する（配列ではない）
+    const loadImageUrls = callsOf(map, 'loadImage').map((c) => c.args)
+    expect(loadImageUrls).toContain(facilityIconUrl('cafe.png'))
+    expect(loadImageUrls).toContain(facilityIconUrl('tree_and_bench.png'))
+
+    // Promise 解決後にソースへデータが入り、fitBounds が実行される
+    await waitFor(() => {
+      expect(map._lastGeoJSON.data.features).toHaveLength(2)
+      expect(map._lastGeoJSON.data.features.map((f) => f.properties.key)).toEqual(['node/1', 'node/2'])
+    })
+    await waitFor(() => expect(callsOf(map, 'fitBounds')).toHaveLength(1))
+  })
+})
+
 describe('MobileResultsMap: バリアフリー結果（kind="barrier_free"）', () => {
   it('歩道を線・縁石を点として設定し、両方を含む範囲にfitBoundsする', async () => {
     render(
@@ -278,7 +336,7 @@ describe('MobileResultsMap: バリアフリー結果（kind="barrier_free"）', 
     const map = getMap()
     // ソース・レイヤ: 'barrier-free' + bf-line/bf-node
     expect(map._sources.get('barrier-free')).toBeTruthy()
-    expect(map._layers.map((l) => l.id)).toEqual(['bf-line', 'bf-node'])
+    expect(map._layers.map((l) => l.id)).toEqual(['bf-line', 'bf-node', 'bf-selected-line', 'bf-selected-node'])
 
     const fc = map._lastGeoJSON.data
     expect(fc.features).toHaveLength(2)
@@ -542,7 +600,7 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     { type: 'SET_STATUS', payload: 'success' }
   ]
 
-  it('POI: アイコンレイヤ（poi-icon）のクリックで対応する結果を引いて onMarkerClick が呼ばれる', async () => {
+  it.each(['poi-icon', 'poi-background', 'poi-selected-icon'])('POI: %s のクリックで対応する結果を1回選択する', async (layerId) => {
     const onMarkerClick = vi.fn()
     render(
       <Harness preActions={poiPre}>
@@ -558,7 +616,7 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     expect(feature).toBeTruthy()
     expect(feature.properties.icon).toBe('cafe.png')
     act(() => {
-      map.fire('click', 'poi-icon', {
+      map.fire('click', layerId, {
         features: [feature],
         lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
       })
@@ -642,7 +700,7 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     expect(map._images.has('marker-stroked.png')).toBe(true)
   })
 
-  it('バリアフリー: onMarkerClick を渡されてもタップコールバックは配線しない（従来どおり）', async () => {
+  it('バリアフリー地図の線と点のクリックで対応する結果を渡す', async () => {
     const onMarkerClick = vi.fn()
     render(
       <Harness preActions={[
@@ -655,15 +713,62 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     await flushLoad()
 
     const map = getMap()
-    // バリアフリーの線・点レイヤには click ハンドラが存在しない
-    expect(map._handlers['click:bf-line']).toBeUndefined()
-    expect(map._handlers['click:bf-node']).toBeUndefined()
-
-    // クリックを発火させてもコールバックは呼ばれない
-    const point = map._lastGeoJSON.data.features.find((f) => f.geometry.type === 'Point')
+    const [line, point] = map._lastGeoJSON.data.features
     act(() => {
-      map.fire('click', 'bf-node', { features: [point], lngLat: { lat: 34.1, lng: 135.1 } })
+      map.fire('click', 'bf-line', { features: [line] })
+      map.fire('click', 'bf-selected-node', { features: [point] })
     })
-    expect(onMarkerClick).not.toHaveBeenCalled()
+    expect(onMarkerClick.mock.calls).toEqual([[bfFootway], [bfKerb]])
+  })
+})
+
+describe('MobileResultsMap: results prop（メモ帳流用）', () => {
+  it('results prop を指定すると、state の検索結果ではなく prop のデータを表示する', async () => {
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [poiA, poiB] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="poi" results={[poiSingle]} />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    // ソースの GeoJSON は prop のデータ（単独カフェ）で、state の2結果ではない
+    await waitFor(() => {
+      const fc = map._lastGeoJSON.data
+      expect(fc.features).toHaveLength(1)
+      expect(fc.features[0].properties).toMatchObject({ key: 'node/3', icon: 'cafe.png' })
+      expect(fc.features[0].geometry.coordinates).toEqual([135.55, 34.75])
+    })
+
+    // fitBounds も prop のデータの範囲へ（state の結果範囲ではない）
+    await waitFor(() => expect(callsOf(map, 'fitBounds')).toHaveLength(1))
+    const fit = callsOf(map, 'fitBounds')[0]
+    const [[w, s], [e, n]] = fit.args[0]
+    expect(w).toBeLessThan(135.55)
+    expect(e).toBeGreaterThan(135.55)
+    expect(s).toBeLessThan(34.75)
+    expect(n).toBeGreaterThan(34.75)
+  })
+
+  it('prop 未指定なら従来どおり state の検索結果を使う', async () => {
+    render(
+      <Harness preActions={[
+        { type: 'SET_RESULTS', payload: [poiA, poiB] },
+        { type: 'SET_STATUS', payload: 'success' }
+      ]}>
+        <MobileResultsMap kind="poi" />
+      </Harness>
+    )
+    await flushLoad()
+
+    const map = getMap()
+    await waitFor(() => {
+      const fc = map._lastGeoJSON.data
+      expect(fc.features).toHaveLength(2)
+      expect(fc.features.map((f) => f.properties.key)).toEqual(['node/1', 'node/2'])
+    })
   })
 })

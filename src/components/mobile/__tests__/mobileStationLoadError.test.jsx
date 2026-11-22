@@ -28,7 +28,7 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
 
 // 駅ファイルのフィクスチャ行（[名前, 緯度, 経度, 種別]。種別: 0=駅）

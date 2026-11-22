@@ -5,6 +5,7 @@ import { render, screen, fireEvent, waitFor, within, cleanup, act } from '@testi
 import App from '../../../App'
 import { getMapInstance } from '../../../hooks/useMapRef'
 import { clearCache } from '../../../utils/overpass'
+import { PLACE_HISTORY_KEY } from '../../../utils/placeHistory'
 import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categories'
 
 // (#59) モバイルレイアウト E2E テスト
@@ -14,7 +15,7 @@ import { CATEGORY_GROUPS, getCategoriesForPurpose } from '../../../data/categori
 // - 検索タブ内の地図モード検索 → クエリに地図BBOXが反映される
 // - 検索成功時の「一覧」タブ自動切替
 // - 検索タブの「この表示範囲で検索」明示トリガー（地図移動だけでは検索しない）
-// - 施設カードの施設名行（role=button）タップ → 詳細ボトムシート → 「閉じる」→ 地図タブ → マーカータップで再オープン
+// - 検索結果カードやサムネイルで地図上の施設を選択
 // - マーカータップ → 詳細ボトムシート
 // - 自治体モード検索
 // - (#xx) フォームは常に地図モード（ソース切替タブは撤去済み）。地図モード検証
@@ -28,8 +29,12 @@ const mockState = vi.hoisted(() => ({ api: null }))
 vi.mock('maplibre-gl', async () => {
   const mod = await import('../../../test/maplibreMock')
   mockState.api = mod.createMapLibreMock()
-  return { default: mockState.api }
+  return mockState.api
 })
+
+vi.mock('../../../utils/resultThumbs', () => ({
+  getCachedThumb: () => 'data:image/png;base64,AA==',
+}))
 
 // ===== テスト用データ =====
 const MUNI_DATA = {
@@ -277,6 +282,17 @@ function navButtons() {
 function clickTab(label) {
   fireEvent.click(navButtons().getByRole('button', { name: label }))
 }
+function clickCoffeeSearchMarker() {
+  const map = getMapInstance()
+  const feature = map._lastGeoJSON?.data?.features?.find((f) => f.properties.key === 'node/1001')
+  expect(feature).toBeTruthy()
+  act(() => {
+    map.fire('click', 'point-circle', {
+      features: [feature],
+      lngLat: { lat: feature.geometry.coordinates[1], lng: feature.geometry.coordinates[0] }
+    })
+  })
+}
 function tabIsCurrent(label) {
   const btn = navButtons().getByRole('button', { name: label })
   return btn.getAttribute('aria-current') === 'page'
@@ -393,6 +409,7 @@ async function selectMunicipality(prefText, munText, prefLabel = '都道府県',
 }
 
 beforeEach(() => {
+  localStorage.removeItem(PLACE_HISTORY_KEY)
   mediaMatches = true
   setupMatchMedia()
   if (mockState.api) mockState.api.resetState()
@@ -606,7 +623,7 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
   it('詳細シートが開いている状態でボタンを押すと: シートが閉じてトップ画面に戻る', async () => {
     renderApp()
 
-    // 従来フォーム→地図モードで検索し、一覧タブのカードをタップして詳細シートを開く
+    // 検索し、検索タブの地図から詳細シートを開く
     openFormView()
     await switchToMapMode()
     selectCategoryChip('カフェ')
@@ -614,8 +631,8 @@ describe('(header) ヘッダー: アプリアイコン＋タイトルボタン',
     await waitFor(() => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
-    // 施設カードの施設名行（role=button）をタップ（情報行のタップでは詳細は開かない）
-    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
+    clickTab('検索')
+    clickCoffeeSearchMarker()
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeTruthy()
     }, { timeout: 3000 })
@@ -829,8 +846,8 @@ describe('(#59) 一覧タブ: 結果マップのピンタップ→カード選�
   }, IT_TIMEOUT)
 })
 
-describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
-  it('カードタップ→詳細表示→「閉じる」→地図へ→マーカータップで再オープン', async () => {
+describe('(#59) 施設カードと詳細ボトムシート', () => {
+  it('施設名とサムネイルで施設を選択し、検索タブの地図から詳細を開ける', async () => {
     renderApp()
 
     // (#63) 初期表示は一般向けトップ。従来フォームへ切替してから検索
@@ -845,8 +862,25 @@ describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
       expect(tabIsCurrent('一覧')).toBe(true)
     }, { timeout: 8000 })
 
-    // 施設カードの施設名行（role=button）をタップ（情報行のタップでは詳細は開かない）
-    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店の詳細を表示' }))
+    const card = document.getElementById('facility-card-node/1001')
+    const name = within(card).getByRole('heading', { name: 'テスト珈琲店' })
+    expect(name.closest('button, [role="button"]')).toBeNull()
+    expect(within(card).getAllByRole('button', { name: /選択/ })).toHaveLength(1)
+    fireEvent.click(name)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(card.className).toContain('ring-primary-500')
+    const thumb = card.querySelector('img[src^="data:image/"]')
+    expect(thumb).toBeTruthy()
+    expect(thumb.closest('button, [role="button"]')).toBeNull()
+    fireEvent.click(thumb)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(card.className).not.toContain('ring-primary-500')
+
+    clickTab('検索')
+    await waitFor(() => {
+      expect(screen.getByTestId('map-block').hasAttribute('hidden')).toBe(false)
+    }, { timeout: 3000 })
+    clickCoffeeSearchMarker()
 
     // ボトムシート（dialog）が開く: 名称・住所・カテゴリチップ・OSMリンク
     const dialog = await waitFor(() => {
@@ -865,41 +899,14 @@ describe('(#59) 施設カード→詳細ボトムシート→地図', () => {
     expect(within(dialog).getByText('車椅子対応')).toBeTruthy()
     // 説明はバリアフリーセクションのnoteに出る（タグ一覧廃止で1箇所のみ）
     expect(within(dialog).getAllByText('段差なし')).toHaveLength(1)
-
-    // 「閉じる」でシートが閉じられる
-    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull()
-    }, { timeout: 3000 })
-
-    // 下部ナビから検索タブ（地図モード）へ切替。状態は保持されるため地図が表示される
-    clickTab('検索')
-    await waitFor(() => {
-      expect(screen.getByTestId('map-block').hasAttribute('hidden')).toBe(false)
-    }, { timeout: 3000 })
-
-    // マーカータップ: シートが再オープンし、activeResultId経由で地図が施設（テスト珈琲店 34.85,135.5）へパンする
     const map = getMapInstance()
-    const feature2 = map._lastGeoJSON?.data?.features?.find((f) => f.properties.key === 'node/1001')
-    expect(feature2).toBeTruthy()
-    act(() => {
-      map.fire('click', 'point-circle', {
-        features: [feature2],
-        lngLat: { lat: feature2.geometry.coordinates[1], lng: feature2.geometry.coordinates[0] }
-      })
-    })
-    const dialog2 = await waitFor(() => {
-      const d = screen.queryByRole('dialog')
-      expect(d).toBeTruthy()
-      return d
-    }, { timeout: 3000 })
     await waitFor(() => {
       // MapLibreのpanToは[経度, 緯度]順
       expect(map._calls.some((c) => c.name === 'panTo' && Array.isArray(c.args[0]) && c.args[0][0] === 135.5 && c.args[0][1] === 34.85)).toBe(true)
     }, { timeout: 3000 })
 
     // 「閉じる」でシートが閉じられ、検索タブは維持される
-    fireEvent.click(within(dialog2).getByRole('button', { name: '閉じる' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     }, { timeout: 3000 })
@@ -1177,7 +1184,7 @@ describe('バリアフリー検索: 成功時は一覧タブへ自動切替（�
     // 一覧タブにBFカード（名称・表示名）・件数表示が表示される
     expect(screen.getByText('中央通り歩道')).toBeTruthy()
     // 名称が無い縁石: タイトルは種別ラベル「縁石」、バッジも「縁石」（カード内で計2件）
-    const kerbCard = screen.getByText('node/3002').closest('.shadow-sm')
+    const kerbCard = document.getElementById('barrier-free-card-node/3002')
     expect(within(kerbCard).getAllByText('縁石')).toHaveLength(2)
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
     expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
@@ -1213,7 +1220,7 @@ describe('バリアフリー検索: 成功時は一覧タブへ自動切替（�
     // 一覧タブにBFカード（名称・表示名）・件数表示が表示される
     expect(screen.getByText('中央通り歩道')).toBeTruthy()
     // 名称が無い縁石: タイトルは種別ラベル「縁石」、バッジも「縁石」（カード内で計2件）
-    const kerbCard = screen.getByText('node/3004').closest('.shadow-sm')
+    const kerbCard = document.getElementById('barrier-free-card-node/3004')
     expect(within(kerbCard).getAllByText('縁石')).toHaveLength(2)
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
     expect(screen.getByText('2件中、2件を表示')).toBeTruthy()
@@ -1449,7 +1456,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(tabIsCurrent('一覧')).toBe(true)
     expect(screen.getByText('中央通り歩道')).toBeTruthy()
     // 名称が無い縁石: タイトルは種別ラベル「縁石」、バッジも「縁石」（カード内で計2件）
-    const kerbCard = screen.getByText('node/3006').closest('.shadow-sm')
+    const kerbCard = document.getElementById('barrier-free-card-node/3006')
     expect(within(kerbCard).getAllByText('縁石')).toHaveLength(2)
     expect(within(kerbCard).queryByText('縁石（未記録）')).toBeNull()
   }, IT_TIMEOUT)
@@ -1623,6 +1630,36 @@ describe('(place) 検索エリア未設定ガード（state.bbox）: 「指定�
     expect(screen.queryByText(/場所がまだ設定されていません/)).toBeNull()
     await waitFor(() => expect(tabIsCurrent('一覧')).toBe(true), { timeout: 8000 })
     expect(screen.getByText('3件の結果を取得しました')).toBeTruthy()
+  }, IT_TIMEOUT)
+
+  it('確定した地名を保存し、再表示時に空の入力欄へフォーカスすると履歴から選べる', async () => {
+    renderApp()
+    fireEvent.change(screen.getByPlaceholderText(PLACE_INPUT), { target: { value: '梅田' } })
+    expect(localStorage.getItem(PLACE_HISTORY_KEY)).toBeNull()
+    fireEvent.click(getGeocodeButton())
+    await waitFor(() => expect(screen.getByPlaceholderText(PLACE_INPUT).value).toBe(UEDA_ROW.display_name))
+    expect(nominatimCalls).toBe(1)
+    expect(JSON.parse(localStorage.getItem(PLACE_HISTORY_KEY))[0]).toMatchObject({
+      query: '梅田', displayName: UEDA_ROW.display_name, bbox: { source: 'geocode' }
+    })
+
+    cleanup()
+    renderApp()
+    const input = screen.getByPlaceholderText(PLACE_INPUT)
+    expect(input.value).toBe('')
+    expect(screen.queryByText('最近使った地名')).toBeNull()
+    fireEvent.focus(input)
+    expect(screen.getByText('最近使った地名')).toBeTruthy()
+    fireEvent.blur(input, { relatedTarget: getTopSearchButton() })
+    expect(screen.queryByText('最近使った地名')).toBeNull()
+    fireEvent.focus(input)
+    const entry = screen.getByRole('option', { name: /梅田.*大阪府大阪市北区梅田1丁目/ })
+    fireEvent.blur(input, { relatedTarget: entry })
+    fireEvent.click(entry)
+    expect(input.value).toBe(UEDA_ROW.display_name)
+    expect(nominatimCalls).toBe(1)
+    expect(screen.queryByText('最近使った地名')).toBeNull()
+    expect(JSON.parse(localStorage.getItem(PLACE_HISTORY_KEY))).toHaveLength(1)
   }, IT_TIMEOUT)
 })
 

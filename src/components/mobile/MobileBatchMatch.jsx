@@ -279,7 +279,6 @@ export default function MobileBatchMatch() {
               </p>
               <p className="text-[10px] text-amber-600 mt-2">
                 ※ OSMに未登録とは限りません。表記の違いが原因の場合もあります。
-                該当しない場合はiDエディタで新規追加できます。
               </p>
             </div>
           ) : (

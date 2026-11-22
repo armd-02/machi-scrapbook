@@ -273,10 +273,10 @@ export const CATEGORIES = [
     id: 'sports',
     label: 'スポーツ施設',
     tags: [
-      { key: 'leisure', values: ['sports_centre', 'stadium', 'swimming_pool', 'pitch', 'golf_course', 'tennis_court', 'basketball_court', 'volleyball_court'] }
+      { key: 'leisure', values: ['sports_centre', 'stadium', 'swimming_pool', 'pitch', 'golf_course', 'tennis_court', 'basketball_court', 'volleyball_court', 'dance'] }
     ],
     logic: 'or',
-    description: 'スポーツセンター・プール・球場・コート'
+    description: 'スポーツセンター・プール・球場・コート・ダンススタジオ'
   },
   {
     id: 'barrier_free',
