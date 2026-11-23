@@ -26,6 +26,12 @@ import Spinner from './Spinner'
  * @param {boolean} [geocoding] ジオコーディング問い合わせ中 → 右端にスピナー
  * @param {boolean} [geocodeDisabled] 「地名検索」ボタンを無効化（ジオコード実行中等）
  * @param {boolean} [areaSet] 検索エリア設定済み（成功）→ 緑系のスタイル
+ * @param {(() => void) | null} [onCurrentLocation] 「現在地付近」ボタンの押下。
+ *   指定した場合、「地名検索」ボタンの右側にアイコンのみボタン（🎯 ターゲット風）
+ *   を表示する。aria-label / title は「現在地付近」。押下で現在位置を確定した
+ *   場所として設定する（親で処理）。
+ * @param {boolean} [currentLocationBusy] 現在位置取得中。「現在地付近」ボタンを
+ *   無効化し、ボタン内をスピナーにする。
  */
 export default function PlaceNameInput({
   value = '',
@@ -39,6 +45,8 @@ export default function PlaceNameInput({
   geocoding = false,
   geocodeDisabled = false,
   areaSet = false,
+  onCurrentLocation = null,
+  currentLocationBusy = false,
 }) {
   const className = [
     'w-full pl-3 py-2 text-sm border rounded-lg',
@@ -78,6 +86,22 @@ export default function PlaceNameInput({
           className="shrink-0 min-h-[38px] px-3 text-sm font-medium text-primary-600 bg-white border border-primary-200 rounded-lg hover:bg-primary-50 disabled:opacity-50"
         >
           地名検索
+        </button>
+      )}
+      {onCurrentLocation && (
+        // (#xx) 「現在地付近」ボタン: アイコンのみ（テキストラベルなし）。
+        // 押下で現在位置を確定した場所として設定する（親で処理）。
+        // 位置は「地名検索」ボタンの隣（入力行の右端）
+        <button
+          type="button"
+          onClick={onCurrentLocation}
+          disabled={disabled || currentLocationBusy}
+          aria-label="現在地付近"
+          title="現在地付近"
+          data-testid="place-current-location-button"
+          className="shrink-0 min-h-[38px] w-[38px] flex items-center justify-center text-base leading-none bg-white border border-primary-200 rounded-lg hover:bg-primary-50 disabled:opacity-50"
+        >
+          {currentLocationBusy ? <Spinner /> : '🎯'}
         </button>
       )}
     </div>

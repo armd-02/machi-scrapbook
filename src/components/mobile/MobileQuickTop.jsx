@@ -94,6 +94,11 @@ export const QUICK_TILES = CATEGORY_GROUPS.map(toTile)
  *   サジェスト時は null。
  * @param {((candidate: object) => void) | null} [onCandidateSelect] 候補タップ時
  *   のコールバック。候補で検索エリアを設定する（親で処理）。
+ * @param {(() => void) | null} [onUseCurrentLocation] 「現在地付近」ボタン（入力欄の
+ *   右・「地名検索」ボタンの隣、アイコンのみ）の押下。指定した場合にのみ表示。
+ *   押下で現在位置を確定した場所（表示名「現在地付近」）として設定する（親で処理）。
+ * @param {boolean} [locating] 現在位置取得中。「現在地付近」ボタンを無効化し
+ *   ボタン内をスピナーにする。
  */
 export function QuickTopIntro({
   placeQuery = '',
@@ -109,7 +114,9 @@ export function QuickTopIntro({
   disabled = false,
   candidates = null,
   candidatesHeading = null,
-  onCandidateSelect = null
+  onCandidateSelect = null,
+  onUseCurrentLocation = null,
+  locating = false
 }) {
   // 入力欄で Enter を押した場合は「地名検索」ボタンと同じ動作（ジオコード実行）
   const handleKeyDown = (e) => {
@@ -142,6 +149,8 @@ export function QuickTopIntro({
           geocoding={geocoding}
           geocodeDisabled={geocodeDisabled}
           areaSet={areaSet}
+          onCurrentLocation={onUseCurrentLocation}
+          currentLocationBusy={locating}
         />
         {/* 地名候補リスト（入力欄の下）。サジェスト（入力中の候補: 自治体＋
             Overpass 周辺キャッシュ）と「候補が複数あります」の提示で共通の

@@ -123,6 +123,9 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // スピナー表示に使う（入力欄自体は無効化しない）。「地名検索」ボタンの
   // 無効化・Enter のガードにも使う
   const [geocoding, setGeocoding] = useState(false)
+  // (top) 「現在地付近」ボタン（地名入力欄の右・「地名検索」ボタンの隣）:
+  // 現在位置の取得中。取得中はボタンを無効化し、ボタン内にスピナーを表示
+  const [locating, setLocating] = useState(false)
   // (top) 自治体サジェスト候補（municipalities.json からローカル計算）。Nominatim の
   // 順位に左右されず、自治体名を確実に選べるようにするため Nominatim 候補より
   // 前に表示する（ローカル計算なので即座に出る）。QuickTopIntro 渡しの候補は
@@ -225,7 +228,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // （複数候補の提示→選択→再度「地名検索」の流れで、提示がループしないように）
   const [areaSetQuery, setAreaSetQuery] = useState(null)
 
-  const confirmPlace = ({ query, displayName, bbox }) => {
+  const confirmPlace = ({ query, displayName, bbox, remember = true }) => {
     dispatch({ type: 'SET_BBOX', payload: bbox })
     setAreaName(displayName)
     setPlaceAreaSet(true)
@@ -235,7 +238,43 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     setSuggestCandidates([])
     setMuniSuggest([])
     setPendingCandidates(null)
-    setPlaceHistory(rememberPlace(placeHistory, { query, displayName, bbox }))
+    // 「現在地付近」は場所履歴に記録しない（remember: false）。押下時点に
+    // 依存する範囲を履歴から再利用すると古い範囲が適用されるため
+    if (remember) {
+      setPlaceHistory(rememberPlace(placeHistory, { query, displayName, bbox }))
+    }
+  }
+
+  // (top) 「現在地付近」ボタン（アイコンのみ、地名入力欄の右）:
+  // 既存の現在位置取得機構（nearby.awaitPosition — サジェストや geocode の
+  // viewbox 付けと同一の Promise 共有・タイムアウト保証・再試行挙動）で
+  // 現在位置を取得し、その位置を確定した場所として設定する（表示名
+  // 「現在地付近」）。以前に確定した場所があれば上書きする。
+  // 検索範囲は当該点中心の1.5km角（searchAreaFromGeocode の既存ルール）。
+  // 位置情報が取得できない・拒否された場合は入力欄の下にエラーを提示
+  // （searchError の既存の流儀）。施設検索は実行しない（「指定した場所と
+  // 種別で検索」押下時まで待たせる）
+  const handleUseCurrentLocation = async () => {
+    if (state.status === 'loading' || locating) return
+    setLocating(true)
+    setSearchError(null)
+    try {
+      const pos = await nearby.awaitPosition()
+      if (!pos) {
+        setSearchError(
+          '現在位置を取得できませんでした。\nブラウザの設定で位置情報の利用を許可してから、ボタンをもう一度押してください。'
+        )
+        return
+      }
+      // 1.5km角のbboxに source: 'geocode' を付ける: 「確定した場所」の扱いを
+      // する（resolveSearchBbox の確定優先・MapView の fitBounds・BBOXオーバーレイ・
+      // AreaCard の「確定した場所の範囲で検索されます」表示・フォーム側の
+      // 「この範囲で検索」ラベルが bboxSource: geocode をキーにしている）
+      const bbox = { ...searchAreaFromGeocode({ lat: pos.lat, lon: pos.lon }), source: 'geocode' }
+      confirmPlace({ query: '現在地付近', displayName: '現在地付近', bbox, remember: false })
+    } finally {
+      setLocating(false)
+    }
   }
 
   // (top) 目的タイル → 検索条件（handleTopSearch と自治体セクションへの引き継ぎで共用）
@@ -825,6 +864,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               candidates={unifiedSuggest}
               candidatesHeading={candidatesHeading}
               onCandidateSelect={onPlaceSelect}
+              onUseCurrentLocation={handleUseCurrentLocation}
+              locating={locating}
             />
 
             {/* (top) 「都道府県から探す」入口: 折りたたみセクション（既定は閉じた状態、見出しタップで開閉）

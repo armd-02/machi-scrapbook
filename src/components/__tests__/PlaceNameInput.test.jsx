@@ -79,4 +79,55 @@ describe('PlaceNameInput', () => {
     render(<PlaceNameInput id="quick-place-input" value="" onChange={() => {}} />)
     expect(document.getElementById('quick-place-input')).toBeTruthy()
   })
+
+  describe('「現在地付近」ボタン（onCurrentLocation）', () => {
+    it('onCurrentLocation を渡さないときはボタンは表示されない', () => {
+      render(<PlaceNameInput value="" onChange={() => {}} />)
+      expect(screen.queryByRole('button', { name: '現在地付近' })).toBeNull()
+    })
+
+    it('onCurrentLocation を渡すと「地名検索」ボタンの右にアイコンのみボタン（🎯）が表示される', () => {
+      const { container } = render(
+        <PlaceNameInput value="" onChange={() => {}} onGeocode={() => {}} onCurrentLocation={() => {}} />
+      )
+      const btn = screen.getByRole('button', { name: '現在地付近' })
+      // アイコンのみ: テキストラベルなし（内容は🎯そのもの）
+      expect(btn.textContent).toBe('🎯')
+      expect(btn.getAttribute('aria-label')).toBe('現在地付近')
+      expect(btn.getAttribute('title')).toBe('現在地付近')
+      // 「地名検索」ボタンの隣（同一行）
+      const geocodeBtn = screen.getByRole('button', { name: '地名検索' })
+      expect(geocodeBtn.parentElement).toBe(btn.parentElement)
+      // 入力行の右端（地名検索ボタンの後）
+      const row = container.querySelector('.flex')
+      const children = [...row.children]
+      expect(children.indexOf(geocodeBtn)).toBeLessThan(children.indexOf(btn))
+    })
+
+    it('押下で onCurrentLocation が呼ばれる', () => {
+      const onCurrentLocation = vi.fn()
+      render(<PlaceNameInput value="" onChange={() => {}} onCurrentLocation={onCurrentLocation} />)
+      fireEvent.click(screen.getByRole('button', { name: '現在地付近' }))
+      expect(onCurrentLocation).toHaveBeenCalledTimes(1)
+    })
+
+    it('currentLocationBusy=true でボタンが無効化され、内容がスピナーに替わる', () => {
+      const onCurrentLocation = vi.fn()
+      render(
+        <PlaceNameInput value="" onChange={() => {}} onCurrentLocation={onCurrentLocation} currentLocationBusy={true} />
+      )
+      const btn = screen.getByRole('button', { name: '現在地付近' })
+      expect(btn.disabled).toBe(true)
+      expect(btn.querySelector('.animate-spin')).toBeTruthy()
+      expect(btn.textContent).toBe('')
+      // 無効中は押下してもコールバックは呼ばれない
+      fireEvent.click(btn)
+      expect(onCurrentLocation).not.toHaveBeenCalled()
+    })
+
+    it('disabled=true（施設検索中等）でもボタンは無効化される', () => {
+      render(<PlaceNameInput value="" onChange={() => {}} onCurrentLocation={() => {}} disabled={true} />)
+      expect(screen.getByRole('button', { name: '現在地付近' }).disabled).toBe(true)
+    })
+  })
 })
