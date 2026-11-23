@@ -4,6 +4,12 @@ import { useMemocho } from '../hooks/useMemocho'
 import { downloadCSV, downloadGeoJSON, downloadFile, toCSV } from '../utils/export'
 import { applyResultFilters, hasActiveFilters } from '../utils/resultFilters'
 import { serializeMemocho, parseMemochoJSON, trashItems } from '../utils/memocho'
+import {
+  OVERPASS_PREFERENCE_OPTIONS,
+  getOverpassPreference,
+  setOverpassPreference
+} from '../utils/overpassPreference'
+import { OVERPASS_ENDPOINTS } from '../config'
 
 /**
  * (#75) ヘッダーのハンバーガーメニュー（#79 でアプリ唯一のハンバーガーメニューに）
@@ -37,6 +43,14 @@ import { serializeMemocho, parseMemochoJSON, trashItems } from '../utils/memocho
  * メッセージは ✓ / ⚠️ アイコン付き（StatusBanner の ⚠️ 表記に従い成功/エラーを区別し、
  * 狭い画面で長いメッセージが画面外にはみ出さないよう max-width＋折り返しを付す）。
  * 読み込みの結果・エラー（合流件数・無効なJSON等）もこのメッセージで通知する。
+ *
+ * [Overpass API]: 検索の第一候補エンドポイント切替（ラジオ2択）。
+ * 「標準」= custom（armd-01）/「海外」= public（公式 overpass-api.de）。
+ * 選択は localStorage（overpassPreference.js）に保存され次回起動時も維持される。
+ * useSearch が検索実行時に読む。地名検索の名前検索補完（overpassNameSearch）は
+ * 常に 'custom' 固定で、この切替の影響を受けない。
+ * 選択は設定変更なので実行後もメニューを閉じない（選択状態がそのまま見える）。
+ * private_coffee は選択肢に含まれない（フォールバック候補のままである）。
  */
 export default function HeaderMenu() {
   const { state, dispatch } = useApp()
@@ -47,6 +61,13 @@ export default function HeaderMenu() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmWipe, setConfirmWipe] = useState(false)
   const [notice, setNotice] = useState(null) // { kind: 'ok' | 'err', text }
+  // Overpass API 切替: 初期値は localStorage から読む（未保存なら既定の 'custom'）
+  const [endpointPref, setEndpointPref] = useState(() => getOverpassPreference())
+
+  const onSelectEndpoint = (id) => {
+    // 保存成功時のみ表示状態を更新（保存失敗時は従来値のまま）
+    if (setOverpassPreference(id)) setEndpointPref(id)
+  }
   const rootRef = useRef(null)
   const fileInputRef = useRef(null) // まちメモ帳の読み込み用（非表示ファイル入力）
 
@@ -217,6 +238,41 @@ export default function HeaderMenu() {
               ODbL / © OpenStreetMap contributors
             </p>
           )}
+          <div className="border-t border-slate-200" />
+          {/* グループ見出し: Overpass API（検索の第一候補エンドポイント切替） */}
+          <p aria-hidden="true" className="px-3 pt-1.5 pb-1 text-[11px] font-semibold tracking-wider text-slate-400">Overpass API</p>
+          <div role="radiogroup" aria-label="Overpass API">
+            {OVERPASS_PREFERENCE_OPTIONS.map((opt) => {
+              const selected = endpointPref === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onSelectEndpoint(opt.id)}
+                  className={`w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm transition-colors ${
+                    selected ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                  title={OVERPASS_ENDPOINTS[opt.id].label}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {/* ラジオ指示（点・輪郭） */}
+                    <span
+                      aria-hidden="true"
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        selected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </span>
+                    {opt.label}
+                  </span>
+                  <span className="text-[11px] text-slate-400">{OVERPASS_ENDPOINTS[opt.id].label}</span>
+                </button>
+              )
+            })}
+          </div>
           <div className="border-t border-slate-200" />
           {/* グループ見出し: まちメモ帳（視覚的なグルーピング用・スクリーンリーダーからは非表示） */}
           <p aria-hidden="true" className="px-3 pt-1.5 pb-1 text-[11px] font-semibold tracking-wider text-slate-400">まちメモ帳</p>

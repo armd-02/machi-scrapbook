@@ -734,10 +734,12 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     const mapCanvas = screen.getByRole('application', { name: 'バリアフリー要素マップ' })
     const toggle = screen.getByRole('button', { name: /地図を隠す/ })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    // 凡例は折りたたみの外なので、常に一緒に表示される
-    const list = screen.getByText('凡例').closest('.overflow-y-auto')
-    expect(list).toBeTruthy()
-    expect(list.contains(mapCanvas)).toBe(false)
+    // 凡例は地図ブロック側（固定領域）にあるため、リストのスクロール領域には入らない
+    expect(screen.getByText('凡例').closest('.overflow-y-auto')).toBeNull()
+    // 凡例と地図は同じ地図ブロック内（地図を折りたたんでも凡例は残る）
+    const mapBlock = screen.getByText('凡例').closest('.shrink-0')
+    expect(mapBlock).toBeTruthy()
+    expect(mapBlock.contains(mapCanvas)).toBe(true)
     expect(screen.getByText('凡例').nextElementSibling.className).toContain('grid-cols-2')
 
     // 線（LineString）と点（Point）が設定され、結果範囲にfitBoundsされる

@@ -294,6 +294,9 @@ function BarrierFreeMobileList() {
             selection={selection}
             onMarkerClick={handleMarkerSelect}
           />
+          {/* 凡例は地図ブロック側（固定領域）に置く。リストのスクロール領域から
+              外すことで、リストをスクロールしても凡例が表示され続ける。 */}
+          <BarrierFreeLegend twoColumns />
         </div>
       )}
       <div ref={listRef} className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 px-3 py-3 space-y-3">
@@ -311,8 +314,6 @@ function BarrierFreeMobileList() {
 
         {hasResults && (
           <>
-            <BarrierFreeLegend twoColumns />
-
             <p className="text-xs text-slate-600">
               {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
               {narrowing ? '（フィルタ適用中）' : ''}

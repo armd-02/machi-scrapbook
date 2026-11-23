@@ -8,6 +8,7 @@ import {
   filterByKeyword,
   OverpassError
 } from '../utils/overpass'
+import { getOverpassPreference } from '../utils/overpassPreference'
 import { buildBarrierFreeQuery } from '../utils/barrierFree'
 import {
   parseBarrierFreeResponse,
@@ -153,6 +154,9 @@ export function useSearch() {
 
       const { results, meta } = await executeOverpassQuery(query, {
         signal: controller.signal,
+        // ユーザーがメニューで選択した Overpass エンドポイントを第一候補にする。
+        // 地名検索の名前検索補完（overpassNameSearch）は常に 'custom' 固定で、こことは無関係。
+        endpoint: getOverpassPreference(),
         // (#62) バリアフリー検索: 要素をバリアフリー形式→共通結果形状にパース
         ...(queryKind === 'barrier_free'
           ? {

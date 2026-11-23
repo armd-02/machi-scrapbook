@@ -11,8 +11,9 @@ import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../utils/
  * - 表示条件はコンポーネント内で context（AppContext）から判定する。
  *   resultKind === 'barrier_free' かつ結果が1件以上ある場合のみ表示、
  *   それ以外は null（非表示）。
- * - 地図本体の「下」に通常のレイアウトフローで描画する（Appの地図ブロック・
- *   モバイル検索タブの地図の下）。地図上のオーバーレイ（absolute配置）は廃止。
+ * - 地図ブロック側（固定領域）に通常のレイアウトフローで描画する。リストや本文の
+ *   スクロールで凡例が流れていかないよう、地図ブロック内に配置する
+ *   （モバイル検索タブの地図ブロック・一覧タブの地図ブロック）。
  * - 色は bf-line / bf-node レイヤのpaintと同一の定数（barrierFreeGeoJSON.js）
  *   を使うため、凡例と地図表示がずれることはない。
  */

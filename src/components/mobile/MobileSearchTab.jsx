@@ -707,6 +707,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
           }}
         />
       </div>
+      {/* 凡例は地図ブロック側（固定領域）に置く。地図とセットで描画されるため、
+          本文のスクロールで凡例が流れていかない。（バリアフリー検索で結果1件以上
+          のときのみ表示。それ以外はnullで何も描画されない） */}
+      <BarrierFreeLegend />
       {/* 高さドラッグハンドル（PC版と同一のフック） */}
       <div
         {...mapHeight.handleProps}
@@ -735,15 +739,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // フォームは常に地図モードのため、ソース条件付けなしで常時描画する。
   const formBody = (
     <>
-      {/* 凡例＋POI説明枠（横並び。狭い画面では折り返し） */}
-      <div className="flex flex-wrap gap-2">
-        <BarrierFreeLegend />
-        {tappedPoi && (
-          <div className="flex-1 min-w-[200px]">
-            <PoiDescription tappedPoi={tappedPoi} />
-          </div>
-        )}
-      </div>
+      {/* POI説明枠（凡例は地図ブロック側へ移動したため、ここではPOIのみ） */}
+      {tappedPoi && (
+        <PoiDescription tappedPoi={tappedPoi} />
+      )}
 
       {/* エリア: 場所入力（確定場所で検索）＋ 検索範囲カード */}
       <section className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2" aria-label="検索範囲">

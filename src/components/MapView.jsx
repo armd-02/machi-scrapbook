@@ -739,9 +739,9 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, initialCamera = nul
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="w-full h-full" />
-      {/* (#62) 凡例（BarrierFreeLegend）は地図のオーバーレイではなく、
-          親レイアウト（Appの地図ブロック・モバイル検索タブ）の地図本体の下に
-          通常のフローで描画する。 */}
+      {/* (#62) 凡例（BarrierFreeLegend）は MapView 内で描画しない。
+          親レイアウトの地図ブロック側（固定領域）に通常のフローで描画し、
+          リスト・本文のスクロールで凡例が流れていかないようにする。 */}
     </div>
   )
 }

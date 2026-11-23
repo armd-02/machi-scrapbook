@@ -50,6 +50,7 @@ vi.mock('../../utils/overpass', async (importOriginal) => {
 import { useSearch } from '../useSearch'
 import { parseBarrierFreeResponse } from '../../utils/barrierFreeResults'
 import { buildBarrierFreeQuery } from '../../utils/barrierFree'
+import { OVERPASS_PREFERENCE_KEY } from '../../utils/overpassPreference'
 
 const SMALL_BBOX = { south: 34.7, west: 135.5, north: 34.72, east: 135.52 }
 
@@ -104,6 +105,7 @@ beforeEach(() => {
   h.overpassResults.length = 0
   h.overpassError = null
   h.app.dispatch = (action) => { h.actions.push(action) }
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -251,6 +253,39 @@ describe('useSearch: バリアフリー検索 (#62)', () => {
     await runSearch({ ...SMALL_BBOX })
 
     expect(resultsPayload()).toHaveLength(2)
+  })
+})
+
+describe('useSearch: Overpass エンドポイント選択の伝播', () => {
+  it('未選択（既定）では "custom"（標準）が第一候補として渡される', async () => {
+    h.app.state = makeState()
+    h.overpassResults = []
+
+    await runSearch({ ok: true, bbox: SMALL_BBOX, searchSource: 'map', searchMode: 'simple', keyword: '', queryKind: 'poi', query: 'MOCK_QUERY' })
+
+    expect(h.overpassCalls).toHaveLength(1)
+    expect(h.overpassCalls[0].options.endpoint).toBe('custom')
+  })
+
+  it('localStorage で "public"（海外）を選択していると、検索は "public" が第一候補になる', async () => {
+    localStorage.setItem(OVERPASS_PREFERENCE_KEY, 'public')
+    h.app.state = makeState()
+    h.overpassResults = []
+
+    await runSearch({ ok: true, bbox: SMALL_BBOX, searchSource: 'map', searchMode: 'simple', keyword: '', queryKind: 'poi', query: 'MOCK_QUERY' })
+
+    expect(h.overpassCalls).toHaveLength(1)
+    expect(h.overpassCalls[0].options.endpoint).toBe('public')
+  })
+
+  it('不正な保存値の場合は既定 "custom" が使われる', async () => {
+    localStorage.setItem(OVERPASS_PREFERENCE_KEY, 'private_coffee')
+    h.app.state = makeState()
+    h.overpassResults = []
+
+    await runSearch({ ok: true, bbox: SMALL_BBOX, searchSource: 'map', searchMode: 'simple', keyword: '', queryKind: 'poi', query: 'MOCK_QUERY' })
+
+    expect(h.overpassCalls[0].options.endpoint).toBe('custom')
   })
 })
 

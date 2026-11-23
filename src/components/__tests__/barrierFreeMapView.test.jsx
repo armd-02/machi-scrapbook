@@ -10,10 +10,10 @@
  * - POI検索へ切り返すと bf ソース・レイヤは削除され、'results' に復元される。
  * - bf-node のクリックは POI の点レイヤと同様にポップアップ（PC）/
  *   ボトムシート（モバイル: onMarkerClick）を出す。
- * - 凡例（BarrierFreeLegend）は MapView 内では描画しない（地図上のオーバーレイ廃止）。
- *   表示は親レイアウト（Appの地図ブロック・モバイル検索タブ）が地図本体の下の
- *   通常のフローで行い、表示条件（resultKind + 結果数）は BarrierFreeLegend 自身で
- *   判定する（BarrierFreeLegend.test.jsx / barrierFreeLegendPlacement.test.jsx 参照）。
+ * - 凡例（BarrierFreeLegend）は MapView 内では描画しない。表示は親レイアウトの
+ *   地図ブロック側（固定領域）の通常のフローで行い、表示条件（resultKind + 結果数）
+ *   は BarrierFreeLegend 自身で判定する（BarrierFreeLegend.test.jsx /
+ *   barrierFreeLegendPlacement.test.jsx 参照）。
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -288,8 +288,8 @@ describe('バリアフリー線・点のクリック（ポップアップ）', (
   })
 })
 
-describe('凡例の位置（地図上のオーバーレイ廃止）', () => {
-  it('MapView は凡例を描画しない（凡例は地図本体の下へ移動）', () => {
+describe('凡例の位置（MapView 内では描画しない）', () => {
+  it('MapView は凡例を描画しない（凡例は親レイアウトの地図ブロック側に配置）', () => {
     const { view } = renderMap({ results: BF_RESULTS, resultKind: 'barrier_free' })
     fireLoad()
     expect(view.queryByText('凡例')).toBeNull()

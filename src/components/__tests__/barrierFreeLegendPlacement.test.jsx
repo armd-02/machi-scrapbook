@@ -2,12 +2,14 @@
 /**
  * (#62) バリアフリー凡例の配置テスト（地図本体の「下」に描画されること）
  *
- * 凡例は地図上のオーバーレイ（absolute配置）ではなく、地図本体の下に
- * 通常のレイアウトフローで描画する。
+ * 凡例は地図ブロック側（固定領域）に配置され、本文のスクロールで流れて
+ * いかない。地図コンテナ内（MapView の absolute 容器）のオーバーレイには
+ * ならない（地図操作を妨げない）。
  * - PC幅（matches=false）とモバイル幅（matches=true）の両方で MobileSearchTab
  *   （従来フォーム view="form"・地図モード searchSource="map"）を描画し、
- *   凡例が地図コンテナ（MapView の absolute 容器の親 div）の外側かつ
- *   その後のドキュメント順にあることを検証する。
+ *   凡例が地図ブロック（data-testid="map-block"）の内側であり、かつ
+ *   地図コンテナ（MapView の absolute 容器の親 div）の外側・その後の
+ *   ドキュメント順にあることを検証する。
  *   （旧PCレイアウトのSearchTabContentは廃止され、PCはモバイルと同じシェル
  *    を中央寄せmax-widthコンテナ内で表示するため、コンポーネントは共通。）
  * - 表示条件（barrier_free かつ結果1件以上）を満たさない場合は非表示。
@@ -94,7 +96,7 @@ const renderInContext = (view, state) =>
   )
 
 const legendPlacementTests = (label) => {
-  it(`凡例は地図コンテナの外側・その後のドキュメント順（地図本体の下）にある（${label}）`, () => {
+  it(`凡例は地図ブロックの内側・地図コンテナの外側・その後のドキュメント順にある（${label}）`, () => {
     const view = renderInContext(
       <MobileSearchTab view="form" onViewResults={vi.fn()} />,
       makeBfState()
@@ -105,6 +107,8 @@ const legendPlacementTests = (label) => {
     const legendRoot = legendRootOf(view)
     expect(legendRoot).toBeTruthy()
 
+    // 地図ブロック（固定領域）の内側にある（本文のスクロールで流れていかない）
+    expect(legendRoot.closest('[data-testid="map-block"]')).toBeTruthy()
     // 地図コンテナ内のオーバーレイになっていない（パン・ズーム操作にも影響しない）
     expect(mapContainer.contains(legendRoot)).toBe(false)
     // 地図コンテナの「後」に描画されている

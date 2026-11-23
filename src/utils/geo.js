@@ -667,6 +667,9 @@ export async function overpassNameSearch(query, { center = null, maxCount = GEOC
   try {
     const { results } = await executeOverpassQuery(buildNameSearchQuery(q), {
       parse: parseNameSearchResponse,
+      // 全国規模の名前検索は既定の armd-01 だけに固定する（ハンバーガーメニューの
+      // 「Overpass API」切替の影響を受けない）。公式サーバーに送りたくないため。
+      endpoint: 'custom',
       fallback: false
     })
     return prepareNameSearchCandidates(results, center, maxCount, q)

@@ -32,6 +32,7 @@ import { appReducer, createInitialState } from '../../state/appReducer'
 import * as exportUtils from '../../utils/export'
 import { resetMemochoStore } from '../../hooks/useMemocho'
 import { MEMOCHO_STORAGE_KEY } from '../../utils/memocho'
+import { OVERPASS_PREFERENCE_KEY } from '../../utils/overpassPreference'
 
 // downloadCSV / downloadGeoJSON はモック（呼び出し検証用）。
 // toCSV / downloadFile は実物を使う（#79: まちメモ帳の書き出しで Blob 内容を
@@ -147,6 +148,55 @@ describe('HeaderMenu: グルーピング（#80）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
     const wipeBtn = screen.getByRole('menuitem', { name: /まちメモ帳をすべて削除/ })
     expect(wipeBtn.className).toContain('text-red-600')
+  })
+})
+
+describe('HeaderMenu: Overpass API 切替', () => {
+  it('「標準」「海外」の2択がラジオとして表示され、既定は「標準」が選択済み', () => {
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    expect(screen.getByRole('radiogroup', { name: 'Overpass API' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /標準/ }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: /海外/ }).getAttribute('aria-checked')).toBe('false')
+    // 接続先ラベルが副題として付いている（どれが何か分かりやすく）
+    expect(screen.getByRole('radio', { name: /標準/ }).textContent).toContain('Overpass API (armd-01)')
+    expect(screen.getByRole('radio', { name: /海外/ }).textContent).toContain('Overpass API（公式）')
+  })
+
+  it('「海外」を押すと localStorage に "public" が保存され、チェックが移動する（メニューは開いたまま）', () => {
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('radio', { name: /海外/ }))
+
+    expect(localStorage.getItem(OVERPASS_PREFERENCE_KEY)).toBe('public')
+    expect(screen.getByRole('radio', { name: /海外/ }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: /標準/ }).getAttribute('aria-checked')).toBe('false')
+    // 設定変更なので実行後もメニューを閉じない（選択状態がそのまま見える）
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(7)
+  })
+
+  it('「標準」に戻すと "custom" が保存される', () => {
+    localStorage.setItem(OVERPASS_PREFERENCE_KEY, 'public')
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('radio', { name: /標準/ }))
+    expect(localStorage.getItem(OVERPASS_PREFERENCE_KEY)).toBe('custom')
+    expect(screen.getByRole('radio', { name: /標準/ }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('保存済みの "public" が新しいレンダリングで読み戻される（次回起動時の維持）', () => {
+    localStorage.setItem(OVERPASS_PREFERENCE_KEY, 'public')
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    expect(screen.getByRole('radio', { name: /海外/ }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: /標準/ }).getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('ラジオ項目は menuitem として数えられない（従来7項目の構成が変わらない）', () => {
+    render(<Harness><HeaderMenu /></Harness>)
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(7)
+    expect(screen.queryAllByRole('radio')).toHaveLength(2)
   })
 })
 
