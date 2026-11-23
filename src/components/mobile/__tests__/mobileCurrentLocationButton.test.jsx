@@ -192,15 +192,15 @@ describe('(#xx) 地名検索欄の「現在地付近」ボタン', () => {
     expect(geocodeBtn.parentElement).toBe(btn.parentElement)
   }, IT_TIMEOUT)
 
-  it('押下で現在位置が確定した場所になる（緑＋「現在地付近」＋当該点中心の1.5km角bbox）', async () => {
+  it('押下で現在位置が確定した場所になる（緑＋「現在地付近（座標）」＋当該点中心の1.5km角bbox）', async () => {
     renderApp()
     fireEvent.click(getCurrentLocationButton())
 
-    // エリア確定: 入力欄が緑＋「現在地付近」が入る
+    // エリア確定: 入力欄が緑＋「現在地付近（座標）」が入る
     await waitFor(() => {
       expect(getPlaceInput().className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(getPlaceInput().value).toBe('現在地付近')
+    expect(getPlaceInput().value).toBe('現在地付近（34.70000, 135.50000）')
 
     // 施設検索はまだ実行されていない（「指定した場所と種別で検索」時まで待つ）
     expect(overpassCalls).toHaveLength(0)
@@ -257,7 +257,7 @@ describe('(#xx) 地名検索欄の「現在地付近」ボタン', () => {
     await waitFor(() => {
       expect(getPlaceInput().className).toContain('border-green-500')
     }, { timeout: 8000 })
-    expect(getPlaceInput().value).toBe('現在地付近')
+    expect(getPlaceInput().value).toBe('現在地付近（34.70000, 135.50000）')
     expect(btn.disabled).toBe(false)
   }, IT_TIMEOUT)
 })

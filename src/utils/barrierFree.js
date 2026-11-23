@@ -159,10 +159,31 @@ export const KERB_VALUE_LABELS = {
   flat: 'フラット',
   cut: '段差下がり',
   low: '低縁石',
+  lowered: '低め（3 cm以下）',
   none: '段差なし',
   detached: '分離縁石',
   rocky: '岩場',
   high: '高縁石',
+}
+
+/** kerb:height をメートルに換算する。単位の省略時はメートル。 */
+export function parseKerbHeightM(value) {
+  const match = String(value ?? '').trim().match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(mm|cm|m)?$/)
+  if (!match) return null
+
+  const height = Number(match[1])
+  if (!Number.isFinite(height)) return null
+  if (match[2] === 'mm') return height / 1000
+  if (match[2] === 'cm') return height / 100
+  return height
+}
+
+const kerbHeightFormat = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 6 })
+
+export function kerbDetailLabel(kerb, heightValue) {
+  const height = parseKerbHeightM(heightValue)
+  if (height != null && height >= 0) return `${kerbHeightFormat.format(height * 100)} cm`
+  return kerb ? (KERB_VALUE_LABELS[kerb] || kerb) : null
 }
 
 /**
@@ -214,7 +235,8 @@ export function barrierFreeLabel(item) {
 
   const kerb = bf.kerb ?? tags.kerb ?? null
   if (tags.barrier === 'kerb' || kerb != null) {
-    const sub = kerb ? (KERB_VALUE_LABELS[kerb] || kerb) : '未記録'
+    const sub = kerbDetailLabel(kerb, tags['kerb:height']) ?? '未記録'
+    if (sub === KERB_VALUE_LABELS.lowered) return `縁石 ${sub}`
     return `縁石（${sub}）`
   }
 

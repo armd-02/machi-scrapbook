@@ -366,6 +366,18 @@ describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
     expect(screen.getByText('縁石 フラット')).toBeTruthy()
   })
 
+  it('縁石の高さがあれば優先し、なければ lowered を日本語で表示する', () => {
+    const measured = bfKerbNodeFixture(312, 'lowered')
+    measured.tags['kerb:height'] = '0.045'
+    render(<Harness preActions={bfMobileActions([
+      measured,
+      bfKerbNodeFixture(313, 'lowered'),
+    ])} />)
+
+    expect(screen.getByText('縁石 4.5 cm')).toBeTruthy()
+    expect(screen.getByText('縁石 低め（3 cm以下）')).toBeTruthy()
+  })
+
   it('追加チップ（横断歩道・車椅子・幅・路面）はタグがある場合だけ出る', () => {
     const withTags = bfWayFixture(320, {
       highway: 'footway',

@@ -362,6 +362,11 @@ describe('barrierFreeLabel (#62 仕様4)', () => {
     expect(barrierFreeLabel(nodeEl({ barrier: 'kerb', kerb: 'low' }))).toBe('縁石（低縁石）')
   })
 
+  it('縁石の表示名は登録された高さを lowered より優先する', () => {
+    expect(barrierFreeLabel(nodeEl({ kerb: 'lowered', 'kerb:height': '0' }))).toBe('縁石（0 cm）')
+    expect(barrierFreeLabel(nodeEl({ kerb: 'lowered', 'kerb:height': '不明' }))).toBe('縁石 低め（3 cm以下）')
+  })
+
   it('kerb=none → 縁石（段差なし）', () => {
     expect(barrierFreeLabel(nodeEl({ kerb: 'none' }))).toBe('縁石（段差なし）')
   })

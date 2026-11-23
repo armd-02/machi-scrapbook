@@ -15,7 +15,7 @@ import AttributeCompleteness from '../AttributeCompleteness'
 import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
 import { ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '../../utils/barrierFreeResults'
-import { barrierFreeLabel, KERB_VALUE_LABELS } from '../../utils/barrierFree'
+import { kerbDetailLabel } from '../../utils/barrierFree'
 import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
 import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 
@@ -451,13 +451,10 @@ function BarrierFreeCard({ result, selected, onSelect }) {
     tactileClass = tactile === '有' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
   }
 
-  // 縁石バッジ: 縁石ノードでは「縁石」を表示し、kerb タグの値があれば
-  // 日本語ラベル（KERB_VALUE_LABELS）を続ける（例: 「縁石 フラット」）
   const kerbValue = result.bf?.kerb ?? tags.kerb ?? null
   const isKerb = tags.barrier === 'kerb' || kerbValue != null
-  const kerbBadge = isKerb
-    ? (kerbValue ? `縁石 ${KERB_VALUE_LABELS[kerbValue] || kerbValue}` : '縁石')
-    : null
+  const kerbDetail = isKerb ? kerbDetailLabel(kerbValue, tags['kerb:height']) : null
+  const kerbBadge = isKerb ? (kerbDetail ? `縁石 ${kerbDetail}` : '縁石') : null
 
   // 種別バッジ: 名称がある場合に表示。縁石ノードは縁石バッジが種別を示すため
   // 重複を避け、種別バッジを出さない

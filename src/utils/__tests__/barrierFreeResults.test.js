@@ -279,6 +279,11 @@ describe('kerbHeightClass', () => {
     expect(kerbHeightClass(kerbResult({}, 'lowered'))).toBe('low')
   })
 
+  it('単位付きの高さもメートルに換算して判定する', () => {
+    expect(kerbHeightClass(kerbResult({ 'kerb:height': '30 mm' }, 'raised'))).toBe('low')
+    expect(kerbHeightClass(kerbResult({ 'kerb:height': '3.1 cm' }, 'lowered'))).toBe('high')
+  })
+
   it('高さが未記録の場合は bf.kerb=raised → high', () => {
     expect(kerbHeightClass(kerbResult({}, 'raised'))).toBe('high')
   })

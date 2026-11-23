@@ -7,7 +7,7 @@
  * iDリンク・マーカー表示・ダウンロード）にそのまま通せる。
  */
 
-import { parseBarrierFreeElements } from './barrierFree'
+import { parseBarrierFreeElements, parseKerbHeightM } from './barrierFree'
 import { isValidBbox } from './searchBbox'
 
 // バリアフリーカテゴリのid（data/categories.js）
@@ -272,16 +272,6 @@ export function kerbHeightClass(result) {
   if (kerbValue === 'lowered') return 'low'
   if (kerbValue === 'raised') return 'high'
   return 'unknown'
-}
-
-/**
- * kerb:height の値をメートル数値として解釈する。
- * 未登録・空文字・数値解釈不可は null。
- */
-function parseKerbHeightM(value) {
-  if (value == null || value === '') return null
-  const n = Number(value)
-  return Number.isFinite(n) ? n : null
 }
 
 /**

@@ -249,7 +249,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 既存の現在位置取得機構（nearby.awaitPosition — サジェストや geocode の
   // viewbox 付けと同一の Promise 共有・タイムアウト保証・再試行挙動）で
   // 現在位置を取得し、その位置を確定した場所として設定する（表示名
-  // 「現在地付近」）。以前に確定した場所があれば上書きする。
+  // 「現在地付近（緯度, 経度）」、座標は小数5桁）。以前に確定した場所が
+  // あれば上書きする。
   // 検索範囲は当該点中心の1.5km角（searchAreaFromGeocode の既存ルール）。
   // 位置情報が取得できない・拒否された場合は入力欄の下にエラーを提示
   // （searchError の既存の流儀）。施設検索は実行しない（「指定した場所と
@@ -271,7 +272,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       // AreaCard の「確定した場所の範囲で検索されます」表示・フォーム側の
       // 「この範囲で検索」ラベルが bboxSource: geocode をキーにしている）
       const bbox = { ...searchAreaFromGeocode({ lat: pos.lat, lon: pos.lon }), source: 'geocode' }
-      confirmPlace({ query: '現在地付近', displayName: '現在地付近', bbox, remember: false })
+      const displayName = `現在地付近（${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}）`
+      confirmPlace({ query: '現在地付近', displayName, bbox, remember: false })
     } finally {
       setLocating(false)
     }
