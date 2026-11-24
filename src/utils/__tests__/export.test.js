@@ -392,5 +392,64 @@ describe('toCSV まちメモ帳列（includeMemo / includeRating）', () => {
     const headers = csv.replace('\uFEFF', '').split('\n')[0].split(',')
     expect(headers).not.toContain('memo')
     expect(headers).not.toContain('rating')
+    expect(headers).not.toContain('book')
+  })
+})
+
+describe('toCSV / toGeoJSON スクラップブック列（includeBook）', () => {
+  const books = [
+    { id: 'default', name: 'デフォルト', createdAt: null },
+    { id: 'sb_cafe', name: 'カフェ', createdAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'sb_park', name: '公園', createdAt: '2026-01-01T00:00:00.000Z' },
+  ]
+  const memoItems = [
+    { type: 'node', id: 21, name: 'カフェA', lat: 35.1, lon: 139.1, tags: { name: 'カフェA' }, memo: '', rating: 0, bookId: 'sb_cafe' },
+    { type: 'way', id: 22, name: '公園B', lat: 35.2, lon: 139.2, tags: { name: '公園B' }, memo: '', rating: 0, bookId: 'sb_park' },
+    { type: 'node', id: 23, name: '旧データC', lat: 35.3, lon: 139.3, tags: { name: '旧データC' }, memo: '', rating: 0 }, // bookId 欠落（旧データ）
+    { type: 'node', id: 24, name: '削除済みブックD', lat: 35.4, lon: 139.4, tags: { name: '削除済みブックD' }, memo: '', rating: 0, bookId: 'sb_gone' }, // 削除済みブック
+  ]
+
+  it('includeBook: 末尾に book 列（ブック名）が追加される', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01', includeBook: true, books })
+    const lines = csv.replace('\uFEFF', '').split('\n')
+    const headers = lines[0].split(',')
+    expect(headers[headers.length - 1]).toBe('book') // book 列は末尾
+    const iBook = headers.indexOf('book')
+    expect(lines[1].split(',')[iBook]).toBe('カフェ')
+    expect(lines[2].split(',')[iBook]).toBe('公園')
+    expect(lines[3].split(',')[iBook]).toBe('デフォルト') // bookId 欠落 → デフォルトブック名
+    expect(lines[4].split(',')[iBook]).toBe('デフォルト') // 削除済みブック → デフォルトブック名
+  })
+
+  it('includeBook だけでも動く（memo/rating 列なし）', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01', includeBook: true, books })
+    const headers = csv.replace('\uFEFF', '').split('\n')[0].split(',')
+    expect(headers).not.toContain('memo')
+    expect(headers).not.toContain('rating')
+    expect(headers[headers.length - 1]).toBe('book')
+  })
+
+  it('books が無い（または非配列）ときはすべてデフォルトブック名になる', () => {
+    const csv = toCSV(memoItems, { fetchedAt: '2026-01-01', includeBook: true })
+    const lines = csv.replace('\uFEFF', '').split('\n')
+    const iBook = lines[0].split(',').indexOf('book')
+    for (const line of lines.slice(1, 5)) {
+      expect(line.split(',')[iBook]).toBe('デフォルト')
+    }
+  })
+
+  it('toGeoJSON: includeBook のとき通常フィーチャの properties に book（ブック名）が付く', () => {
+    const geojson = JSON.parse(toGeoJSON(memoItems, { includeBook: true, books }))
+    expect(geojson.features[0].properties.book).toBe('カフェ')
+    expect(geojson.features[1].properties.book).toBe('公園')
+    expect(geojson.features[2].properties.book).toBe('デフォルト') // bookId 欠落
+    expect(geojson.features[3].properties.book).toBe('デフォルト') // 削除済みブック
+  })
+
+  it('toGeoJSON: includeBook 無いときは book プロパティが付かない', () => {
+    const geojson = JSON.parse(toGeoJSON(memoItems, {}))
+    for (const feature of geojson.features) {
+      expect('book' in feature.properties).toBe(false)
+    }
   })
 })

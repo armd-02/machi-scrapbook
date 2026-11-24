@@ -10,6 +10,8 @@
  *   addMemocho はごみ箱の同キーを復元、parseMemochoJSON は deletedAt を保持
  * - serializeMemocho → parseMemochoJSON の往復
  * - parseMemochoJSON: 素の配列・全体が不正な場合
+ * - bookId（スクラップブックの所属）: 読み取り時の正規化（欠落・不正 → 'default'）、
+ *   updateBook、serialize/parse での往復・ブックリスト（books）の復元
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
@@ -23,6 +25,8 @@ import {
   updateMemo,
   updateMapImage,
   updateRating,
+  updateBook,
+  moveBookItems,
   mergeMemocho,
   serializeMemocho,
   parseMemochoJSON,
@@ -112,13 +116,15 @@ describe('memocho', () => {
           null, // オブジェクトでない
         ])
       )
-      expect(loadMemocho()).toEqual([valid])
+      // 読み取り時に bookId が正規化される（欠落 → 'default'）
+      expect(loadMemocho()).toEqual([{ ...valid, bookId: 'default' }])
     })
 
     it('saveMemocho → loadMemocho で往復する', () => {
       const items = [makeItem(), makeItem({ type: 'node', id: 789 })]
       saveMemocho(items)
-      expect(loadMemocho()).toEqual(items)
+      // 読み取り時に bookId が正規化される（欠落 → 'default'）
+      expect(loadMemocho()).toEqual(items.map((item) => ({ ...item, bookId: 'default' })))
     })
   })
 
@@ -246,6 +252,55 @@ describe('memocho', () => {
       const src = items()
       expect(updateRating(src, 'way/999', 3)).toEqual(src)
     })
+
+    it('updateBook は該当キーの bookId を差し替える（他のアイテムは不変）', () => {
+      const next = updateBook(items(), 'node/1', 'sb_001')
+      expect(next[0].bookId).toBe('sb_001')
+      expect('bookId' in next[1]).toBe(false) // 他は不変
+      expect(next[0]).not.toBe(items()[0]) // 新しいオブジェクト
+    })
+
+    it('updateBook で無いキーを指定したら内容が変わらない', () => {
+      const src = items()
+      expect(updateBook(src, 'way/999', 'sb_001')).toEqual(src)
+    })
+
+    it('updateBook は空でない文字列以外の bookId では変更しない', () => {
+      const src = items()
+      for (const bad of ['', 42, null, undefined, {}]) {
+        expect(updateBook(src, 'node/1', bad)).toEqual(src)
+      }
+    })
+  })
+
+  describe('moveBookItems（ブック削除時の所属移動）', () => {
+    it('fromBookId の全アイテム（ごみ箱含む）の bookId を toBookId に置き換える', () => {
+      const src = [
+        makeItem({ bookId: 'sb_001' }),
+        makeItem({ type: 'way', id: 2, bookId: 'sb_001', deletedAt: '2026-01-02T00:00:00.000Z' }),
+        makeItem({ type: 'node', id: 3, bookId: 'sb_002' }),
+        makeItem({ type: 'node', id: 4 }),
+      ]
+      const next = moveBookItems(src, 'sb_001', 'default')
+      expect(next[0].bookId).toBe('default')
+      expect(next[1].bookId).toBe('default') // ごみ箱のアイテムも移動する
+      expect(next[1].deletedAt).toBe('2026-01-02T00:00:00.000Z') // 他のフィールドは不変
+      expect(next[2].bookId).toBe('sb_002') // 別のブックは不変
+      expect('bookId' in next[3]).toBe(false) // bookId 無いアイテムは不変
+    })
+
+    it('該当アイテムが無ければ元の配列をそのまま返す（同じ参照）', () => {
+      const src = [makeItem({ bookId: 'sb_002' }), makeItem({ type: 'node', id: 2 })]
+      expect(moveBookItems(src, 'sb_001', 'default')).toBe(src)
+    })
+
+    it('引数が空でない文字列以外なら変更しない', () => {
+      const src = [makeItem({ bookId: 'sb_001' })]
+      expect(moveBookItems(src, '', 'default')).toBe(src)
+      expect(moveBookItems(src, 'sb_001', '')).toBe(src)
+      expect(moveBookItems(src, 42, 'default')).toBe(src)
+      expect(moveBookItems(src, 'sb_001', null)).toBe(src)
+    })
   })
 
   describe('mergeMemocho', () => {
@@ -358,7 +413,7 @@ describe('memocho', () => {
     })
 
     it('parseMemochoJSON: 妥当な deletedAt を保持する（ごみ箱も復元できる）', () => {
-      const items = parseMemochoJSON(JSON.stringify({
+      const { items } = parseMemochoJSON(JSON.stringify({
         app: 'machi-memocho', version: 1,
         items: [{ ...makeItem(), deletedAt: '2026-06-15T10:30:00.000Z' }],
       }))
@@ -367,7 +422,7 @@ describe('memocho', () => {
 
     it('parseMemochoJSON: 不正な deletedAt は落とす（寛容な方式）', () => {
       for (const bad of [123, '', null, { at: 'x' }]) {
-        const items = parseMemochoJSON(JSON.stringify({
+        const { items } = parseMemochoJSON(JSON.stringify({
           app: 'machi-memocho', version: 1,
           items: [{ ...makeItem(), deletedAt: bad }],
         }))
@@ -377,7 +432,7 @@ describe('memocho', () => {
 
     it('serialize → parse で deletedAt が往復する', () => {
       const items = [makeItem(), trashed({ type: 'node', id: 789, name: 'ごみ箱店' })]
-      const round = parseMemochoJSON(serializeMemocho(items))
+      const { items: round } = parseMemochoJSON(serializeMemocho(items))
       expect(round[0].deletedAt).toBeUndefined()
       expect(round[1].deletedAt).toBe('2026-06-15T10:30:00.000Z')
     })
@@ -405,12 +460,15 @@ describe('memocho', () => {
   })
 
   describe('serializeMemocho / parseMemochoJSON の往復', () => {
-    it('serializeMemocho は { app, version, items } 形式の文字列を返す', () => {
+    it('serializeMemocho は { app, version, items, books } 形式の文字列を返す', () => {
       const items = [makeItem()]
       const parsed = JSON.parse(serializeMemocho(items))
       expect(parsed.app).toBe('machi-memocho')
       expect(parsed.version).toBe(1)
-      expect(parsed.items).toEqual(items)
+      // bookId は正規化（欠落 → 'default'）されて出力される
+      expect(parsed.items).toEqual([{ ...items[0], bookId: 'default' }])
+      // books は指定しなければ空配列
+      expect(parsed.books).toEqual([])
     })
 
     it('serialize → parse で内容が一致する（往復）', () => {
@@ -418,22 +476,26 @@ describe('memocho', () => {
         makeItem(),
         makeItem({ type: 'node', id: 789, name: '名称なし', lat: null, lon: null, tags: null, memo: 'メモ', addedAt: '2026-02-01T00:00:00.000Z' }),
       ]
-      const roundTripped = parseMemochoJSON(serializeMemocho(items))
-      expect(roundTripped).toEqual(items)
+      const { items: roundTripped } = parseMemochoJSON(serializeMemocho(items))
+      expect(roundTripped).toEqual(items.map((item) => ({ ...item, bookId: 'default' })))
     })
 
     it('addMemocho で作ったスナップショットも往復で一致する', () => {
       const items = addMemocho([], makeResult())
-      const roundTripped = parseMemochoJSON(serializeMemocho(items))
-      expect(roundTripped).toEqual(items)
+      const { items: roundTripped } = parseMemochoJSON(serializeMemocho(items))
+      // addMemocho のスナップショットには bookId が無い → 正規化で 'default'
+      expect(roundTripped).toEqual(items.map((item) => ({ ...item, bookId: 'default' })))
     })
   })
 
   describe('parseMemochoJSON', () => {
-    it('形式付きオブジェクトを受け付ける', () => {
+    it('形式付きオブジェクトを受け付ける（{ items, books } を返す）', () => {
       const items = [makeItem()]
       const text = JSON.stringify({ app: 'machi-memocho', version: 1, items })
-      expect(parseMemochoJSON(text)).toEqual(items)
+      expect(parseMemochoJSON(text)).toEqual({
+        items: [{ ...items[0], bookId: 'default' }],
+        books: [],
+      })
     })
 
     it('素の配列も受け付ける', () => {
@@ -442,11 +504,11 @@ describe('memocho', () => {
         { type: 'way', id: 2, memo: 'm', lat: 35.7, lon: 139.8, tags: { name: 'B' } },
         { type: 'relation', id: 3 }, // name 無ければ '名称なし'、lat/lon は null
       ]
-      const normalized = parseMemochoJSON(JSON.stringify(items))
+      const { items: normalized } = parseMemochoJSON(JSON.stringify(items))
       expect(normalized).toEqual([
-        { type: 'node', id: 1, name: 'A', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null },
-        { type: 'way', id: 2, name: '名称なし', lat: 35.7, lon: 139.8, tags: { name: 'B' }, memo: 'm', rating: 0, addedAt: null },
-        { type: 'relation', id: 3, name: '名称なし', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null },
+        { type: 'node', id: 1, name: 'A', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null, bookId: 'default' },
+        { type: 'way', id: 2, name: '名称なし', lat: 35.7, lon: 139.8, tags: { name: 'B' }, memo: 'm', rating: 0, addedAt: null, bookId: 'default' },
+        { type: 'relation', id: 3, name: '名称なし', lat: null, lon: null, tags: null, memo: '', rating: 0, addedAt: null, bookId: 'default' },
       ])
     })
 
@@ -467,6 +529,139 @@ describe('memocho', () => {
       expect(() => parseMemochoJSON(wrap([null]))).toThrow()
     })
   })
+
+  describe('bookId（スクラップブックの所属）', () => {
+    const wrap = (items) => JSON.stringify({ app: 'machi-memocho', version: 1, items })
+
+    it('loadMemocho: bookId が無いアイテムは default として正規化される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+      expect(loadMemocho()[0].bookId).toBe('default')
+    })
+
+    it('loadMemocho: 不正な bookId は default に落とす（寛容な方式）', () => {
+      for (const bad of ['', 42, null, {}]) {
+        localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([{ ...makeItem(), bookId: bad }]))
+        expect(loadMemocho()[0].bookId).toBe('default')
+      }
+    })
+
+    it('loadMemocho: 有効な bookId はそのまま保持される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([{ ...makeItem(), bookId: 'sb_001' }]))
+      expect(loadMemocho()[0].bookId).toBe('sb_001')
+    })
+
+    it('parseMemochoJSON: bookId が無い・不正なアイテムは default に正規化される', () => {
+      const { items } = parseMemochoJSON(wrap([makeItem(), { ...makeItem({ id: 2 }), bookId: 42 }]))
+      expect(items[0].bookId).toBe('default')
+      expect(items[1].bookId).toBe('default')
+    })
+
+    it('parseMemochoJSON: 有効な bookId は保持される', () => {
+      const { items } = parseMemochoJSON(wrap([{ ...makeItem(), bookId: 'sb_001' }]))
+      expect(items[0].bookId).toBe('sb_001')
+    })
+
+    it('serializeMemocho: bookId が無いアイテムは default として出力される', () => {
+      const parsed = JSON.parse(serializeMemocho([makeItem()]))
+      expect(parsed.items[0].bookId).toBe('default')
+    })
+
+    it('serialize → parse で bookId が往復する', () => {
+      const items = [{ ...makeItem(), bookId: 'sb_001' }]
+      const { items: round } = parseMemochoJSON(serializeMemocho(items))
+      expect(round[0].bookId).toBe('sb_001')
+    })
+
+    it('serialize → parse でブックリスト（books）が復元される', () => {
+      const books = [
+        { id: 'default', name: 'デフォルト', createdAt: null },
+        { id: 'sb_001', name: 'カフェ', createdAt: '2026-01-01T00:00:00.000Z' },
+      ]
+      const { items, books: roundBooks } = parseMemochoJSON(serializeMemocho([{ ...makeItem(), bookId: 'sb_001' }], books))
+      // アイテムの所属は保持される
+      expect(items[0].bookId).toBe('sb_001')
+      // ブックリストは ID・名前で復元される（createdAt は書き出されない → null）
+      expect(roundBooks).toEqual([
+        { id: 'default', name: 'デフォルト', createdAt: null, public: false },
+        { id: 'sb_001', name: 'カフェ', createdAt: null, public: false },
+      ])
+    })
+
+    it('旧形式（books なし）のファイルは books: [] として読める', () => {
+      const { items, books } = parseMemochoJSON(wrap([makeItem()]))
+      expect(books).toEqual([])
+      expect(items[0].bookId).toBe('default')
+    })
+  })
+
+  describe('cmmId / cmmUpdatedAt（CMM 同期フィールド）', () => {
+    const wrap = (items) => JSON.stringify({ app: 'machi-memocho', version: 1, items })
+
+    it('parseMemochoJSON: 空でない文字列の cmmId / cmmUpdatedAt は保持される', () => {
+      const { items } = parseMemochoJSON(wrap([
+        { ...makeItem(), cmmId: 'cmm_abc123', cmmUpdatedAt: '2026-03-01T12:00:00.000Z' },
+      ]))
+      expect(items[0].cmmId).toBe('cmm_abc123')
+      expect(items[0].cmmUpdatedAt).toBe('2026-03-01T12:00:00.000Z')
+    })
+
+    it('parseMemochoJSON: 欠落・空文字・型違いの cmmId / cmmUpdatedAt は落とされる', () => {
+      const { items } = parseMemochoJSON(wrap([
+        makeItem(), // 欠落
+        { ...makeItem({ id: 2 }), cmmId: '' }, // 空文字
+        { ...makeItem({ id: 3 }), cmmId: 42 }, // 型違い
+        { ...makeItem({ id: 4 }), cmmUpdatedAt: null }, // null
+      ]))
+      for (const item of items) {
+        expect('cmmId' in item).toBe(false)
+        expect('cmmUpdatedAt' in item).toBe(false)
+      }
+    })
+
+    it('cmmId だけ、cmmUpdatedAt だけを個別に保持できる', () => {
+      const { items } = parseMemochoJSON(wrap([
+        { ...makeItem({ id: 1 }), cmmId: 'cmm_1' },
+        { ...makeItem({ id: 2 }), cmmUpdatedAt: '2026-03-02T00:00:00.000Z' },
+      ]))
+      expect(items[0].cmmId).toBe('cmm_1')
+      expect('cmmUpdatedAt' in items[0]).toBe(false)
+      expect('cmmId' in items[1]).toBe(false)
+      expect(items[1].cmmUpdatedAt).toBe('2026-03-02T00:00:00.000Z')
+    })
+
+    it('serializeMemocho: cmmId / cmmUpdatedAt は出力に含まれる', () => {
+      const parsed = JSON.parse(serializeMemocho([
+        { ...makeItem(), cmmId: 'cmm_abc123', cmmUpdatedAt: '2026-03-01T12:00:00.000Z' },
+      ]))
+      expect(parsed.items[0].cmmId).toBe('cmm_abc123')
+      expect(parsed.items[0].cmmUpdatedAt).toBe('2026-03-01T12:00:00.000Z')
+    })
+
+    it('serialize → parse で cmmId / cmmUpdatedAt が往復する', () => {
+      const items = [{ ...makeItem(), cmmId: 'cmm_abc123', cmmUpdatedAt: '2026-03-01T12:00:00.000Z' }]
+      const { items: round } = parseMemochoJSON(serializeMemocho(items))
+      expect(round[0].cmmId).toBe('cmm_abc123')
+      expect(round[0].cmmUpdatedAt).toBe('2026-03-01T12:00:00.000Z')
+    })
+
+    it('loadMemocho: 保存済みの cmmId / cmmUpdatedAt は保持される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        { ...makeItem(), cmmId: 'cmm_abc123', cmmUpdatedAt: '2026-03-01T12:00:00.000Z' },
+      ]))
+      const loaded = loadMemocho()[0]
+      expect(loaded.cmmId).toBe('cmm_abc123')
+      expect(loaded.cmmUpdatedAt).toBe('2026-03-01T12:00:00.000Z')
+      expect(loaded.bookId).toBe('default') // bookId 正規化と併存する
+    })
+
+    it('ごみ箱・復元操作で cmmId は保持される', () => {
+      const items = [{ ...makeItem(), cmmId: 'cmm_abc123' }]
+      const trashed = trashMemocho(items, 'way/456')
+      expect(trashed[0].cmmId).toBe('cmm_abc123')
+      const restored = restoreMemocho(trashed, 'way/456')
+      expect(restored[0].cmmId).toBe('cmm_abc123')
+    })
+  })
 })
 
 describe('mapImage（地図サムネイル）', () => {
@@ -483,17 +678,17 @@ describe('mapImage（地図サムネイル）', () => {
   })
 
   it('parseMemochoJSON は正しい mapImage を保持する', () => {
-    const items = parseMemochoJSON(wrap([{ ...base, mapImage: 'data:image/jpeg;base64,QUJD' }]))
+    const { items } = parseMemochoJSON(wrap([{ ...base, mapImage: 'data:image/jpeg;base64,QUJD' }]))
     expect(items[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
   })
 
   it('parseMemochoJSON は画像でない文字列を落とす', () => {
-    const items = parseMemochoJSON(wrap([{ ...base, mapImage: 'https://example.com/x.png' }]))
+    const { items } = parseMemochoJSON(wrap([{ ...base, mapImage: 'https://example.com/x.png' }]))
     expect(items[0].mapImage).toBeUndefined()
   })
 
   it('mapImage が無いアイテムにはフィールド自体が付かない', () => {
-    const items = parseMemochoJSON(wrap([base]))
+    const { items } = parseMemochoJSON(wrap([base]))
     expect('mapImage' in items[0]).toBe(false)
   })
 })
@@ -526,26 +721,26 @@ describe('rating（0〜5の評価、0＝未評価）', () => {
 
   it('parseMemochoJSON は正しい rating（0〜5 の整数）を保持する', () => {
     for (const good of [0, 1, 2, 3, 4, 5]) {
-      const items = parseMemochoJSON(wrap([{ ...base, rating: good }]))
+      const { items } = parseMemochoJSON(wrap([{ ...base, rating: good }]))
       expect(items[0].rating).toBe(good)
     }
   })
 
   it('parseMemochoJSON は不正な rating を 0（未評価）に落とす（寛容な方式）', () => {
     for (const bad of [6, -1, 3.5, '3', true, null, undefined]) {
-      const items = parseMemochoJSON(wrap([{ ...base, rating: bad }]))
+      const { items } = parseMemochoJSON(wrap([{ ...base, rating: bad }]))
       expect(items[0].rating).toBe(0)
     }
   })
 
   it('rating が無いアイテムは 0（未評価）として正規化される', () => {
-    const items = parseMemochoJSON(wrap([base]))
+    const { items } = parseMemochoJSON(wrap([base]))
     expect(items[0].rating).toBe(0)
   })
 
   it('serializeMemocho → parseMemochoJSON で rating が往復する', () => {
     const items = [{ ...base, rating: 2, mapImage: 'data:image/jpeg;base64,QUJD' }]
-    const round = parseMemochoJSON(serializeMemocho(items))
+    const { items: round } = parseMemochoJSON(serializeMemocho(items))
     expect(round[0].rating).toBe(2)
     expect(round[0].mapImage).toBe('data:image/jpeg;base64,QUJD')
   })

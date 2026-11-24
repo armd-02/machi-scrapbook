@@ -25,7 +25,7 @@ import { cuisineLabelOf, normalizeWheelchair } from '../utils/resultFilters'
 
 const FIELD_CLASS =
   'px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
-const CHIP_BASE = 'min-h-[44px] min-w-0 break-words px-2 py-2 text-xs font-medium rounded-lg border transition-colors'
+const CHIP_BASE = 'min-h-[44px] shrink-0 whitespace-nowrap px-2 py-2 text-xs font-medium rounded-lg border transition-colors'
 const CHIP_SELECTED = 'bg-primary-600 text-white border-primary-600'
 const CHIP_UNSELECTED = 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
 

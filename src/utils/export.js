@@ -1,6 +1,7 @@
 /**
  * 検索結果のエクスポート（CSV / GeoJSON）
  */
+import { bookNameOf } from './scrapbooks'
 
 /**
  * CSV形式で検索結果を出力
@@ -11,6 +12,9 @@
  * - meta.includeMemo: true のときのみ末尾に memo 列を追加する
  * - meta.includeRating: true のときのみ末尾に rating 列を追加する
  *   （まちメモ帳のCSV書き出し用。通常呼び出しの出力は変わらない）
+ * - meta.includeBook: true のときのみ末尾に book 列（ブック名）を追加する
+ *   （まちメモ帳のCSV書き出し用。ブック名は meta.books（ブックリスト）から解決し、
+ *   解決できない場合は「デフォルト」）
  */
 export function toCSV(results, meta = {}) {
   const MAIN_TAGS = ['name', 'name:ja', 'amenity', 'shop', 'tourism', 'leisure', 'office', 'healthcare', 'craft', 'cuisine', 'opening_hours', 'phone', 'website', 'email', 'addr:street', 'addr:housenumber', 'addr:city', 'addr:postcode']
@@ -26,9 +30,12 @@ export function toCSV(results, meta = {}) {
   // 通常呼び出し（includeMemo 無し）の列構成は従来と完全に一致する。
   const includeMemo = !!meta.includeMemo
   const includeRating = !!meta.includeRating
+  const includeBook = !!meta.includeBook
+  const books = Array.isArray(meta.books) ? meta.books : []
   const allHeaders = ['name', 'type', 'osm_id', 'osm_url', 'lat', 'lon',
     ...(hasBf ? BF_COLUMNS : []), ...activeTags, 'fetched_at', 'source',
-    ...(includeMemo ? ['memo'] : []), ...(includeRating ? ['rating'] : [])]
+    ...(includeMemo ? ['memo'] : []), ...(includeRating ? ['rating'] : []),
+    ...(includeBook ? ['book'] : [])]
 
   const fetchedAt = meta.fetchedAt || new Date().toISOString()
   const source = 'OpenStreetMap (ODbL) / Overpass API'
@@ -60,7 +67,8 @@ export function toCSV(results, meta = {}) {
       fetchedAt,
       source,
       ...(includeMemo ? [r.memo != null ? r.memo : ''] : []),
-      ...(includeRating ? [r.rating != null ? r.rating : ''] : [])
+      ...(includeRating ? [r.rating != null ? r.rating : ''] : []),
+      ...(includeBook ? [bookNameOf(books, r.bookId)] : [])
     ]
     // 全フィールドにエスケープを適用
     lines.push(row.map(csvEscape).join(','))
@@ -152,7 +160,9 @@ export function toGeoJSON(results, meta = {}) {
         tags: r.tags || {},
         match_type: r.matchType || null,
         // way/relationは形状が未取得であることを明示
-        geometry_note: r.type !== 'node' ? 'center point only (full geometry not fetched)' : null
+        geometry_note: r.type !== 'node' ? 'center point only (full geometry not fetched)' : null,
+        // (スクラップブック) includeBook のときのみブック名を付ける（まちメモ帳用）
+        ...(meta.includeBook ? { book: bookNameOf(Array.isArray(meta.books) ? meta.books : [], r.bookId) } : {})
       }
     }
   })

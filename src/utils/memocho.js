@@ -5,7 +5,7 @@
  * React 非依存の純粋な関数群。
  *
  * アイテムの形:
- *   { type, id, name, lat, lon, tags, memo, addedAt, mapImage?, rating, deletedAt? }
+ *   { type, id, name, lat, lon, tags, memo, addedAt, mapImage?, rating, deletedAt?, bookId?, cmmId?, cmmUpdatedAt? }
  *   - type: 'node' | 'way' | 'relation'
  *   - id:   数値
  *   - mapImage?: 地図サムネイル（dataURL）。未設定なら省略
@@ -14,8 +14,16 @@
  *     無い（または空）＝アクティブ（通常の一覧に出る）。ある＝ごみ箱。
  *     自動での期限消去は行わず、ユーザーが復元・完全削除・ごみ箱空にする
  *     操作を行うまでストアに残る
+ *   - bookId?: スクラップブック（分類）の ID（scrapbooks.js）。欠落・不正な場合は
+ *     'default'（デフォルトブック）に属するものとして扱う（読み取り時に正規化）。
+ *     addMemocho が作るスナップショットには bookId を付けない（＝デフォルト扱い）
+ *   - cmmId? / cmmUpdatedAt?: CMM 同期用のフィールド（任意）。
+ *     cmmId: 同期済み投稿の ID（文字列）。cmmUpdatedAt: 最終同期時刻（文字列）。
+ *     値が無いメモは従来どおり（同期未対象）。正規化・書き出し・読み込みで
+ *     空でない文字列の場合は保持する（落とさない）
  *   - 一意キー: `${type}/${id}`
  */
+import { normalizeBookId, normalizeBookEntries } from './scrapbooks'
 
 export const MEMOCHO_STORAGE_KEY = 'machi-memocho-v1'
 export const MEMOCHO_APP_ID = 'machi-memocho'
@@ -54,7 +62,11 @@ export function loadMemocho() {
   try {
     const data = JSON.parse(raw)
     if (!Array.isArray(data)) return []
-    return data.filter(isValidSource)
+    // 読み取り時に bookId を正規化する（欠落・不正 → 'default'）。
+    // 保存データそのものの一括書き換え（マイグレーション）は行わない
+    return data
+      .filter(isValidSource)
+      .map((item) => ({ ...item, bookId: normalizeBookId(item.bookId) }))
   } catch {
     return []
   }
@@ -185,6 +197,104 @@ export function updateRating(items, key, rating) {
 }
 
 /**
+ * そのキーのアイテムの bookId（スクラップブックの所属）を差し替えた
+ * 新しい配列を返す。bookId が空でない文字列以外の場合は変更しない。
+ */
+export function updateBook(items, key, bookId) {
+  if (typeof bookId !== 'string' || bookId === '') return items
+  return items.map((item) => (memochoKeyOf(item) === key ? { ...item, bookId } : item))
+}
+
+/**
+ * 指定のスクラップブックの全アイテムを別のブックへ移す。
+ *
+ * bookId が fromBookId と一致するアイテム（ごみ箱のアイテムを含む）の bookId を
+ * toBookId に置き換える。ブックを削除したとき（そのブックのメモを「デフォルト」
+ * へ移す）に使う。該当アイテムが無ければ、あるいは引数が不正なら、元の配列を
+ * そのまま返す（同じ参照）。
+ */
+export function moveBookItems(items, fromBookId, toBookId) {
+  if (typeof fromBookId !== 'string' || fromBookId === '') return items
+  if (typeof toBookId !== 'string' || toBookId === '') return items
+  const list = Array.isArray(items) ? items : []
+  if (!list.some((item) => item != null && item.bookId === fromBookId)) return items
+  return list.map((item) =>
+    item != null && item.bookId === fromBookId ? { ...item, bookId: toBookId } : item
+  )
+}
+
+/**
+ * そのキーのアイテムの指定フィールドを patch で置き替えた新しい配列を返す
+ * （浅いマージ）。
+ *
+ * - key: 'node/123' 形式。アクティブ・ごみ箱のアイテム両方が対象
+ * - patch: 置き替えるフィールドのオブジェクト（例: { cmmId, cmmUpdatedAt }）。
+ *   undefined の値は無視される（既存値を潰さない）
+ * - 該当キーのアイテムが無い・patch が空の場合は、元の配列をそのまま返す
+ *
+ * CMM 同期の結果反映（cmmId/cmmUpdatedAt・name/memo/rating/bookId の
+ * 複数フィールド同時更新）で使う。
+ */
+export function updateItemFields(items, key, patch) {
+  if (key == null || patch == null || typeof patch !== 'object' || Array.isArray(patch)) {
+    return items
+  }
+  const clean = {}
+  for (const [field, value] of Object.entries(patch)) {
+    if (value !== undefined) clean[field] = value
+  }
+  if (Object.keys(clean).length === 0) return items
+  const list = Array.isArray(items) ? items : []
+  if (!list.some((item) => item != null && memochoKeyOf(item) === key)) return items
+  return list.map((item) => (item != null && memochoKeyOf(item) === key ? { ...item, ...clean } : item))
+}
+
+/**
+ * CMM 同期の取り込みエントリ（new-memo）から新しいアイテムを追加する。
+ *
+ * entry: { key: 'node/123', name, memo, rating, bookId, cmmId, cmmUpdatedAt, lat, lon }
+ *
+ * - key を type/id に分解して検証（node/way/relation）。不正なら配列をそのまま返す
+ * - 同じキーのアイテムが既にあれば（アクティブ・ごみ箱いずれも）配列をそのまま返す
+ * - フィールドは normalizeItem と同じ正規化: name が空なら '名称なし'、
+ *   rating は 0〜5 の整数以外は 0、lat/lon は数値以外は null、
+ *   cmmId/cmmUpdatedAt は空でない文字列の場合のみ保持
+ */
+export function addImportedMemo(items, entry) {
+  if (entry == null || typeof entry.key !== 'string') return items
+  const slash = entry.key.indexOf('/')
+  if (slash <= 0) return items
+  const type = entry.key.slice(0, slash)
+  const id = Number(entry.key.slice(slash + 1))
+  if (!VALID_TYPES.has(type) || !Number.isFinite(id)) return items
+  if (items.some((item) => item != null && memochoKeyOf(item) === entry.key)) return items
+
+  const snapshot = {
+    type,
+    id,
+    name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : '名称なし',
+    lat: typeof entry.lat === 'number' && Number.isFinite(entry.lat) ? entry.lat : null,
+    lon: typeof entry.lon === 'number' && Number.isFinite(entry.lon) ? entry.lon : null,
+    tags: null,
+    memo: entry.memo == null ? '' : String(entry.memo),
+    rating:
+      typeof entry.rating === 'number' &&
+      Number.isInteger(entry.rating) &&
+      entry.rating >= 0 &&
+      entry.rating <= 5
+        ? entry.rating
+        : 0,
+    bookId: normalizeBookId(entry.bookId),
+    addedAt: new Date().toISOString(),
+  }
+  if (typeof entry.cmmId === 'string' && entry.cmmId !== '') snapshot.cmmId = entry.cmmId
+  if (typeof entry.cmmUpdatedAt === 'string' && entry.cmmUpdatedAt !== '') {
+    snapshot.cmmUpdatedAt = entry.cmmUpdatedAt
+  }
+  return [...items, snapshot]
+}
+
+/**
  * 読み込み用の合流。キー重複は既存（current）を優先する。
  * 戻り値: { items, added, skipped }
  *   - items:   合流後の配列
@@ -236,13 +346,20 @@ export function mergeMemocho(current, imported) {
 
 /**
  * 書き出し用JSON文字列。
- * 形式: { app: 'machi-memocho', version: 1, items: [...] }
+ * 形式: { app: 'machi-memocho', version: 1, items: [...], books: [{ id, name }] }
+ * - items: 各アイテムの bookId を正規化（欠落・不正 → 'default'）して出力
+ * - books: ブックリスト（ID と名前）。省略（または []）なら空配列
  */
-export function serializeMemocho(items) {
+export function serializeMemocho(items, books = []) {
+  const normalizedItems = (items || []).map((item) => ({
+    ...item,
+    bookId: normalizeBookId(item.bookId),
+  }))
   return JSON.stringify({
     app: MEMOCHO_APP_ID,
     version: MEMOCHO_VERSION,
-    items,
+    items: normalizedItems,
+    books: normalizeBookEntries(books).map((book) => ({ id: book.id, name: book.name })),
   })
 }
 
@@ -297,6 +414,15 @@ function normalizeItem(item) {
       ? item.rating
       : 0
 
+  // スクラップブックの所属 ID。欠落・不正は 'default'（デフォルトブック）にする
+  const bookId = normalizeBookId(item.bookId)
+
+  // CMM 同期フィールド（任意）。空でない文字列なら保持する（正規化で落とさない）
+  const cmmId =
+    typeof item.cmmId === 'string' && item.cmmId !== '' ? item.cmmId : null
+  const cmmUpdatedAt =
+    typeof item.cmmUpdatedAt === 'string' && item.cmmUpdatedAt !== '' ? item.cmmUpdatedAt : null
+
   const normalized = {
     type: item.type,
     id: item.id,
@@ -310,12 +436,18 @@ function normalizeItem(item) {
   if (mapImage) normalized.mapImage = mapImage
   if (deletedAt) normalized.deletedAt = deletedAt
   normalized.rating = rating
+  normalized.bookId = bookId
+  if (cmmId) normalized.cmmId = cmmId
+  if (cmmUpdatedAt) normalized.cmmUpdatedAt = cmmUpdatedAt
   return normalized
 }
 
 /**
  * 読み込み用。上の形式のオブジェクトと、素のアイテム配列の両方を受け付ける。
- * 各要素を検証・正規化した配列を返す。
+ * 各要素を検証・正規化した { items, books } を返す。
+ *   - items: 正規化されたアイテム配列（bookId 込み）
+ *   - books: ブックリスト（{ id, name, createdAt: null }）。旧形式（books なし）
+ *            や素の配列の場合は []（ブックは復元されない）
  * 全体が不正（JSONでない・形式に合わない・要素が不正）の場合は Error を投げる。
  */
 export function parseMemochoJSON(text) {
@@ -327,14 +459,14 @@ export function parseMemochoJSON(text) {
   }
 
   if (Array.isArray(data)) {
-    return data.map(normalizeItem)
+    return { items: data.map(normalizeItem), books: [] }
   }
 
   if (data != null && typeof data === 'object' && Array.isArray(data.items)) {
     if (data.app !== MEMOCHO_APP_ID) {
       throw new Error('まちメモ帳: app が一致しません')
     }
-    return data.items.map(normalizeItem)
+    return { items: data.items.map(normalizeItem), books: normalizeBookEntries(data.books) }
   }
 
   throw new Error('まちメモ帳: 形式が一致しません（オブジェクトの items が配列ではありません）')

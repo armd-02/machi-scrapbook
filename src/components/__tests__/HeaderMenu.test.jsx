@@ -32,6 +32,7 @@ import { appReducer, createInitialState } from '../../state/appReducer'
 import * as exportUtils from '../../utils/export'
 import { resetMemochoStore } from '../../hooks/useMemocho'
 import { MEMOCHO_STORAGE_KEY } from '../../utils/memocho'
+import { SCRAPBOOKS_STORAGE_KEY } from '../../utils/scrapbooks'
 import { OVERPASS_PREFERENCE_KEY } from '../../utils/overpassPreference'
 
 // downloadCSV / downloadGeoJSON はモック（呼び出し検証用）。
@@ -362,17 +363,20 @@ describe('HeaderMenu: まちメモ帳の書き出し (#79)', () => {
     const blob = URL.createObjectURL.mock.calls[0][0]
     expect(blob).toBeInstanceOf(Blob)
     // items を丸ごと出力するため、rating も自動的に含まれる
+    // items は bookId を正規化（欠落 → 'default'）されて書き出され、
+    // books（ブックリスト）も ID・名前で書き出される
     expect(JSON.parse(await blob.text())).toEqual({
       app: 'machi-memocho',
       version: 1,
-      items: [makeMemoItem({ memo: '訪問済み', rating: 2 })],
+      items: [{ ...makeMemoItem({ memo: '訪問済み', rating: 2 }), bookId: 'default' }],
+      books: [{ id: 'default', name: 'デフォルト' }],
     })
     expect(screen.getByRole('status').textContent).toContain('JSONとして書き出しました')
     // 実行後はメニューが閉じる
     expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
-  it('CSV書き出し: 末尾に memo/rating 列が付いたCSVになる（通常 toCSV と列構成の違い）', async () => {
+  it('CSV書き出し: 末尾に memo/rating/book 列が付いたCSVになる（通常 toCSV と列構成の違い）', async () => {
     mockUrl()
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem({ memo: 'メモ内容', rating: 3 })]))
     render(<Harness><HeaderMenu /></Harness>)
@@ -383,11 +387,13 @@ describe('HeaderMenu: まちメモ帳の書き出し (#79)', () => {
     const csv = (await URL.createObjectURL.mock.calls[0][0].text())
     const lines = csv.replace(/^\uFEFF/, '').split('\n')
     const headers = lines[0].split(',')
-    expect(headers[headers.length - 2]).toBe('memo')
-    expect(headers[headers.length - 1]).toBe('rating') // rating 列は末尾
+    expect(headers[headers.length - 3]).toBe('memo')
+    expect(headers[headers.length - 2]).toBe('rating')
+    expect(headers[headers.length - 1]).toBe('book') // book 列は末尾
     const row = lines[1].split(',')
-    expect(row[headers.length - 2]).toBe('メモ内容')
-    expect(row[headers.length - 1]).toBe('3')
+    expect(row[headers.length - 3]).toBe('メモ内容')
+    expect(row[headers.length - 2]).toBe('3')
+    expect(row[headers.length - 1]).toBe('デフォルト') // bookId 欠落 → デフォルトブック名
     expect(screen.getByRole('status').textContent).toContain('CSVとして書き出しました')
   })
 })
@@ -427,6 +433,42 @@ describe('HeaderMenu: まちメモ帳の読み込み (#79)', () => {
     // 既存が優先される（既存メモが上書きされない）
     expect(stored[0].memo).toBe('既存メモ')
     expect(stored[1].name).toBe('みらい公園')
+  })
+
+  it('ファイルに含まれるブックリスト（books）はブック保存へ合流される（同一IDは既存を優先）', async () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeMemoItem({ memo: '既存メモ' })]))
+    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify([
+      { id: 'default', name: 'デフォルト', createdAt: null },
+      { id: 'sb_001', name: 'カフェ', createdAt: '2026-01-01T00:00:00.000Z' },
+    ]))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    const imported = JSON.stringify({
+      app: 'machi-memocho',
+      version: 1,
+      items: [
+        { ...makeMemoItem({ id: 3001, name: '新規項目', tags: { name: '新規項目' } }), bookId: 'sb_001' },
+      ],
+      books: [
+        { id: 'sb_001', name: 'カフェ（取り込み側）' }, // 同一ID → 既存の名前を優先
+        { id: 'sb_002', name: '公園' }, // 新規 → 末尾に追加
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), { target: { files: [jsonFile(imported)] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('1件を取り込みました')
+    }, { timeout: 5000 })
+
+    // ブックリストが復元される: 同一IDは既存を優先し、新規は末尾に追加される
+    // （正規化で public: false が付く）
+    expect(JSON.parse(localStorage.getItem(SCRAPBOOKS_STORAGE_KEY))).toEqual([
+      { id: 'default', name: 'デフォルト', createdAt: null, public: false },
+      { id: 'sb_001', name: 'カフェ', createdAt: '2026-01-01T00:00:00.000Z', public: false },
+      { id: 'sb_002', name: '公園', createdAt: null, public: false },
+    ])
   })
 
   it('すべてが重複の場合は「新しい項目はありません」メッセージが出る', async () => {

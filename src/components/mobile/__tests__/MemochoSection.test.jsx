@@ -1277,16 +1277,20 @@ describe('MemochoSection: レイアウト（メモマップを画面一番上に
     expect(scrollArea.contains(card)).toBe(true)
   })
 
-  it('座標を持つアイテムが0件のときは地図ブロックが無く、見出しが section の先頭に来る', () => {
+  it('座標を持つアイテムが0件のときは地図ブロックが無く、見出しがスクロールエリアの先頭に来る', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
       makeItem({ lat: null, lon: null }),
     ]))
     renderSection()
 
     const section = document.querySelector('section[aria-label="まちメモ帳"]')
-    // 先頭の子要素はスクロールエリア（見出しが最上部・地図なし）
-    expect(section.firstElementChild.className).toContain('flex-1')
-    expect(section.firstElementChild.className).toContain('overflow-y-auto')
+    // スクロールエリアは flex-1 の子要素（スクラップブックバー・地図ブロックより下）
+    const scrollArea = [...section.children].find((el) => el.className.includes('flex-1'))
+    expect(scrollArea.className).toContain('overflow-y-auto')
+    expect(scrollArea.className).toContain('min-h-0')
+    // 見出しはスクロールエリアの先頭（地図ブロックが無い）
+    const heading = screen.getByRole('heading', { name: 'まちメモ帳' })
+    expect(scrollArea.contains(heading)).toBe(true)
     expect(screen.queryByRole('button', { name: /メモマップ/ })).toBeNull()
   })
 })

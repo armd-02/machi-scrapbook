@@ -11,10 +11,15 @@ import {
   saveMemocho,
   trashItems,
   trashMemocho,
+  moveBookItems,
+  updateBook,
   updateMapImage,
   updateRating,
-  updateMemo
+  updateMemo,
+  updateItemFields,
+  addImportedMemo
 } from '../utils/memocho'
+import { addCmmTombstones, cmmIdsOf, isValidCmmId } from '../utils/cmmTombstones'
 
 /**
  * まちメモ帳の状態管理フック（第2ピース）
@@ -69,15 +74,19 @@ export function resetMemochoStore() {
  *   trashItems     ごみ箱（deletedAt 付き）アイテムの配列
  *   has(key)       キー（'node/123' 形式）がアクティブに登録済みかを返す（ごみ箱は未登録扱い）
  *   add(result)    検索結果を追加。追加・復元したら true（アクティブ重複なら false）
- *   remove(key)    キーのアイテムを完全に削除。削除できたら true（存在しなければ false）
- *   trash(key)     論理削除（deletedAt を付けてごみ箱へ）。できたら true
+ *   remove(key)    キーのアイテムを完全に削除。削除できたら true（存在しなければ false）。
+ *                  削除したアイテムに cmmId がある場合、墓碑リスト（cmmTombstones.js）に記録する
+ *   trash(key)     論理削除（deletedAt を付けてごみ箱へ）。できたら true（墓碑は記録しない）
  *   restore(key)   ごみ箱から復元（deletedAt を除去）。できたら true
  *   toggle(result) 未登録なら追加（'added'）、登録済みならごみ箱へ（'removed'）、
  *                  ごみ箱なら復元（'added'）
  *   setMemo(key, text)  そのキーのメモ文字列を差し替える
  *   importItems(items)  読み込み用アイテム配列を合流。{ added, skipped }（件数）を返す
- *   wipeAll()      アクティブ＋ごみ箱の全件を完全に削除。消去した件数を返す
- *   emptyTrash()   ごみ箱の全件を完全に削除。削除した件数を返す
+ *   wipeAll()      アクティブ＋ごみ箱の全件を完全に削除。消去した件数を返す。
+ *                  cmmId がある全アイテムの ID を墓碑リストに記録する
+ *   emptyTrash()   ごみ箱の全件を完全に削除。削除した件数を返す。
+ *                  cmmId があるごみ箱アイテムの ID を墓碑リストに記録する
+ *   setPublic 等のブック操作は useScrapbooks 側にある
  */
 export function useMemocho() {
   const [items, setItems] = useState(getStore)
@@ -107,12 +116,17 @@ export function useMemocho() {
       return added
     },
 
-    // 完全削除（ハード削除）。ごみ箱の完全削除・全消去の内部で使う
+    // 完全削除（ハード削除）。ごみ箱の完全削除・全消去の内部で使う。
+    // 削除するアイテムに cmmId がある場合、墓碑リストに記録する（CMM 同期用）
     remove: (key) => {
       const current = getStore()
+      const victim = current.find((item) => memochoKeyOf(item) === key)
       const next = removeMemocho(current, key)
       const removed = next.length < current.length
-      if (removed) setStore(next)
+      if (removed) {
+        if (victim && isValidCmmId(victim.cmmId)) addCmmTombstones([victim.cmmId])
+        setStore(next)
+      }
       return removed
     },
 
@@ -167,6 +181,53 @@ export function useMemocho() {
     },
 
     /**
+     * 指定のスクラップブックの全アイテム（ごみ箱含む）を別のブックへ移す。
+     * ブック削除のときに使う（そのブックのメモを「デフォルト」へ移す）。
+     * 移動した件数があれば true を返す。
+     */
+    moveBook: (fromBookId, toBookId) => {
+      const current = getStore()
+      const next = moveBookItems(current, fromBookId, toBookId)
+      const moved = next !== current
+      if (moved) setStore(next)
+      return moved
+    },
+
+    /**
+     * そのキーのアイテムの所属ブック（bookId）を変更する。
+     * カテゴリ編集モード中のカード側セレクトで使う。空でない文字列以外は無視される。
+     */
+    setBook: (key, bookId) => {
+      const current = getStore()
+      setStore(updateBook(current, key, bookId))
+    },
+
+    /**
+     * そのキーのアイテムの指定フィールドを patch で置き替える（浅いマージ）。
+     * CMM 同期の結果反映（cmmId/cmmUpdatedAt などの複数フィールド同時更新）で使う。
+     * 該当アイテムが無い・変更が無い場合は false、反映された場合は true を返す。
+     */
+    updateItemFields: (key, patch) => {
+      const current = getStore()
+      const next = updateItemFields(current, key, patch)
+      const changed = next !== current
+      if (changed) setStore(next)
+      return changed
+    },
+
+    /**
+     * CMM 同期の取り込み（new-memo）エントリから新しいアイテムを追加する。
+     * 追加できたら true（キー重複・不正エントリなら false）。
+     */
+    addImported: (entry) => {
+      const current = getStore()
+      const next = addImportedMemo(current, entry)
+      const added = next !== current
+      if (added) setStore(next)
+      return added
+    },
+
+    /**
      * 読み込み用。parseMemochoJSON() 等で得たアイテム配列を合流する。
      * キー重複は既存を優先（mergeMemocho と同じ規則）。
      * 戻り値: { added, skipped }
@@ -181,19 +242,30 @@ export function useMemocho() {
       return { added: added.length, skipped }
     },
 
-    /** 「まちメモ帳をすべて削除」。アクティブ＋ごみ箱の全件を完全に削除する。消去した件数を返す */
+    /**
+     * 「まちメモ帳をすべて削除」。アクティブ＋ごみ箱の全件を完全に削除する。
+     * cmmId がある全アイテムの ID を墓碑リストに記録し、消去した件数を返す。
+     */
     wipeAll: () => {
-      const count = getStore().length
+      const current = getStore()
+      const count = current.length
+      if (count > 0) addCmmTombstones(cmmIdsOf(current))
       setStore([])
       return count
     },
 
-    /** 「ごみ箱を空にする」。deletedAt 付き（ごみ箱）のみを完全に削除する。削除した件数を返す */
+    /**
+     * 「ごみ箱を空にする」。deletedAt 付き（ごみ箱）のみを完全に削除する。
+     * cmmId があるごみ箱アイテムの ID を墓碑リストに記録し、削除した件数を返す。
+     */
     emptyTrash: () => {
       const current = getStore()
       const kept = activeItems(current)
       const removed = current.length - kept.length
-      if (removed > 0) setStore(kept)
+      if (removed > 0) {
+        addCmmTombstones(cmmIdsOf(trashItems(current)))
+        setStore(kept)
+      }
       return removed
     }
   }

@@ -27,7 +27,7 @@ import Spinner from './Spinner'
  * @param {boolean} [geocodeDisabled] 「地名検索」ボタンを無効化（ジオコード実行中等）
  * @param {boolean} [areaSet] 検索エリア設定済み（成功）→ 緑系のスタイル
  * @param {(() => void) | null} [onCurrentLocation] 「現在地付近」ボタンの押下。
- *   指定した場合、「地名検索」ボタンの右側にアイコンのみボタン（🎯 ターゲット風）
+ *   指定した場合、「地名検索」ボタンの右側にアイコンのみボタン（照準マークの SVG）
  *   を表示する。aria-label / title は「現在地付近」。押下で現在位置を確定した
  *   場所として設定する（親で処理）。
  * @param {boolean} [currentLocationBusy] 現在位置取得中。「現在地付近」ボタンを
@@ -99,9 +99,18 @@ export default function PlaceNameInput({
           aria-label="現在地付近"
           title="現在地付近"
           data-testid="place-current-location-button"
-          className="shrink-0 min-h-[38px] w-[38px] flex items-center justify-center text-base leading-none bg-white border border-primary-200 rounded-lg hover:bg-primary-50 disabled:opacity-50"
+          className="shrink-0 min-h-[38px] w-[38px] flex items-center justify-center text-primary-600 bg-white border border-primary-200 rounded-lg hover:bg-primary-50 disabled:opacity-50"
         >
-          {currentLocationBusy ? <Spinner /> : '🎯'}
+          {currentLocationBusy ? <Spinner /> : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        )}
         </button>
       )}
     </div>

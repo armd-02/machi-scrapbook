@@ -3,7 +3,7 @@
  * (#xx) 地名検索欄の「現在地付近」ボタン E2E テスト
  *
  * トップ画面の地名検索欄（QuickTopIntro「どこで探すか」セクション）には、
- * 「地名検索」ボタンの隣にアイコンのみ（🎯 ターゲット風・テキストラベルなし）
+ * 「地名検索」ボタンの隣にアイコンのみ（照準マークの SVG・テキストラベルなし）
  * の「現在地付近」ボタンがある。aria-label / title は「現在地付近」。
  *
  * 押下時の挙動:
@@ -181,8 +181,9 @@ describe('(#xx) 地名検索欄の「現在地付近」ボタン', () => {
     renderApp()
     const btn = getCurrentLocationButton()
 
-    // アイコンのみ: 内容はターゲットアイコンそのもので、テキストラベルが無い
-    expect(btn.textContent).toBe('🎯')
+    // アイコンのみ: 内容は照準マークの SVG で、テキストラベルが無い
+    expect(btn.textContent).toBe('')
+    expect(btn.querySelector('svg')).not.toBeNull()
     expect(btn.title).toBe('現在地付近')
     expect(btn.getAttribute('aria-label')).toBe('現在地付近')
 

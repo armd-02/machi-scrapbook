@@ -13,6 +13,12 @@ import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
   RatingStarsRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
+import { useScrapbooks } from '../../hooks/useScrapbooks'
+import { normalizeBookId, DEFAULT_BOOK_ID } from '../../utils/scrapbooks'
+import { useCmmSync } from '../../hooks/useCmmSync'
+import { cmmToMs } from '../../utils/cmmSync'
+import CmmLoginDialog from '../CmmLoginDialog'
+import CmmSyncResultPanel from '../CmmSyncResultPanel'
 
 /**
  * (まちメモ帳 第3ピース) まちメモ帳セクション
@@ -56,6 +62,27 @@ import {
  *   - 絞り込み中は見出しの件数が「全n件中 m件を表示」になり、キーワード行の入力欄の
  *     右側に全条件を一括解除するシンボル（✕・aria-label「フィルタをクリア」）が出る
  *     （右側の固定幅スロットは常時確保されるため、表示・非表示でレイアウトがずれない）
+ *
+ * - スクラップブックバー（(スクラップブック) ピース2）: メモマップの上（スクロールしない
+ *   固定領域）にブックの切り替え・管理バー（ScrapbookBar）を置く。
+ *   - セレクトボックス「すべて」＋各ブック（デフォルト先頭）で単一選択。選択中のブックの
+ *     メモだけリスト・マップに表示される（「すべて」なら全部）。従来のフィルタ条件と
+ *     AND 結合して適用される。選択は localStorage（machi-memocho-book-filter）に
+ *     保存され次回も維持される（stale な選択は「すべて」にフォールバック）
+ *   - 「カテゴリメニュー」（⚙️）: 新規作成（作ったら選択状態にする）・名前を変更
+ *     （選択中のブック・「すべて」選択中は不可）・削除（選択中のブック・2段階確認・
+ *     そのブックのメモはすべて「デフォルト」へ移動）。「デフォルト」は削除不可
+ *   - 「カテゴリ編集」ボタン: カテゴリ編集モードの ON/OFF を切り替える（ボタンの
+ *     表示で状態が分かる）
+ *   - ごみ箱ビュー（view='trash'）にはバーを出さない
+ *
+ * - カテゴリ編集モード（ピース3）: モード ON のとき、各メモカードの下部に所属
+ *   ブックの変更 UI（「カテゴリ」ラベル＋セレクトボックス）が出る。現在の
+ *   ブック名がセレクトに表示され、「デフォルト」を含む全ブックから選べる。
+ *   変更は即座に保存される（setBook → updateBook → localStorage）。カードの
+ *   通常のタップ動作（詳細を開く）と干渉しない位置（施設カードのクリック領域の
+ *   外）にある。特定のブック表示中に別のブックへ移すとその場で一覧から消え、
+ *   「すべて」表示中は消えず所属表示だけが変わる。モード OFF のときは出さない
  */
 
 // メモのリンクを押してもメモの編集モードに切り替えない。
@@ -87,6 +114,19 @@ function renderMemoWithLinks(memo) {
 
 const EMPTY_TEXT = 'まだ登録がありません。施設のカードや詳細の「メモ帳に追加」から登録できます。'
 
+// (CMM同期) 最終同期時刻（RFC3339）を「2026/01/18 14:32」のようなローカル表示に変換する。
+// 不正な値は null
+function formatLastSyncAt(rfc) {
+  const ts = cmmToMs(rfc)
+  if (ts == null) return null
+  const d = new Date(ts)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// (スクラップブックバー) 選択中のブックを localStorage に保存するキー
+const BOOK_FILTER_STORAGE_KEY = 'machi-memocho-book-filter'
+
 // 地図サムネイルの生成を試行済みのキー（セッション内のみ。失敗の再試行防止）
 const attemptedMapKeys = new Set()
 
@@ -95,7 +135,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   const {
     items, active, trashItems: trashList,
     remove, trash: trashItem, restore, emptyTrash,
-    setMemo, setMapImage, setRating,
+    setMemo, setMapImage, setRating, moveBook, setBook,
   } = useMemocho()
 
   const [memoDrafts, setMemoDrafts] = useState({}) // { [key]: 編集途中のメモ }
@@ -103,23 +143,94 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   // アプリ全体の resultFilters（App reducer）とは混ぜない（検索一覧・書き出しに影響しない）
   const [memoFilters, setMemoFilters] = useState(DEFAULT_MEMO_FILTERS)
 
-  // 絞り込んだ一覧: 5条件すべて AND 結合（ロジックは utils/memochoFilters の
-  // 純粋関数 applyMemochoFilters）。対象はアクティブアイテムのみ（ごみ箱は対象外）
+  // (スクラップブック) ブック管理（モジュールレベルストア・他コンポーネントと共有）
+  const { books, create: createBook, rename: renameBook, remove: removeBook, setPublic: setBookPublic } = useScrapbooks()
+
+  // (CMM同期) 同期の状態は useCmmSync フックで管理（実行・結果・最終同期時刻）。
+  // ログインダイアログは同期のたびに毎回表示され、入力した認証情報は
+  // 呼び出し引数として一度だけ渡され、保存されない
+  const cmmSync = useCmmSync()
+  const [loginOpen, setLoginOpen] = useState(false)
+
+  const handleCmmSync = async (credentials) => {
+    setLoginOpen(false)
+    await cmmSync.runSync(credentials)
+  }
+
+  // (スクラップブックバー) 選択中のブック（'all' ＝ すべて）。localStorage に保存され、
+  // 次回開いたときも維持される
+  const [bookFilter, setBookFilter] = useState(() => {
+    try {
+      const raw = localStorage.getItem(BOOK_FILTER_STORAGE_KEY)
+      if (raw == null) return 'all'
+      return raw === 'all' ? 'all' : normalizeBookId(raw)
+    } catch {
+      return 'all'
+    }
+  })
+  // 選択中のブックが削除済み（stale な選択）の場合は「すべて」にフォールバックする
+  const effectiveBookFilter =
+    bookFilter === 'all' ? 'all' : books.some((b) => b.id === bookFilter) ? bookFilter : 'all'
+
+  // ブック選択を localStorage に保存する（保存失敗は無視・表示中の状態は維持）
+  const selectBook = (id) => {
+    setBookFilter(id)
+    try {
+      localStorage.setItem(BOOK_FILTER_STORAGE_KEY, id)
+    } catch {
+      // 無視（表示中の状態は維持される）
+    }
+  }
+
+  // (カテゴリ編集モード) ON/OFF を切り替える。このピースではボタンとモード状態まで。
+  // モード中に各カードでブックを変更する UI は後続のピースで作る
+  const [categoryEdit, setCategoryEdit] = useState(false)
+
+  // (スクラップブックバー) ブックを削除する: そのブックのメモ（ごみ箱含む）をすべて
+  // 「デフォルト」へ移してからブックを削除する
+  const handleDeleteBook = (bookId) => {
+    if (bookId !== DEFAULT_BOOK_ID) moveBook(bookId, DEFAULT_BOOK_ID)
+    return removeBook(bookId)
+  }
+
+  // 選択中ブックのアクティブメモ件数（削除確認に表示する）
+  const selectedBookCount = useMemo(
+    () => (effectiveBookFilter === 'all' ? 0
+      : active.filter((it) => (it.bookId ?? 'default') === effectiveBookFilter).length),
+    [active, effectiveBookFilter]
+  )
+
+  // (スクラップブック) ブック絞り込み: 選択中のブックのアイテムに絞り、その上で
+  // 従来のフィルタ条件を AND 結合して適用する。bookId 無いアイテムは「デフォルト」
+  // への所属とみなす。対象はアクティブアイテムのみ（ごみ箱は対象外）
+  const bookFiltered = useMemo(
+    () => (effectiveBookFilter === 'all'
+      ? active
+      : active.filter((it) => (it.bookId ?? 'default') === effectiveBookFilter)),
+    [active, effectiveBookFilter]
+  )
+
+  // 絞り込んだ一覧: ブック絞り込み＋従来の条件すべて AND 結合（ロジックは
+  // utils/memochoFilters の純粋関数 applyMemochoFilters）
   const filtered = useMemo(
-    () => applyMemochoFilters(activeItems(items), memoFilters),
-    [items, memoFilters]
+    () => applyMemochoFilters(bookFiltered, memoFilters),
+    [bookFiltered, memoFilters]
   )
 
   const cuisineFacets = useMemo(() => cuisineFacetValues(
-    applyMemochoFilters(activeItems(items), { ...memoFilters, cuisine: '' }),
+    applyMemochoFilters(bookFiltered, { ...memoFilters, cuisine: '' }),
     10,
     memoFilters.cuisine,
-  ), [items, memoFilters])
+  ), [bookFiltered, memoFilters])
 
-  // いずれかの条件が有効なら「絞り込み中」（純粋関数 isMemoFilterActive）
-  const filtersActive = isMemoFilterActive(memoFilters)
+  // いずれかの条件が有効なら「絞り込み中」（純粋関数 isMemoFilterActive＋ブック選択）
+  const filtersActive = isMemoFilterActive(memoFilters) || effectiveBookFilter !== 'all'
 
-  const resetMemoFilters = () => setMemoFilters(DEFAULT_MEMO_FILTERS)
+  // 「フィルタをクリア」: 従来のフィルタ条件＋ブック選択（「すべて」）をまとめてリセット
+  const resetMemoFilters = () => {
+    setMemoFilters(DEFAULT_MEMO_FILTERS)
+    selectBook('all')
+  }
 
   // (メモマップ) ピンになるのは座標を持つアイテムのみ（無いものはカードだけ表示）
   const mapItems = useMemo(
@@ -200,11 +311,36 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
     // メモマップを画面一番上に固定（shrink-0）、その下の flex-1 overflow-y-auto エリアで
     // 見出し・件数・フィルタ・カードリストが独立スクロールする（地図はスクロールしない）
     <section aria-label="まちメモ帳" className="h-full flex flex-col bg-slate-100 [container-type:size]">
-      {/* (メモマップ) 画面一番上に固定（見出し・フィルタより上）。検索結果マップと同じ
-          折りたたみ式。ピンタップで対応カードへスクロール＋選択。座標を持つアイテムが
-          1件以上あるときだけ表示される（ごみ箱ビューには地図を出さない） */}
+      {/* (スクラップブックバー) メモマップの上（スクロールしない固定領域）に置く。
+          ブックの切り替え＋新規作成・名前変更・削除＋カテゴリ編集トグル。
+          ごみ箱ビューにはバーを出さない（view='trash' は上の早期 return） */}
+      <div className="shrink-0 px-3 pt-3">
+        <ScrapbookBar
+          books={books}
+          bookFilter={effectiveBookFilter}
+          onSelectBook={selectBook}
+          onCreate={createBook}
+          onRename={renameBook}
+          onSetPublic={setBookPublic}
+          onDelete={handleDeleteBook}
+          bookCount={selectedBookCount}
+          editMode={categoryEdit}
+          onToggleEditMode={() => setCategoryEdit((v) => !v)}
+          onSyncClick={() => setLoginOpen(true)}
+          syncing={cmmSync.syncing}
+          lastSyncAt={cmmSync.lastSyncAt}
+          syncResult={cmmSync.result}
+          onSyncClose={cmmSync.dismissResult}
+        />
+      </div>
+
+      {/* (メモマップ) スクラップブックバーの下（見出し・フィルタより上）に固定。
+          検索結果マップと同じ折りたたみ式。ピンタップで対応カードへスクロール＋選択。
+          座標を持つアイテムが1件以上あるときだけ表示される（ごみ箱ビューには地図を出さない）。
+          (スクラップブックバー) バーが地図の上部に固定領域として入るため、地図の
+          最大高さの計算からバーの高さ（約5rem）を引いて従来とほぼ同じ表示面積を維持する */}
       {mapItems.length > 0 && (
-        <div className="shrink-0 px-3 pt-3 [--results-map-max-height:max(0px,calc(100cqh_-_12rem))]">
+        <div className="shrink-0 px-3 pt-3 [--results-map-max-height:max(0px,calc(100cqh_-_12rem_-_5rem))]">
           <CollapsibleResultsMap
             title="メモマップ"
             results={mapItems}
@@ -314,11 +450,23 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
                 // 論理削除: deletedAt を付けてごみ箱へ移動する
                 onRemove={trashItem}
                 selected={selectedKey === memochoKeyOf(item)}
+                // (カテゴリ編集モード) ON のときだけカードに所属ブックの変更 UI を出す
+                books={books}
+                editMode={categoryEdit}
+                onSetBook={setBook}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* (CMM同期) ログインダイアログ: 同期ボタンを押すと表示される。
+          認証情報は今回の同期呼び出しでのみ使用され、保存されない */}
+      <CmmLoginDialog
+        open={loginOpen}
+        onSync={handleCmmSync}
+        onClose={() => setLoginOpen(false)}
+      />
     </section>
   )
 }
@@ -341,10 +489,16 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
  *   評価行・メモ欄はカード枠の中に置くが、施設カード本体（クリック領域）の
  *   外に置くことで、編集操作がピン選択に伝播しない。
  */
-function MemochoCard({ item, onSelect, draft, onDraftChange, onDraftCommit, onSetRating, onRemove, selected = false }) {
+function MemochoCard({
+  item, onSelect, draft, onDraftChange, onDraftCommit, onSetRating, onRemove,
+  selected = false, books = [], editMode = false, onSetBook = null,
+}) {
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
   const rating = item.rating ?? 0 // 旧データ（rating 無し）は未評価として扱う
+  // (カテゴリ編集モード) 所属ブック ID。books に無い ID（例: 読み込みデータ）は
+  // 'default' にフォールバックし、セレクトで選択肢と一致させる
+  const bookValue = books.some((b) => b.id === item.bookId) ? item.bookId : 'default'
   const isEditing = draft != null
   const editRef = useRef(null)
   // 削除の2段階確認状態（1回目の✕タップで true、実行/キャンセルで false）
@@ -410,6 +564,27 @@ function MemochoCard({ item, onSelect, draft, onDraftChange, onDraftCommit, onSe
         </button>
       )}
       <div className="px-3 pb-3">
+        {/* (カテゴリ編集モード) 所属ブックの変更 UI。モード ON のときだけ表示。
+            施設カード本体のクリック領域の外（下のエリア）に置くため、カードの通常の
+            タップ動作（詳細を開く）と干渉しない。変更は即座に保存される
+            （onSetBook → updateBook → localStorage）。
+            特定のブック表示中に別のブックへ移すと、絞り込みの対象外になり
+            その場で一覧から消える。「すべて」表示中は消えず、所属表示だけが変わる */}
+        {editMode && books.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="shrink-0 text-[11px] font-medium text-slate-500" aria-hidden="true">カテゴリ</span>
+            <select
+              value={bookValue}
+              onChange={(e) => onSetBook && onSetBook(key, e.target.value)}
+              aria-label={`${item.name}のカテゴリを変更`}
+              className="min-w-0 flex-1 min-h-[44px] px-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              {books.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {/* 星5つの評価行（メモ欄の上）。施設カード本体のクリック領域の外 */}
         <div
           role="group"
@@ -454,6 +629,346 @@ function MemochoCard({ item, onSelect, draft, onDraftChange, onDraftCommit, onSe
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * (スクラップブックバー) メモマップの上（スクロールしない固定領域）に置く、
+ * スクラップブックの切り替え・管理バー。
+ *
+ * - セレクトボックス: 「すべて」＋各ブック（「デフォルト」を先頭に）。単一選択で、
+ *   選択中のブックのメモだけリスト・マップに表示される（「すべて」なら全部）。
+ *   選択は localStorage（BOOK_FILTER_STORAGE_KEY）に保存され次回も維持される。
+ *   見た目はメモ帳の絞り込みセレクト（FilterSelect）と同じ
+ * - 「カテゴリメニュー」（⚙️）: 新規作成・名前を変更・公開設定・削除のドロップダウン。
+ *   - 新規作成: 名前を入力して作成し、作ったらそのブックを選択状態にする
+ *   - 名前を変更: 選択中のブックの名前を変更する（「すべて」選択中は不可）
+ *   - 公開設定: 選択中のブックの公開（public）を切り替える（「すべて」選択中は不可）。
+ *     「デフォルト」ブックも対象。ボタンラベルが現在状態を示す（公開なら
+ *     「非公開にする」、非公開なら「公開にする」）。タップで即座に保存される
+ *   - 削除: 選択中のブックを削除し、そのブックのメモはすべて「デフォルト」へ
+ *     移す（2段階確認）。「デフォルト」は削除できない（名前変更は可）
+ * - 公開ブックはセレクトのラベルに「（公開）」が付く
+ * - 「カテゴリ編集」ボタン: カテゴリ編集モードの ON/OFF を切り替える
+ *   （ボタンの表示で ON/OFF が分かる）。モード ON のとき、各カードに所属ブックの
+ *   変更 UI（セレクト）が出る（ピース3）
+ * - 「CMM 同期」ボタン（(CMM同期、ピースC)）: 押すとログインダイアログ
+ *   （CmmLoginDialog）が表示され、認証情報を入力して同期が実行される。
+ *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
+ *   ボタンの右に「最終: YYYY/MM/DD HH:MM」を表示する。同期完了後はバーの下に
+ *   結果パネル（CmmSyncResultPanel）が表示され、✕ で閉じられる
+ *
+ * @param {Array} books 現在あるブック配列（既定ブックが先頭）
+ * @param {string} bookFilter 選択中のブックID（'all' ＝ すべて）
+ * @param {(id: string) => void} onSelectBook 選択の切替（'all' も可）
+ * @param {(name: string) => object|null} onCreate 新規作成。作ったブックを返す
+ * @param {(id: string, name: string) => boolean} onRename 名前変更
+ * @param {(id: string, isPublic: boolean) => boolean} onSetPublic 公開設定の切替
+ * @param {(id: string) => boolean} onDelete 削除（メモは「デフォルト」へ移動済みであること）
+ * @param {number} bookCount 選択中ブックのメモ件数（削除確認の案内に使う）
+ * @param {boolean} editMode カテゴリ編集モードの ON/OFF
+ * @param {() => void} onToggleEditMode カテゴリ編集モードの切替
+ * @param {() => void} onSyncClick 同期ボタンの押下（ログインダイアログを開く）
+ * @param {boolean} syncing 同期実行中か
+ * @param {string|null} lastSyncAt 最終同期時刻（RFC3339 文字列）
+ * @param {object|null} syncResult 直近の同期結果（syncMemos の戻り値）
+ * @param {() => void} onSyncClose 同期結果パネルを閉じる
+ */
+function ScrapbookBar({
+  books, bookFilter, onSelectBook, onCreate, onRename, onSetPublic, onDelete,
+  bookCount, editMode, onToggleEditMode,
+  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [renameName, setRenameName] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const rootRef = useRef(null)
+
+  const selected = bookFilter === 'all' ? null : (books.find((b) => b.id === bookFilter) ?? null)
+  const canRename = selected != null
+  const canPublish = selected != null
+  const canDelete = selected != null && selected.id !== DEFAULT_BOOK_ID
+
+  const closeMenu = () => {
+    setMenuOpen(false)
+    setConfirmDelete(false)
+    setNewName('')
+    setRenameName('')
+  }
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      closeMenu()
+      return
+    }
+    setConfirmDelete(false)
+    setNewName('')
+    setRenameName(selected ? selected.name : '')
+    setMenuOpen(true)
+  }
+
+  // メニュー外をタップしたら閉じる（HeaderMenu と同じ方式。確認状態もリセット）
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) closeMenu()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [menuOpen])
+
+  const handleCreate = () => {
+    const name = newName.trim()
+    if (!name) return
+    const book = onCreate(name)
+    if (!book) return
+    onSelectBook(book.id)
+    closeMenu()
+  }
+
+  const handleRename = () => {
+    if (!selected) return
+    const name = renameName.trim()
+    if (!name) return
+    if (onRename(selected.id, name)) closeMenu()
+  }
+
+  // 公開設定の切替。現在状態がボタンラベルに出ている（公開なら非公開へ、逆もまた然り）。
+  // タップで即座に保存される（2段階確認はない）
+  const handleSetPublic = () => {
+    if (!selected) return
+    if (onSetPublic(selected.id, !selected.public)) closeMenu()
+  }
+
+  // 2段階: 1回目で確認メッセージに切り替わり、2回目で実行する
+  const handleDelete = () => {
+    if (!selected) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    if (onDelete(selected.id)) {
+      // 削除したブックが選択中だった場合は「すべて」に戻す
+      if (bookFilter === selected.id) onSelectBook('all')
+      closeMenu()
+    }
+  }
+
+  const actionButtonClass =
+    'shrink-0 min-h-[44px] px-3 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed'
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-wrap items-center gap-2">
+        {/* ブック切替セレクト: 「すべて」＋各ブック（デフォルト先頭）。
+            見た目は絞り込みセレクト（FIELD_CLASS）と揃える */}
+        <select
+          value={bookFilter}
+          onChange={(e) => onSelectBook(e.target.value)}
+          aria-label="スクラップブック"
+          className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        >
+          <option value="all">すべて</option>
+          {books.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}{b.public ? '（公開）' : ''}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={toggleMenu}
+          aria-label="カテゴリメニュー"
+          aria-expanded={menuOpen}
+          className="shrink-0 w-9 min-h-[44px] grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+        >
+          ⚙️
+        </button>
+        <button
+          type="button"
+          onClick={onToggleEditMode}
+          aria-pressed={editMode}
+          className={`shrink-0 min-h-[44px] px-2.5 text-xs font-medium rounded-lg border transition-colors ${
+            editMode ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          {editMode ? 'カテゴリ編集: ON' : 'カテゴリ編集: OFF'}
+        </button>
+        {/* (CMM同期、ピースC) 同期ボタン: 押すとログインダイアログが開く。
+            同期中は無効化＋スピンアイコン＋「同期中…」。幅が狭い画面では
+            flex-wrap で次の行に回り込む */}
+        <button
+          type="button"
+          onClick={onSyncClick}
+          disabled={syncing}
+          aria-label={syncing ? 'CMM を同期中' : 'CMM を同期'}
+          className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {syncing ? (
+            <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+              <path d="M21 21v-5h-5" />
+            </svg>
+          )}
+          {syncing ? '同期中…' : 'CMM 同期'}
+        </button>
+        {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
+          <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
+            最終: {formatLastSyncAt(lastSyncAt)}
+          </span>
+        ) : (
+          <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
+        )}
+      </div>
+
+      {/* (CMM同期、ピースC) 直近の同期結果: 成功は件数サマリー（role=status）、
+          エラーは kind 別の案内（role=alert）。✕ で閉じる */}
+      {syncResult != null && (
+        <div className="mt-1.5">
+          <CmmSyncResultPanel result={syncResult} onClose={onSyncClose} />
+        </div>
+      )}
+
+      {menuOpen && (
+        <div
+          role="menu"
+          aria-label="カテゴリメニュー"
+          className="absolute right-0 top-full mt-1.5 w-64 z-40 bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-3"
+        >
+          {/* 新規作成 */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">カテゴリの新規作成</p>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="カテゴリ名"
+                aria-label="新規カテゴリの名前"
+                className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleCreate}
+                disabled={!newName.trim()}
+                className={actionButtonClass}
+              >
+                作成
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200" />
+
+          {/* 名前を変更 */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">
+              {canRename ? `名前を変更（${selected.name}）` : '名前を変更'}
+            </p>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                placeholder="新しい名前"
+                aria-label="カテゴリの名前"
+                disabled={!canRename}
+                className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-40"
+              />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleRename}
+                disabled={!canRename || !renameName.trim()}
+                className={actionButtonClass}
+              >
+                変更
+              </button>
+            </div>
+            {!canRename && (
+              <p className="text-[10px] text-slate-400">変更するブックを選択してください。</p>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200" />
+
+          {/* 公開設定（CMM への公開）。現在状態がラベルに出る。即座に保存 */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">公開設定</p>
+            {selected ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleSetPublic}
+                className="w-full min-h-[44px] px-3 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
+              >
+                {selected.public ? '非公開にする' : '公開にする'}
+              </button>
+            ) : (
+              <p className="text-[10px] text-slate-400">公開設定を変更するブックを選択してください。</p>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200" />
+
+          {/* 削除 */}
+          {canDelete ? (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold tracking-wider text-slate-400">削除</p>
+              {confirmDelete ? (
+                <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                  <span className="flex-1 min-w-0 text-[11px] leading-tight text-red-700">
+                    「{selected.name}」を削除しますか？メモ{bookCount}件が「デフォルト」へ移動します。
+                  </span>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleDelete}
+                    className="shrink-0 min-h-[28px] px-2 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-700 rounded"
+                  >
+                    削除する
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setConfirmDelete(false)}
+                    className="shrink-0 min-h-[28px] px-2 text-[11px] text-slate-600 hover:bg-red-100 rounded"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleDelete}
+                  className="w-full min-h-[44px] px-3 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                >
+                  「{selected.name}」を削除
+                </button>
+              )}
+            </div>
+          ) : selected ? (
+            <p className="text-[10px] text-slate-400">「デフォルト」は削除できません（名前変更はできます）。</p>
+          ) : (
+            <p className="text-[10px] text-slate-400">削除するブックを選択してください。</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

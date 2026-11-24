@@ -86,13 +86,14 @@ describe('PlaceNameInput', () => {
       expect(screen.queryByRole('button', { name: '現在地付近' })).toBeNull()
     })
 
-    it('onCurrentLocation を渡すと「地名検索」ボタンの右にアイコンのみボタン（🎯）が表示される', () => {
+    it('onCurrentLocation を渡すと「地名検索」ボタンの右にアイコンのみボタン（照準マーク）が表示される', () => {
       const { container } = render(
         <PlaceNameInput value="" onChange={() => {}} onGeocode={() => {}} onCurrentLocation={() => {}} />
       )
       const btn = screen.getByRole('button', { name: '現在地付近' })
-      // アイコンのみ: テキストラベルなし（内容は🎯そのもの）
-      expect(btn.textContent).toBe('🎯')
+      // アイコンのみ: テキストラベルなし（内容は照準マークの SVG）
+      expect(btn.textContent).toBe('')
+      expect(btn.querySelector('svg')).not.toBeNull()
       expect(btn.getAttribute('aria-label')).toBe('現在地付近')
       expect(btn.getAttribute('title')).toBe('現在地付近')
       // 「地名検索」ボタンの隣（同一行）

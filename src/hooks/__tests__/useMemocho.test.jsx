@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup } from '@testing-library/react'
 import { useMemocho, resetMemochoStore } from '../useMemocho'
 import { MEMOCHO_STORAGE_KEY, memochoKeyOf } from '../../utils/memocho'
+import { CMM_TOMBSTONE_KEY, loadCmmTombstones } from '../../utils/cmmTombstones'
 
 /**
  * 第2ピース: まちメモ帳の状態管理フック
@@ -33,6 +34,17 @@ afterEach(() => {
 
 function storedItems() {
   return JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
+}
+
+// add は bookId を受け付けない（新メモはデフォルト所属）ため、
+// bookId 付きの初期状態は localStorage に直接置いて再現するヘルパー
+function seeded(over) {
+  return {
+    ...COFFEE,
+    memo: '',
+    addedAt: '2026-01-01T00:00:00.000Z',
+    ...over,
+  }
 }
 
 describe('useMemocho', () => {
@@ -297,5 +309,172 @@ describe('useMemocho', () => {
     expect(removed).toBe(true)
     expect(result.current.items).toEqual([])
     expect(storedItems()).toEqual([])
+  })
+
+  describe('moveBook（ブック削除時の所属移動）', () => {
+    it('指定ブックの全アイテム（ごみ箱含む）を別のブックへ移す', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ bookId: 'sb_001' }),
+        seeded({ type: 'way', id: 77, name: 'みらい公園', tags: { name: 'みらい公園', leisure: 'park' }, bookId: 'sb_001' }),
+        seeded({ id: 55, name: 'デフォ店', tags: { name: 'デフォ店' }, bookId: 'sb_002' }),
+      ]))
+      const { result } = renderHook(() => useMemocho())
+
+      let moved = false
+      act(() => {
+        moved = result.current.moveBook('sb_001', 'default')
+      })
+      expect(moved).toBe(true)
+      const byId = Object.fromEntries(result.current.items.map((it) => [it.id, it]))
+      expect(byId[1001].bookId).toBe('default')
+      expect(byId[77].bookId).toBe('default')
+      expect(byId[55].bookId).toBe('sb_002') // 別のブックは不変
+      // localStorage にも反映される
+      const stored = storedItems()
+      expect(stored.filter((it) => it.bookId === 'default')).toHaveLength(2)
+      expect(stored.filter((it) => it.bookId === 'sb_002')).toHaveLength(1)
+    })
+
+    it('ごみ箱のアイテムも移動する', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ bookId: 'sb_001', deletedAt: '2026-01-02T00:00:00.000Z' }),
+      ]))
+      const { result } = renderHook(() => useMemocho())
+      expect(result.current.trashItems).toHaveLength(1)
+
+      let moved = false
+      act(() => { moved = result.current.moveBook('sb_001', 'default') })
+      expect(moved).toBe(true)
+      expect(result.current.trashItems[0].bookId).toBe('default')
+    })
+
+    it('該当アイテムが無ければ false を返し、状態は不変', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ bookId: 'sb_002' }),
+      ]))
+      const { result } = renderHook(() => useMemocho())
+
+      let moved = true
+      act(() => { moved = result.current.moveBook('sb_001', 'default') })
+      expect(moved).toBe(false)
+      expect(result.current.items[0].bookId).toBe('sb_002')
+    })
+  })
+
+  describe('setBook（カテゴリ編集モード中の個別変更）', () => {
+    it('アイテムの bookId が変更され、localStorage にも反映される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ bookId: 'sb_001' }),
+        seeded({ id: 77, bookId: 'sb_001' }),
+      ]))
+      const { result } = renderHook(() => useMemocho())
+      expect(result.current.items[0].bookId).toBe('sb_001')
+
+      act(() => { result.current.setBook(memochoKeyOf(COFFEE), 'sb_002') })
+      // 指定したアイテムだけが変更され、他は不変
+      expect(result.current.items[0].bookId).toBe('sb_002')
+      expect(result.current.items[1].bookId).toBe('sb_001')
+      const stored = storedItems()
+      expect(stored.filter((it) => it.bookId === 'sb_002')).toHaveLength(1)
+      expect(stored.filter((it) => it.bookId === 'sb_001')).toHaveLength(1)
+    })
+
+    it('存在しないキー・不正な bookId では何も変更しない', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([seeded({ bookId: 'sb_001' })]))
+      const { result } = renderHook(() => useMemocho())
+
+      act(() => { result.current.setBook('node/9999', 'sb_002') })
+      act(() => { result.current.setBook(memochoKeyOf(COFFEE), '') })
+      act(() => { result.current.setBook(memochoKeyOf(COFFEE), null) })
+      expect(result.current.items[0].bookId).toBe('sb_001')
+    })
+  })
+
+  describe('cmmId の墓碑（tombstone）記録', () => {
+    it('remove: cmmId があるアイテムを完全削除すると墓碑に記録される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([seeded({ cmmId: 'cmm_1001' })]))
+      const { result } = renderHook(() => useMemocho())
+
+      let removed
+      act(() => { removed = result.current.remove(memochoKeyOf(COFFEE)) })
+      expect(removed).toBe(true)
+      expect(loadCmmTombstones()).toEqual(['cmm_1001'])
+      // メモ自体は完全に削除される
+      expect(result.current.items).toHaveLength(0)
+      expect(storedItems()).toHaveLength(0)
+    })
+
+    it('remove: cmmId がないアイテムの完全削除では墓碑が記録されない', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([seeded()]))
+      const { result } = renderHook(() => useMemocho())
+
+      act(() => { result.current.remove(memochoKeyOf(COFFEE)) })
+      expect(loadCmmTombstones()).toEqual([])
+      expect(localStorage.getItem(CMM_TOMBSTONE_KEY)).toBeNull()
+    })
+
+    it('trash（論理削除）では墓碑が記録されない（復元可能なため）', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([seeded({ cmmId: 'cmm_1001' })]))
+      const { result } = renderHook(() => useMemocho())
+
+      let trashed
+      act(() => { trashed = result.current.trash(memochoKeyOf(COFFEE)) })
+      expect(trashed).toBe(true)
+      // ごみ箱に入っただけで墓碑は記録しない
+      expect(loadCmmTombstones()).toEqual([])
+      // 復元しても墓碑は記録されない
+      act(() => { result.current.restore(memochoKeyOf(COFFEE)) })
+      expect(loadCmmTombstones()).toEqual([])
+    })
+
+    it('wipeAll: cmmId がある全アイテム（アクティブ＋ごみ箱）の ID が墓碑に記録される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ cmmId: 'cmm_a' }),
+        seeded({ id: 77, cmmId: 'cmm_b' }),
+        seeded({ id: 88, cmmId: 'cmm_a', deletedAt: '2026-01-02T00:00:00.000Z' }), // 重複ID・ごみ箱
+        seeded({ id: 99, deletedAt: '2026-01-02T00:00:00.000Z' }), // cmmId なし・ごみ箱
+      ]))
+      const { result } = renderHook(() => useMemocho())
+
+      let count
+      act(() => { count = result.current.wipeAll() })
+      expect(count).toBe(4)
+      // 重複除去された cmmId が記録される
+      expect(loadCmmTombstones()).toEqual(['cmm_a', 'cmm_b'])
+      expect(result.current.items).toHaveLength(0)
+    })
+
+    it('wipeAll: cmmId がない場合でもエラーにならず墓碑は空のまま', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([seeded()]))
+      const { result } = renderHook(() => useMemocho())
+
+      act(() => { result.current.wipeAll() })
+      expect(loadCmmTombstones()).toEqual([])
+    })
+
+    it('emptyTrash: cmmId があるごみ箱アイテムの ID が墓碑に記録される', () => {
+      localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
+        seeded({ cmmId: 'cmm_a' }), // アクティブ（削除対象外）
+        seeded({ id: 88, cmmId: 'cmm_b', deletedAt: '2026-01-02T00:00:00.000Z' }), // ごみ箱
+        seeded({ id: 99, deletedAt: '2026-01-02T00:00:00.000Z' }), // cmmId なし・ごみ箱
+      ]))
+      const { result } = renderHook(() => useMemocho())
+
+      let removed
+      act(() => { removed = result.current.emptyTrash() })
+      expect(removed).toBe(2)
+      // ごみ箱の cmmId のみ記録される（アクティブの cmm_a は対象外）
+      expect(loadCmmTombstones()).toEqual(['cmm_b'])
+      expect(result.current.items).toHaveLength(1)
+      expect(result.current.items[0].cmmId).toBe('cmm_a')
+    })
+
+    it('add / setBook / setMemo 等の非削除操作では墓碑が記録されない', () => {
+      const { result } = renderHook(() => useMemocho())
+      act(() => { result.current.add({ ...COFFEE, cmmId: 'cmm_a' }) })
+      act(() => { result.current.setBook(memochoKeyOf(COFFEE), 'sb_001') })
+      act(() => { result.current.setMemo(memochoKeyOf(COFFEE), 'メモ') })
+      expect(loadCmmTombstones()).toEqual([])
+    })
   })
 })

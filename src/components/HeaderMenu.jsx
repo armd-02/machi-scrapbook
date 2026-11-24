@@ -4,6 +4,7 @@ import { useMemocho } from '../hooks/useMemocho'
 import { downloadCSV, downloadGeoJSON, downloadFile, toCSV } from '../utils/export'
 import { applyResultFilters, hasActiveFilters } from '../utils/resultFilters'
 import { serializeMemocho, parseMemochoJSON, trashItems } from '../utils/memocho'
+import { loadScrapbooks, saveScrapbooks, mergeScrapbooks } from '../utils/scrapbooks'
 import {
   OVERPASS_PREFERENCE_OPTIONS,
   getOverpassPreference,
@@ -22,10 +23,13 @@ import { OVERPASS_ENDPOINTS } from '../config'
  *   - GeoJSON（高度な形式）    downloadGeoJSON（同上）
  *
  * [まちメモ帳]（#79: MemochoSection 見出しの☰メニューから集約）
- *   - まちメモ帳をJSONで書き出し  serializeMemocho → machi-memocho.json（アクティブ＋ごみ箱の全件）
- *   - まちメモ帳をCSVで書き出し   toCSV（includeMemo/includeRating で末尾に memo/rating 列）→ machi-memocho.csv
+ *   - まちメモ帳をJSONで書き出し  serializeMemocho（items＋books）→ machi-memocho.json（アクティブ＋ごみ箱の全件）
+ *   - まちメモ帳をCSVで書き出し   toCSV（includeMemo/includeRating/includeBook で末尾に memo/rating/book 列）
+ *     → machi-memocho.csv。book 列はブック名（scrapbooks.js から解決）
  *     ※ CSV はアクティブ（deletedAt 無し）のみを対象にする
- *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON → importItems で合流
+ *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON → importItems で合流。
+ *     ファイルに含まれるブックリスト（books）も合流して復元する（mergeScrapbooks、
+ *     同一IDは既存を優先）。旧形式（books なし）のファイルもそのまま読める
  *   - ごみ箱                     メモ帳タブのごみ箱ビューへ（memochoView を 'trash' に設定）
  *   - まちメモ帳をすべて削除     wipeAll でアクティブ＋ごみ箱の全件を完全削除。2段階確認（window.confirm 不使用）
  *
@@ -127,15 +131,20 @@ export default function HeaderMenu() {
 
   // ===== まちメモ帳の書き出し・読み込み（#79: MemochoSection の☰メニューから集約） =====
   const onMemochoExportJSON = () => {
-    downloadFile(serializeMemocho(items), 'machi-memocho.json', 'application/json')
+    // items に加えてブックリスト（ID・名前）も書き出す（読み込み時に復元される）
+    downloadFile(serializeMemocho(items, loadScrapbooks()), 'machi-memocho.json', 'application/json')
     setNotice({ kind: 'ok', text: 'まちメモ帳をJSONとして書き出しました。' })
     closeMenu()
   }
 
   const onMemochoExportCSV = () => {
-    // 通常の toCSV の列構成を変えず、memo/rating 列を末尾に追加する。
+    // 通常の toCSV の列構成を変えず、memo/rating/book 列を末尾に追加する。
     // 対象はアクティブ（ごみ箱に入っていない）アイテムのみ
-    downloadFile(toCSV(active, { includeMemo: true, includeRating: true }), 'machi-memocho.csv', 'text/csv;charset=utf-8')
+    downloadFile(
+      toCSV(active, { includeMemo: true, includeRating: true, includeBook: true, books: loadScrapbooks() }),
+      'machi-memocho.csv',
+      'text/csv;charset=utf-8'
+    )
     setNotice({ kind: 'ok', text: `${active.length}件をCSVとして書き出しました。` })
     closeMenu()
   }
@@ -153,8 +162,14 @@ export default function HeaderMenu() {
     reader.onerror = () => setNotice({ kind: 'err', text: '読み込みに失敗しました: ファイルを読めませんでした。' })
     reader.onload = () => {
       try {
-        const imported = parseMemochoJSON(String(reader.result))
-        const { added, skipped } = importItems(imported)
+        const { items: importedItems, books: importedBooks } = parseMemochoJSON(String(reader.result))
+        const { added, skipped } = importItems(importedItems)
+        // ブックリストを復元する（同一IDは既存を優先してスキップ）。
+        // 旧形式のファイルでは importedBooks は [] なので何も起きない
+        if (importedBooks.length > 0) {
+          const { books: mergedBooks, added: addedBooks } = mergeScrapbooks(loadScrapbooks(), importedBooks)
+          if (addedBooks.length > 0) saveScrapbooks(mergedBooks)
+        }
         const text =
           added > 0 && skipped > 0
             ? `${added}件を取り込みました（${skipped}件は登録済みのためスキップ）`
