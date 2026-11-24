@@ -32,7 +32,7 @@ function appVersionPlugin() {
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), appVersionPlugin()],
   // GitHub Pages用: 本番ビルド時はリポジトリ名を含むbase path
-  base: mode === 'production' ? '/machi-scrapbook/' : '/',
+  base: '/',
   server: {
     port: 5173,
     open: true

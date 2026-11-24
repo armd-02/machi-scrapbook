@@ -49,6 +49,9 @@ function makeActivity(overrides = {}) {
     longitude: 139.0,
     created_at: '2026-11-01 00:00:00',
     updated_at: '2026-11-01 00:00:00',
+    // （マルチユーザー対応）デフォルトは自分の投稿（CREDENTIALS.username と一致）。
+    // 他人の投稿を模擬したい場合は updated_by_userid を上書きする。
+    updated_by_userid: 'user1',
     name: 'テスト施設',
     memo: '',
     rating: '',
@@ -743,11 +746,11 @@ describe('syncMemos', () => {
     expect(result.lastSyncAt).toBe('2026-11-03T00:00:00Z')
   })
 
-  it('増分同期では updated_since を付けて取得する', async () => {
+  it('増分同期では updated_since と userid を付けて取得する', async () => {
     const { calls } = mockCmm({ activities: [] })
     await syncMemos({ memos: [], books: BOOKS, tombstones: [], credentials: CREDENTIALS, lastSyncAt: '2026-11-01T00:00:00Z' })
     expect(calls[0].url).toBe(
-      'https://cmapmaker.openacrossbase.net/api/activities.php?app=machi-scrapbook&updated_since=2026-11-01T00%3A00%3A00Z'
+      'https://cmapmaker.openacrossbase.net/api/activities.php?app=machi-scrapbook&updated_since=2026-11-01T00%3A00%3A00Z&userid=user1'
     )
   })
 
@@ -784,5 +787,185 @@ describe('syncMemos', () => {
     expect(result.imported).toHaveLength(1)
     expect(result.imported[0].key).toBe('node/200')
     expect(result.errors).toEqual([])
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * マルチユーザー対応（ピースE）: 所有判定
+ *
+ * 所有の基準は「作成者」。通常経路（ログインIDがユーザーID形式）は
+ * userid=<ログインID> でサーバ側に取り込みを絞り、取得できた投稿は最終
+ * 更新者が別人でも自分のものとして扱う（手元の updated_by_userid 除外は
+ * しない）。フォールバック経路（ログインIDがメールアドレス形式）は
+ * userid を使わず、全件取得＋手元で updated_by_userid の完全一致と
+ * cmmId 結び付きで判定する（推測で他人の投稿を取り込まない）。
+ * ------------------------------------------------------------------------- */
+
+describe('syncMemos（マルチユーザー: 所有判定）', () => {
+  const EMAIL_CREDENTIALS = { username: 'user1@example.com', password: 'pass1' }
+
+  /** 一覧取得リクエスト（activities.php）のクエリパラメータを返す。 */
+  function listParams(calls) {
+    const call = calls.find((c) => c.url.includes('/api/activities.php'))
+    return new URLSearchParams(call.url.split('?')[1])
+  }
+
+  describe('通常経路（サーバ側 userid フィルタ）', () => {
+    it('取得リクエストに userid パラメータ（ログインID）が付く', async () => {
+      const { calls } = mockCmm({ activities: [] })
+      await syncMemos({ memos: [], ...SYNC_DEFAULTS })
+      expect(listParams(calls).get('userid')).toBe('user1')
+    })
+
+    it('userid は増分取得（updated_since）と併用される', async () => {
+      const { calls } = mockCmm({ activities: [] })
+      await syncMemos({ memos: [], ...SYNC_DEFAULTS, lastSyncAt: '2026-11-01T00:00:00Z' })
+      const params = listParams(calls)
+      expect(params.get('userid')).toBe('user1')
+      expect(params.get('updated_since')).toBe('2026-11-01T00:00:00Z')
+    })
+
+    it('作成者が自分だが最終更新者が別人の投稿も取り込む（new-memo）', async () => {
+      const activity = makeActivity({ id: 'MINE-1', osmid: 'way/999', updated_by_userid: 'other1' })
+      mockCmm({ activities: [activity] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].cmmId).toBe('MINE-1')
+    })
+
+    it('作成者が自分だが最終更新者が別人の投稿も更新の対象にする（cmmId 対応付け）', async () => {
+      const memo = makeMemo({ cmmId: 'MINE-1', cmmUpdatedAt: '2026-11-02T00:00:00Z', memo: 'ローカル新メモ' })
+      const activity = makeActivity({ id: 'MINE-1', updated_at: '2026-11-01 00:00:00', updated_by_userid: 'other1', memo: '古い' })
+      const updated = makeActivity({ id: 'MINE-1' })
+      const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [], updated: [updated], deleted: [] } })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
+      const body = JSON.parse(batchCall(calls).options.body)
+      // ローカル（11-02）がリモート（11-01）より新しく内容が異なる → update
+      expect(body.updates).toEqual([expect.objectContaining({ id: 'MINE-1', memo: 'ローカル新メモ' })])
+      expect(body.creates).toEqual([])
+      expect(result.imported).toEqual([])
+      expect(result.updated).toEqual([updated])
+    })
+
+    it('自分の投稿は従来どおり取り込まれる（new-memo）', async () => {
+      const mine = makeActivity({ id: 'MINE-1', osmid: 'way/999' })
+      mockCmm({ activities: [mine] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].cmmId).toBe('MINE-1')
+    })
+
+    it('cmmId 無しの公開メモは、同一 osmid の自分の投稿と対応付いて取り込む', async () => {
+      const memo = makeMemo()
+      const mine = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00', name: 'リモート名' })
+      mockCmm({ activities: [mine] })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].cmmId).toBe('MINE-1')
+      expect(result.imported[0].key).toBe('node/100')
+    })
+
+    it('最終更新者が別人でもリモートが新しい場合は取り込む（updated_at 比較は従来どおり）', async () => {
+      const memo = makeMemo({ cmmId: 'MINE-1', cmmUpdatedAt: '2026-11-01T00:00:00Z' })
+      const activity = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00', updated_by_userid: 'other1', name: 'リモート名' })
+      mockCmm({ activities: [activity] })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].key).toBe('node/100')
+      expect(result.imported[0].name).toBe('リモート名')
+      expect(result.updated).toEqual([])
+    })
+
+    it('他人の投稿は削除候補（deleteSet）に入らない', async () => {
+      const other = makeActivity({ id: 'OTHER-1', updated_by_userid: 'other1' })
+      const { calls } = mockCmm({ activities: [other] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, tombstones: ['ACT-MINE'] })
+      const body = JSON.parse(batchCall(calls).options.body)
+      expect(body.deletes).toEqual(['ACT-MINE'])
+      expect(result.deleted).toEqual(['ACT-MINE'])
+    })
+  })
+
+  describe('フォールバック経路（メールアドレス形式のログインID）', () => {
+    it('userid パラメータを使わず全件取得する', async () => {
+      const { calls } = mockCmm({ activities: [] })
+      await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      expect(listParams(calls).get('userid')).toBeNull()
+    })
+
+    it('他人の投稿は取り込まない（取り込み・作成・更新・削除に影響しない）', async () => {
+      const other = makeActivity({ id: 'OTHER-1', osmid: 'way/999', updated_by_userid: 'other1' })
+      mockCmm({ activities: [other] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      expect(result.imported).toEqual([])
+      expect(result.created).toEqual([])
+      expect(result.updated).toEqual([])
+      expect(result.deleted).toEqual([])
+    })
+
+    it('メールアドレスのローカルパート一致では所有権を推測しない（完全一致のみ）', async () => {
+      const activity = makeActivity({ id: 'ACT-1', osmid: 'way/999', updated_by_userid: 'user1' })
+      mockCmm({ activities: [activity] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      // 'user1' != 'user1@example.com' → 他人扱い（取り込まない）
+      expect(result.imported).toEqual([])
+    })
+
+    it('メールアドレス形式のログインIDが updated_by_userid と完全一致すれば自分の投稿として扱う', async () => {
+      const mine = makeActivity({ id: 'MINE-1', osmid: 'way/999', updated_by_userid: 'user1@example.com' })
+      mockCmm({ activities: [mine] })
+      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      expect(result.imported).toHaveLength(1)
+    })
+
+    it('osmid 対応付けを行わず新規作成とする（推測しない）', async () => {
+      const memo = makeMemo() // cmmId なし、osmid node/100
+      const activity = makeActivity({ id: 'ACT-1', updated_by_userid: 'user1' }) // osmid node/100
+      const created = makeActivity({ id: 'NEW-1' })
+      const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [created], updated: [], deleted: [] } })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      const body = JSON.parse(batchCall(calls).options.body)
+      expect(body.creates).toEqual([memoToActivity(memo, BOOKS)])
+      expect(body.updates).toEqual([])
+      expect(result.imported).toEqual([])
+    })
+
+    it('cmmId 連結による判定は有効（更新）', async () => {
+      const memo = makeMemo({ cmmId: 'ACT-1', cmmUpdatedAt: '2026-11-02T00:00:00Z', memo: 'ローカル新メモ' })
+      const activity = makeActivity({ id: 'ACT-1', updated_at: '2026-11-01 00:00:00', updated_by_userid: 'user1', memo: '古い' })
+      const updated = makeActivity({ id: 'ACT-1' })
+      const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [], updated: [updated], deleted: [] } })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      const body = JSON.parse(batchCall(calls).options.body)
+      expect(body.updates).toHaveLength(1)
+      expect(body.updates[0].id).toBe('ACT-1')
+      expect(result.imported).toEqual([])
+    })
+
+    it('他人の投稿は取り込み・作成・更新・削除の件数に影響しない', async () => {
+      const memo = makeMemo({ cmmId: 'MINE-1', cmmUpdatedAt: '2026-11-01T00:00:00Z' })
+      const mine = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00' }) // 自分の投稿（新しい）→ import
+      const otherNew = makeActivity({ id: 'OTHER-1', osmid: 'way/777', updated_by_userid: 'other1' }) // 他人・新規
+      const otherSame = makeActivity({ id: 'OTHER-2', osmid: 'node/100', updated_by_userid: 'other1' }) // 他人・同一 osmid
+      mockCmm({ activities: [otherNew, otherSame, mine] })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].cmmId).toBe('MINE-1')
+      expect(result.created).toEqual([])
+      expect(result.updated).toEqual([])
+      expect(result.deleted).toEqual([])
+    })
+
+    it('同一 osmid に複数 Activity がある場合、自分の投稿を対応付けに優先する', async () => {
+      const memo = makeMemo() // cmmId なし、osmid node/100
+      const other = makeActivity({ id: 'OTHER-1', updated_by_userid: 'other1' }) // 先に一覧へ
+      // 自分の投稿はログインID（メールアドレス）と完全一致する必要がある
+      const mine = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00', name: 'リモート名', updated_by_userid: 'user1@example.com' }) // 後へ
+      mockCmm({ activities: [other, mine] })
+      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
+      expect(result.imported).toHaveLength(1)
+      expect(result.imported[0].cmmId).toBe('MINE-1')
+      expect(result.created).toEqual([])
+    })
   })
 })
