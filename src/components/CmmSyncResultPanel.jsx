@@ -9,6 +9,9 @@ import React from 'react'
  *   「同期完了: N件新規 M件更新 K件削除 I件取り込み」を表示
  * - エラー: role="alert" で kind 別に分かりやすいメッセージを表示
  *   （auth / permission / validation / network・その他）
+ * - （ピースF）403 の project_access_denied を含む場合は、
+ *   「プロジェクトに参加していない」旨の専用案内とポータルの参加リンクを
+ *   優先して表示する（他のエラーは従来どおりの表示のまま併記）
  *
  * 右端の ✕ ボタンで閉じる。
  *
@@ -20,6 +23,8 @@ export default function CmmSyncResultPanel({ result, onClose }) {
   if (result == null) return null
 
   const errors = Array.isArray(result.errors) ? result.errors : []
+  const denied = errors.some(isProjectAccessDenied)
+  const otherErrors = denied ? errors.filter((e) => !isProjectAccessDenied(e)) : errors
 
   if (errors.length === 0) {
     return (
@@ -51,7 +56,21 @@ export default function CmmSyncResultPanel({ result, onClose }) {
     >
       <div className="flex-1 space-y-1">
         <p className="font-medium">同期に失敗しました</p>
-        {errors.map((error, index) => (
+        {denied && (
+          <p>
+            このプロジェクトに参加していないため、同期できませんでした。
+            <a
+              href="https://cmapmaker.openacrossbase.net/#projects"
+              target="_blank"
+              rel="noopener"
+              className="underline underline-offset-2"
+            >
+              コミュニティマップメーカーのポータル
+            </a>
+            でプロジェクト「まちのスクラップブック」に参加してから、もう一度同期してください。
+          </p>
+        )}
+        {otherErrors.map((error, index) => (
           <p key={index}>{errorMessage(error)}</p>
         ))}
       </div>
@@ -65,6 +84,20 @@ export default function CmmSyncResultPanel({ result, onClose }) {
         ✕
       </button>
     </div>
+  )
+}
+
+/**
+ * エラーが「プロジェクト未参加」（403 project_access_denied）かどうか。
+ * 該当するエラーには専用案内（ポータルの参加リンク）を表示し、
+ * 汎用の権限メッセージは出さない。
+ */
+function isProjectAccessDenied(error) {
+  return (
+    error != null &&
+    error.kind === 'permission' &&
+    error.status === 403 &&
+    error.code === 'project_access_denied'
   )
 }
 

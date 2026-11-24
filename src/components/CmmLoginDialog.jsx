@@ -9,6 +9,8 @@ import React from 'react'
  * 認証情報はこのダイアログのローカル state にのみ存在し、
  * localStorage・アプリの状態には一切保存しない（閉じたら破棄）。
  *
+ * （ピースF）初めての人向けの案内（アカウント登録・プロジェクト参加の
+ * リンク）をタイトルの下に表示する。
  * props:
  *   open       ダイアログを表示するか
  *   onSync     「同期する」が押されたときのコールバック（{ username, password }）
@@ -63,6 +65,26 @@ export default function CmmLoginDialog({ open, onSync, onClose }) {
         <p className="mt-1 text-xs text-slate-500">
           community map maker のアカウントを入力してください。
           認証情報は今回の同期でのみ使用され、保存されません。
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          初めての同期には、コミュニティマップメーカーのアカウントと、プロジェクトへの参加が必要です。
+          <a
+            href="https://cmapmaker.openacrossbase.net/register.html"
+            target="_blank"
+            rel="noopener"
+            className="text-primary-600 underline underline-offset-2"
+          >
+            アカウント登録
+          </a>
+          ／
+          <a
+            href="https://cmapmaker.openacrossbase.net/#projects"
+            target="_blank"
+            rel="noopener"
+            className="text-primary-600 underline underline-offset-2"
+          >
+            プロジェクト参加
+          </a>
         </p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
           <div>

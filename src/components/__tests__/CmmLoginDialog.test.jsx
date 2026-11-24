@@ -12,6 +12,7 @@
  * - バックグラウンドタップで onClose が呼ばれる
  * - Escape キーで onClose が呼ばれる
  * - 閉じて再オープンすると入力値がリセットされる（認証情報の再利用・保存はしない）
+ * - （ピースF）初回案内（アカウント登録・プロジェクト参加の2リンク）が表示される
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
@@ -46,6 +47,30 @@ describe('表示', () => {
   it('パスワード欄は type="password" である', () => {
     render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getByLabelText('パスワード').type).toBe('password')
+  })
+})
+
+describe('初回案内（ピースF）', () => {
+  it('案内文と2つのリンク（アカウント登録・プロジェクト参加）が表示される', () => {
+    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog', { name: 'CMM 同期ログイン' })
+    expect(dialog.textContent).toContain('初めての同期には、コミュニティマップメーカーのアカウント')
+    const register = screen.getByRole('link', { name: 'アカウント登録' })
+    const join = screen.getByRole('link', { name: 'プロジェクト参加' })
+    expect(register.href).toBe('https://cmapmaker.openacrossbase.net/register.html')
+    expect(join.href).toBe('https://cmapmaker.openacrossbase.net/#projects')
+    for (const link of [register, join]) {
+      expect(link.target).toBe('_blank')
+      expect(link.rel).toBe('noopener')
+    }
+  })
+
+  it('既存の入力欄・ボタンはそのまま表示される', () => {
+    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByLabelText('ユーザー名')).toBeTruthy()
+    expect(screen.getByLabelText('パスワード')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '同期する' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeTruthy()
   })
 })
 
