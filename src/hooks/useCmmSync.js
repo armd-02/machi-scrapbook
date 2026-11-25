@@ -148,6 +148,8 @@ function applySyncResult(result, { memocho, scrapbooks }) {
         cmmUpdatedAt: entry.cmmUpdatedAt,
         lat: entry.lat,
         lon: entry.lon,
+        // (ピースG0) 取り込んだメモにも OSM タグを持たせる（undefined で tags: null）
+        tags: entry.tags,
       })
     } else {
       // update-memo: リモートが新しい場合、既存メモの内容を上書きする。
@@ -156,6 +158,9 @@ function applySyncResult(result, { memocho, scrapbooks }) {
       if (entry.name !== undefined) patch.name = entry.name === '' ? '名称なし' : String(entry.name)
       if (entry.memo !== undefined) patch.memo = String(entry.memo)
       if (entry.rating !== undefined) patch.rating = entry.rating
+      // (ピースG0) tags 項目がある Activity だけ tags を上書きする。
+      // 無い場合はローカル側の tags を維持する
+      if (entry.tags !== undefined) patch.tags = entry.tags
       if (isValidCmmId(entry.cmmId)) patch.cmmId = entry.cmmId
       if (typeof entry.cmmUpdatedAt === 'string' && entry.cmmUpdatedAt !== '') {
         patch.cmmUpdatedAt = entry.cmmUpdatedAt
@@ -170,7 +175,9 @@ function applySyncResult(result, { memocho, scrapbooks }) {
  *
  * - createBook（リモートのブック名がローカルに無い）: 同名のブックがあれば
  *   それを再利用（今回の同期内で先に作成したものも含む）、無ければ
- *   その名前で新規作成して公開（public: true）にする。作成できなければ null
+ *   その名前で新規作成して公開（public: true）にする。作成できない場合
+ *   （ピースH: ブック数の上限 100 冊に達している）は「デフォルト」に
+ *   フォールバックする（メモ自体は取り込む）
  * - 通常: entry.bookId。ブックが既に削除されている場合は 'default' にフォールバック
  */
 function resolveImportedBook(entry, scrapbooks) {
@@ -178,7 +185,9 @@ function resolveImportedBook(entry, scrapbooks) {
     const existing = loadScrapbooks().find((b) => b.name === entry.bookName)
     if (existing) return existing.id
     const created = scrapbooks.create(entry.bookName)
-    if (!created) return null
+    // (ピースH) 上限（100冊）で新規作成できない場合は「デフォルト」に入れる
+    // （メモ自体は取り込む）
+    if (!created) return DEFAULT_BOOK_ID
     scrapbooks.setPublic(created.id, true)
     return created.id
   }

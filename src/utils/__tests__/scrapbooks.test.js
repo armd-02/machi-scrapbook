@@ -15,6 +15,7 @@ import {
   SCRAPBOOKS_STORAGE_KEY,
   DEFAULT_BOOK_ID,
   DEFAULT_BOOK_NAME,
+  MAX_BOOKS,
   defaultBook,
   normalizeBookId,
   generateBookId,
@@ -233,6 +234,69 @@ describe('scrapbooks', () => {
       expect(next[1].id).not.toBe(next[2].id)
       expect(next[1].name).toBe('カフェ')
       expect(next[2].name).toBe('カフェ')
+    })
+  })
+
+  // (ピースH) ブック数の上限（デフォルト含む 100 冊）
+  describe('ブック数の上限（ピースH）', () => {
+    /** デフォルト＋ n-1 冊のブック（合計 n 冊）のリストを作る */
+    function makeBooks(n) {
+      const list = [defaultBook()]
+      for (let i = 1; i < n; i += 1) {
+        list.push(makeBook({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}` }))
+      }
+      return list
+    }
+
+    it('MAX_BOOKS は 100 である', () => {
+      expect(MAX_BOOKS).toBe(100)
+    })
+
+    it('上限（100冊）に達した状態では createBook がリストをそのまま返す', () => {
+      const full = makeBooks(MAX_BOOKS)
+      expect(createBook(full, 'もう一冊')).toBe(full)
+    })
+
+    it('上限手前（99冊）ではまだ作成できる', () => {
+      const almost = makeBooks(MAX_BOOKS - 1)
+      const next = createBook(almost, 'もう一冊')
+      expect(next).toHaveLength(MAX_BOOKS)
+      expect(next[next.length - 1].name).toBe('もう一冊')
+    })
+
+    it('mergeScrapbooks は上限を超えた新規ブックを作らず rejected に回す', () => {
+      const current = makeBooks(MAX_BOOKS - 1) // 99 冊
+      const imported = [
+        { id: 'sb_new1', name: '新規1' },
+        { id: 'sb_new2', name: '新規2' },
+        { id: 'sb_new3', name: '新規3' },
+      ]
+      const { books, added, skipped, rejected } = mergeScrapbooks(current, imported)
+      expect(books).toHaveLength(MAX_BOOKS) // 99 + 1
+      expect(added).toHaveLength(1)
+      expect(added[0].id).toBe('sb_new1')
+      expect(skipped).toBe(0)
+      expect(rejected).toHaveLength(2) // 101 冊目以降は作られない
+      expect(rejected.map((b) => b.id)).toEqual(['sb_new2', 'sb_new3'])
+    })
+
+    it('上限到達済み（100冊）の mergeScrapbooks は新規ブックをすべて rejected に回す', () => {
+      const current = makeBooks(MAX_BOOKS)
+      const imported = [{ id: 'sb_new1', name: '新規1' }]
+      const { books, added, rejected } = mergeScrapbooks(current, imported)
+      expect(books).toHaveLength(MAX_BOOKS)
+      expect(added).toEqual([])
+      expect(rejected).toHaveLength(1)
+    })
+
+    it('上限到達時でも同一IDのブックは既存優先でスキップされる（rejected に入らない）', () => {
+      const current = makeBooks(MAX_BOOKS)
+      const imported = [{ id: 'sb_001', name: 'カテゴリ1（取り込み側）' }]
+      const { books, added, skipped, rejected } = mergeScrapbooks(current, imported)
+      expect(books).toHaveLength(MAX_BOOKS)
+      expect(added).toEqual([])
+      expect(skipped).toBe(1)
+      expect(rejected).toEqual([])
     })
   })
 

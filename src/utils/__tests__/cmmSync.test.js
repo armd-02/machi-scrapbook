@@ -202,12 +202,20 @@ describe('memoToActivity', () => {
       rating: '3',
       latitude: 35.0,
       longitude: 139.0,
+      // (ピースG0) OSM タグは JSON 文字列で送る
+      tags: '{"name":"テスト施設"}',
     })
   })
 
   it('rating 0 なら rating キーを出さない', () => {
     const activity = memoToActivity(makeMemo(), BOOKS)
     expect(activity).not.toHaveProperty('rating')
+  })
+
+  it('(ピースG0) tags が空・未定義なら tags キーを出さない', () => {
+    expect(memoToActivity(makeMemo({ tags: {} }), BOOKS)).not.toHaveProperty('tags')
+    expect(memoToActivity(makeMemo({ tags: null }), BOOKS)).not.toHaveProperty('tags')
+    expect(memoToActivity(makeMemo({ tags: undefined }), BOOKS)).not.toHaveProperty('tags')
   })
 
   it('「名称なし」のメモは name を空文字列で送る', () => {
@@ -260,8 +268,45 @@ describe('activityToMemoPatch', () => {
     expect(book).toBe('')
   })
 
+  it('(ピースG0) tags が JSON 文字列ならオブジェクトとしてパッチに含む', () => {
+    const patch = activityToMemoPatch(makeActivity({ tags: '{"amenity":"cafe","name":"X"}' }))
+    expect(patch.tags).toEqual({ amenity: 'cafe', name: 'X' })
+  })
+
+  it('(ピースG0) tags が不正な JSON・オブジェクト以外なら空オブジェクト', () => {
+    expect(activityToMemoPatch(makeActivity({ tags: '{oops' })).tags).toEqual({})
+    expect(activityToMemoPatch(makeActivity({ tags: '[1,2]' })).tags).toEqual({})
+    expect(activityToMemoPatch(makeActivity({ tags: '"cafe"' })).tags).toEqual({})
+  })
+
+  it('(ピースG0) tags が文字列でないなら空オブジェクト', () => {
+    expect(activityToMemoPatch(makeActivity({ tags: { amenity: 'cafe' } })).tags).toEqual({})
+    expect(activityToMemoPatch(makeActivity({ tags: 42 })).tags).toEqual({})
+  })
+
+  it('(ピースG0) tags 項目が無いならパッチに含めない（従来どおり）', () => {
+    expect(activityToMemoPatch(makeActivity())).not.toHaveProperty('tags')
+    expect(activityToMemoPatch(makeActivity({ tags: null }))).not.toHaveProperty('tags')
+  })
+
   it('null 入力で安全に動作する', () => {
     expect(activityToMemoPatch(null)).toEqual({ name: '名称なし', memo: '', rating: 0, book: '' })
+  })
+})
+
+describe('(ピースG0) tags の往復変換', () => {
+  it('tags を含むメモ → Activity → メモ で tags が一致する', () => {
+    const memo = makeMemo({ tags: { amenity: 'cafe', 'name:ja': 'カフェ', wheelchair: 'yes' } })
+    const activity = memoToActivity(memo, BOOKS)
+    expect(activity.tags).toBe(JSON.stringify(memo.tags))
+    expect(activityToMemoPatch(activity).tags).toEqual(memo.tags)
+  })
+
+  it('tags が空のメモは往復で tags を送らず・パッチにも含めない', () => {
+    const memo = makeMemo({ tags: {} })
+    const activity = memoToActivity(memo, BOOKS)
+    expect(activity).not.toHaveProperty('tags')
+    expect(activityToMemoPatch(activity)).not.toHaveProperty('tags')
   })
 })
 
@@ -590,8 +635,49 @@ describe('syncMemos', () => {
         createBook: false,
         lat: 35.5,
         lon: 139.5,
+        // (ピースG0) tags 項目が無い既存の投稿は従来どおり（tags は null）
+        tags: null,
       },
     ])
+  })
+
+  it('(ピースG0) tags 付きの Activity を新規メモとして取り込む（tags がエントリに残る）', async () => {
+    const activity = makeActivity({
+      id: 'ACT-2',
+      osmid: 'node/200',
+      memo: '発見',
+      tags: '{"amenity":"cafe","name":"遠くの喫茶店"}',
+    })
+    mockCmm({ activities: [activity] })
+    const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS })
+    expect(result.errors).toEqual([])
+    expect(result.imported[0]).toMatchObject({
+      type: 'new-memo',
+      key: 'node/200',
+      tags: { amenity: 'cafe', name: '遠くの喫茶店' },
+    })
+  })
+
+  it('(ピースG0) tags が不正な JSON でも空オブジェクトとして取り込み、同期全体は失敗しない', async () => {
+    const activity = makeActivity({ id: 'ACT-2', osmid: 'node/200', tags: '{oops' })
+    mockCmm({ activities: [activity] })
+    const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS })
+    expect(result.errors).toEqual([])
+    expect(result.imported).toHaveLength(1)
+    expect(result.imported[0]).toMatchObject({ type: 'new-memo', key: 'node/200', tags: {} })
+  })
+
+  it('(ピースG0) update-memo の取り込みエントリにも tags が入る', async () => {
+    const memo = makeMemo({ cmmId: 'ACT-1', cmmUpdatedAt: '2026-11-01T00:00:00Z' })
+    const activity = makeActivity({
+      id: 'ACT-1',
+      updated_at: '2026-11-02 00:00:00',
+      tags: '{"amenity":"cafe"}',
+    })
+    mockCmm({ activities: [activity] })
+    const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
+    expect(result.imported).toHaveLength(1)
+    expect(result.imported[0]).toMatchObject({ type: 'update-memo', key: 'node/100', tags: { amenity: 'cafe' } })
   })
 
   it('リモートの book がローカルに無い場合は createBook: true で返す', async () => {

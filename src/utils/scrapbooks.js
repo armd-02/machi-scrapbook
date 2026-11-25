@@ -20,6 +20,14 @@ export const DEFAULT_BOOK_ID = 'default'
 export const DEFAULT_BOOK_NAME = 'デフォルト'
 
 /**
+ * ブック（冊子）数の上限。「デフォルト」ブックを含めて 100 冊まで。
+ * 上限に達した状態で新しいブックを作る試みは、どの経路（画面作成・
+ * JSONインポート・CMM同期取り込み）でも黙って弾かれる。メモの件数に
+ * 上限はない。
+ */
+export const MAX_BOOKS = 100
+
+/**
  * デフォルトブックを新しいオブジェクトとして返す。
  * @returns {{ id: string, name: string, createdAt: null, public: boolean }}
  */
@@ -130,6 +138,8 @@ export function saveScrapbooks(books) {
 export function createBook(books, name) {
   const trimmed = typeof name === 'string' ? name.trim() : ''
   if (!trimmed) return books
+  // (ピースH) ブック数の上限（デフォルト含む 100 冊）に達していれば作成しない
+  if ((Array.isArray(books) ? books : []).length >= MAX_BOOKS) return books
   const book = { id: generateBookId(), name: trimmed, createdAt: new Date().toISOString(), public: false }
   return [...(Array.isArray(books) ? books : []), book]
 }
@@ -227,9 +237,13 @@ export function normalizeBookEntries(books) {
  * 読み込んだブック列を現行リストに合流する（mergeMemocho と同じ流儀）。
  * - 同一 ID が現行リストに既にある場合は既存を優先してスキップする。
  * - 新たそうなブックは末尾に追加する。
+ * - (ピースH) ブック数の上限（MAX_BOOKS、デフォルト含む 100 冊）に達した時点で
+ *   その後の新規ブックは追加されない。追加されなかったブックは rejected に
+ *   入る（呼び出し側で、そのブックに属するメモの bookId を 'default' に
+ *   落とし込む）。
  * @param {Array<object>} current
  * @param {Array<object>} imported
- * @returns {{ books: Array<object>, added: Array<object>, skipped: number }}
+ * @returns {{ books: Array<object>, added: Array<object>, skipped: number, rejected: Array<object> }}
  */
 export function mergeScrapbooks(current, imported) {
   const books = (Array.isArray(current) ? current : []).filter(isValidBookEntry).map(canonicalBook)
@@ -238,15 +252,21 @@ export function mergeScrapbooks(current, imported) {
     if (!indexById.has(book.id)) indexById.set(book.id, i)
   })
   const added = []
+  const rejected = []
   let skipped = 0
   for (const entry of normalizeBookEntries(imported)) {
     if (indexById.has(entry.id)) {
       skipped += 1
       continue
     }
+    // (ピースH) 上限に達していれば新規ブックは作らない
+    if (books.length >= MAX_BOOKS) {
+      rejected.push(entry)
+      continue
+    }
     indexById.set(entry.id, books.length)
     books.push(entry)
     added.push(entry)
   }
-  return { books, added, skipped }
+  return { books, added, skipped, rejected }
 }

@@ -47,6 +47,12 @@ export default defineConfig(({ mode }) => ({
     // 単一チャンクにすると主バンドルが肥大し chunkSize 警告が出る。
     // vendor として分割し、主バンドルを軽く・maplibre をキャッシュ可能にする。
     rollupOptions: {
+      // (ピースG1) マルチページビルド: メインアプリ（index.html）＋
+      // 公開マップページ（map/index.html → dist/map/index.html）
+      input: {
+        main: 'index.html',
+        map: 'map/index.html'
+      },
       output: {
         manualChunks: {
           'maplibre-gl': ['maplibre-gl']

@@ -543,6 +543,87 @@ describe('HeaderMenu: まちメモ帳の読み込み (#79)', () => {
     }, { timeout: 5000 })
     expect(storedItems()).toEqual([makeMemoItem()])
   })
+
+  // (ピースH) 上限（100冊）到達時のインポート
+  it('上限（100冊）に達していると、ファイルの冊子は作られずそのメモは「デフォルト」に入る', async () => {
+    // デフォルト＋99冊（合計100冊）をシード
+    const books = [{ id: 'default', name: 'デフォルト', createdAt: null }]
+    for (let i = 1; i < 100; i += 1) {
+      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}`, createdAt: null })
+    }
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([]))
+    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify(books))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    const imported = JSON.stringify({
+      app: 'machi-memocho',
+      version: 1,
+      items: [
+        { ...makeMemoItem({ id: 3001, name: '博物館' }), bookId: 'sb_new1' },
+        { ...makeMemoItem({ id: 3002, name: '観測所' }), bookId: 'sb_new2' },
+      ],
+      books: [
+        { id: 'sb_new1', name: '新規1' },
+        { id: 'sb_new2', name: '新規2' },
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), { target: { files: [jsonFile(imported)] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('2件を取り込みました')
+    }, { timeout: 5000 })
+
+    // 冊子は100冊のまま（ファイルの新しい冊子は作られない）
+    expect(JSON.parse(localStorage.getItem(SCRAPBOOKS_STORAGE_KEY))).toHaveLength(100)
+    // メモ自体は取り込まれ、bookId は「デフォルト」に落ちる
+    const stored = storedItems()
+    expect(stored).toHaveLength(2)
+    expect(stored.every((item) => item.bookId === 'default')).toBe(true)
+  })
+
+  it('上限手前（99冊）ならファイルの冊子のうち1冊分までは作られる', async () => {
+    // デフォルト＋98冊（合計99冊）をシード
+    const books = [{ id: 'default', name: 'デフォルト', createdAt: null }]
+    for (let i = 1; i < 99; i += 1) {
+      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}`, createdAt: null })
+    }
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([]))
+    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify(books))
+    render(<Harness><HeaderMenu /></Harness>)
+
+    const imported = JSON.stringify({
+      app: 'machi-memocho',
+      version: 1,
+      items: [
+        { ...makeMemoItem({ id: 3001, name: '博物館' }), bookId: 'sb_new1' },
+        { ...makeMemoItem({ id: 3002, name: '観測所' }), bookId: 'sb_new2' },
+      ],
+      books: [
+        { id: 'sb_new1', name: '新規1' },
+        { id: 'sb_new2', name: '新規2' },
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /まちメモ帳を読み込む/ }))
+    fireEvent.change(fileInput(), { target: { files: [jsonFile(imported)] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('2件を取り込みました')
+    }, { timeout: 5000 })
+
+    // 100 冊目として sb_new1 だけが作成され、sb_new2 は作られない
+    const storedBooks = JSON.parse(localStorage.getItem(SCRAPBOOKS_STORAGE_KEY))
+    expect(storedBooks).toHaveLength(100)
+    expect(storedBooks.some((b) => b.id === 'sb_new1')).toBe(true)
+    expect(storedBooks.some((b) => b.id === 'sb_new2')).toBe(false)
+
+    // sb_new1 のメモはそのまま、sb_new2 のメモは「デフォルト」に入る
+    const stored = storedItems()
+    expect(stored.find((item) => item.id === 3001).bookId).toBe('sb_new1')
+    expect(stored.find((item) => item.id === 3002).bookId).toBe('default')
+  })
 })
 
 describe('HeaderMenu: ごみ箱（論理削除）', () => {

@@ -4,7 +4,7 @@ import { useMemocho } from '../hooks/useMemocho'
 import { downloadCSV, downloadGeoJSON, downloadFile, toCSV } from '../utils/export'
 import { applyResultFilters, hasActiveFilters } from '../utils/resultFilters'
 import { serializeMemocho, parseMemochoJSON, trashItems } from '../utils/memocho'
-import { loadScrapbooks, saveScrapbooks, mergeScrapbooks } from '../utils/scrapbooks'
+import { loadScrapbooks, saveScrapbooks, mergeScrapbooks, DEFAULT_BOOK_ID } from '../utils/scrapbooks'
 import {
   OVERPASS_PREFERENCE_OPTIONS,
   getOverpassPreference,
@@ -27,9 +27,11 @@ import { OVERPASS_ENDPOINTS } from '../config'
  *   - まちメモ帳をCSVで書き出し   toCSV（includeMemo/includeRating/includeBook で末尾に memo/rating/book 列）
  *     → machi-memocho.csv。book 列はブック名（scrapbooks.js から解決）
  *     ※ CSV はアクティブ（deletedAt 無し）のみを対象にする
- *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON → importItems で合流。
- *     ファイルに含まれるブックリスト（books）も合流して復元する（mergeScrapbooks、
- *     同一IDは既存を優先）。旧形式（books なし）のファイルもそのまま読める
+ *   - まちメモ帳を読み込む       .json ファイル選択 → parseMemochoJSON。
+ *     ブックリスト（books）を先に合流（mergeScrapbooks、同一IDは既存を優先）し、
+ *     上限（100冊）で作成されなかったブックに属するメモの bookId を
+ *     「デフォルト」に落としたうえで importItems で合流する。
+ *     旧形式（books なし）のファイルもそのまま読める
  *   - ごみ箱                     メモ帳タブのごみ箱ビューへ（memochoView を 'trash' に設定）
  *   - まちメモ帳をすべて削除     wipeAll でアクティブ＋ごみ箱の全件を完全削除。2段階確認（window.confirm 不使用）
  *
@@ -163,13 +165,27 @@ export default function HeaderMenu() {
     reader.onload = () => {
       try {
         const { items: importedItems, books: importedBooks } = parseMemochoJSON(String(reader.result))
-        const { added, skipped } = importItems(importedItems)
-        // ブックリストを復元する（同一IDは既存を優先してスキップ）。
-        // 旧形式のファイルでは importedBooks は [] なので何も起きない
+        // ブックリストを先に合流する（同一IDは既存を優先してスキップ）。
+        // 旧形式のファイルでは importedBooks は [] なので何も起きない。
+        // (ピースH) 上限（100冊）を超えるブックは作らず、そのブックに属する
+        // メモの bookId は「デフォルト」に落とす（メモ自体は取り込む）
+        let mergedBooks = loadScrapbooks()
+        const rejectedBookIds = new Set()
         if (importedBooks.length > 0) {
-          const { books: mergedBooks, added: addedBooks } = mergeScrapbooks(loadScrapbooks(), importedBooks)
+          const { books, added: addedBooks, rejected } = mergeScrapbooks(loadScrapbooks(), importedBooks)
+          mergedBooks = books
+          rejected.forEach((book) => rejectedBookIds.add(book.id))
           if (addedBooks.length > 0) saveScrapbooks(mergedBooks)
         }
+        const items = importedItems.map((item) => (
+          item != null
+          && typeof item.bookId === 'string'
+          && item.bookId !== ''
+          && rejectedBookIds.has(item.bookId)
+            ? { ...item, bookId: DEFAULT_BOOK_ID }
+            : item
+        ))
+        const { added, skipped } = importItems(items)
         const text =
           added > 0 && skipped > 0
             ? `${added}件を取り込みました（${skipped}件は登録済みのためスキップ）`

@@ -304,6 +304,32 @@ describe('カテゴリメニュー（新規作成・名前を変更・削除）'
     expect(screen.getByText('全1件中、0件を表示')).toBeTruthy()
   })
 
+  // (ピースH) ブック数の上限（デフォルト含む 100 冊）
+  it('上限（100冊）に達しているとき、作成はできず上限の案内が出る', () => {
+    // デフォルト＋99冊のブックをシード（合計100冊）
+    const books = [{ id: 'default', name: 'デフォルト', createdAt: null }]
+    for (let i = 1; i < 100; i += 1) {
+      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}`, createdAt: null })
+    }
+    seedBooks(books)
+    seedMemos([makeItem()])
+    renderSection()
+
+    fireEvent.click(screen.getByRole('button', { name: 'カテゴリメニュー' }))
+
+    // 作成の入力欄・ボタンが disabled
+    const createInput = screen.getByLabelText('新規カテゴリの名前')
+    expect(createInput.disabled).toBe(true)
+    expect(screen.getByRole('menuitem', { name: '作成' }).disabled).toBe(true)
+
+    // 上限の案内が表示される
+    expect(screen.getByText(/冊子の上限（100冊）に達しているため/)).toBeTruthy()
+
+    // 作成できない（ブック数は100冊のまま）
+    fireEvent.change(createInput, { target: { value: 'もう一冊' } })
+    expect(JSON.parse(localStorage.getItem(SCRAPBOOKS_STORAGE_KEY))).toHaveLength(100)
+  })
+
   it('名前を変更: 選択中のブックの名前が変更され、選択状態はそのまま維持される', () => {
     seedBooks([{ id: 'sb_cafe', name: 'カフェ' }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])

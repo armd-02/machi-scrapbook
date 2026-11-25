@@ -14,7 +14,7 @@ import {
   RatingStarsRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
 import { useScrapbooks } from '../../hooks/useScrapbooks'
-import { normalizeBookId, DEFAULT_BOOK_ID } from '../../utils/scrapbooks'
+import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
 import { useCmmSync } from '../../hooks/useCmmSync'
 import { cmmToMs } from '../../utils/cmmSync'
 import CmmLoginDialog from '../CmmLoginDialog'
@@ -690,6 +690,8 @@ function ScrapbookBar({
   const canRename = selected != null
   const canPublish = selected != null
   const canDelete = selected != null && selected.id !== DEFAULT_BOOK_ID
+  // (ピースH) ブック数の上限（デフォルト含む 100 冊）に達しているか
+  const atBookLimit = (Array.isArray(books) ? books : []).length >= MAX_BOOKS
 
   const closeMenu = () => {
     setMenuOpen(false)
@@ -723,6 +725,7 @@ function ScrapbookBar({
     const name = newName.trim()
     if (!name) return
     const book = onCreate(name)
+    // (ピースH) 上限到達などで作成できない場合は選択・閉じを行わない
     if (!book) return
     onSelectBook(book.id)
     closeMenu()
@@ -858,18 +861,24 @@ function ScrapbookBar({
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="カテゴリ名"
                 aria-label="新規カテゴリの名前"
-                className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                disabled={atBookLimit}
+                className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-40"
               />
               <button
                 type="button"
                 role="menuitem"
                 onClick={handleCreate}
-                disabled={!newName.trim()}
+                disabled={atBookLimit || !newName.trim()}
                 className={actionButtonClass}
               >
                 作成
               </button>
             </div>
+            {atBookLimit && (
+              <p className="text-[10px] text-amber-600" role="status">
+                冊子の上限（{MAX_BOOKS}冊）に達しているため、新しいカテゴリを作れません。
+              </p>
+            )}
           </div>
 
           <div className="border-t border-slate-200" />

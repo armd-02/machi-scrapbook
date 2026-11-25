@@ -242,6 +242,132 @@ describe('同期結果の適用', () => {
     })
   })
 
+  it('(ピースG0) imported new-memo に tags がある → メモに tags が保存される', async () => {
+    const { result } = renderHook(() => useCmmSync())
+    syncMemos.mockResolvedValue(
+      okResult({
+        imported: [
+          {
+            type: 'new-memo',
+            key: 'node/3003',
+            cmmId: 'act/41',
+            cmmUpdatedAt: '2026-02-01T00:00:00Z',
+            name: '喫茶店',
+            memo: '',
+            rating: 0,
+            bookName: 'デフォルト',
+            bookId: 'default',
+            createBook: false,
+            lat: 35.0,
+            lon: 135.77,
+            tags: { amenity: 'cafe', 'name:ja': '喫茶店' },
+          },
+        ],
+      })
+    )
+
+    await act(async () => {
+      await result.current.runSync({ username: 'u', password: 'p' })
+    })
+
+    const item = loadMemocho().find((it) => it.type === 'node' && it.id === 3003)
+    expect(item).toMatchObject({ name: '喫茶店', cmmId: 'act/41' })
+    expect(item.tags).toEqual({ amenity: 'cafe', 'name:ja': '喫茶店' })
+  })
+
+  it('(ピースG0) imported new-memo に tags が無さ → 従来どおり tags: null', async () => {
+    const { result } = renderHook(() => useCmmSync())
+    syncMemos.mockResolvedValue(
+      okResult({
+        imported: [
+          {
+            type: 'new-memo',
+            key: 'node/3004',
+            cmmId: 'act/42',
+            cmmUpdatedAt: '2026-02-01T00:00:00Z',
+            name: '旧投稿',
+            memo: '',
+            rating: 0,
+            bookName: 'デフォルト',
+            bookId: 'default',
+            createBook: false,
+            lat: 35.0,
+            lon: 135.77,
+          },
+        ],
+      })
+    )
+
+    await act(async () => {
+      await result.current.runSync({ username: 'u', password: 'p' })
+    })
+
+    const item = loadMemocho().find((it) => it.type === 'node' && it.id === 3004)
+    expect(item.tags).toBeNull()
+  })
+
+  it('(ピースG0) imported update-memo に tags がある → 既存メモの tags が更新される', async () => {
+    seedMemos([makeMemo({ tags: { amenity: 'cafe' } })])
+    const { result } = renderHook(() => useCmmSync())
+    syncMemos.mockResolvedValue(
+      okResult({
+        imported: [
+          {
+            type: 'update-memo',
+            key: 'node/1001',
+            cmmId: 'act/21',
+            cmmUpdatedAt: '2026-02-01T00:00:00Z',
+            name: '改名珈琲店',
+            memo: 'リモートのメモ',
+            rating: 4,
+            bookName: 'デフォルト',
+            bookId: 'default',
+            createBook: false,
+            tags: { amenity: 'cafe', wheelchair: 'yes' },
+          },
+        ],
+      })
+    )
+
+    await act(async () => {
+      await result.current.runSync({ username: 'u', password: 'p' })
+    })
+
+    const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
+    expect(item.tags).toEqual({ amenity: 'cafe', wheelchair: 'yes' })
+  })
+
+  it('(ピースG0) imported update-memo に tags が無さ → ローカル側の tags は維持される', async () => {
+    seedMemos([makeMemo({ tags: { amenity: 'cafe' } })])
+    const { result } = renderHook(() => useCmmSync())
+    syncMemos.mockResolvedValue(
+      okResult({
+        imported: [
+          {
+            type: 'update-memo',
+            key: 'node/1001',
+            cmmId: 'act/21',
+            cmmUpdatedAt: '2026-02-01T00:00:00Z',
+            name: '改名珈琲店',
+            memo: 'リモートのメモ',
+            rating: 4,
+            bookName: 'デフォルト',
+            bookId: 'default',
+            createBook: false,
+          },
+        ],
+      })
+    )
+
+    await act(async () => {
+      await result.current.runSync({ username: 'u', password: 'p' })
+    })
+
+    const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
+    expect(item.name).toBe('改名珈琲店')
+    expect(item.tags).toEqual({ amenity: 'cafe' })
+  })
+
   it('new-memo で未知のブック名（createBook）→ 新しいブックが作成され公開される', async () => {
     seedBooks([{ id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: false }])
     const { result } = renderHook(() => useCmmSync())
@@ -276,6 +402,52 @@ describe('同期結果の適用', () => {
     expect(hiking.public).toBe(true)
     const item = loadMemocho().find((it) => it.type === 'way' && it.id === 2002)
     expect(item.bookId).toBe(hiking.id)
+  })
+
+  // (ピースH) 上限（100冊）に達していて新規ブックが作れない場合、
+  // メモは取り込まれ「デフォルト」に入る
+  it('new-memo（createBook）で上限（100冊）に達している → ブックは作られずメモは「デフォルト」に入る', async () => {
+    // デフォルト＋99冊（合計100冊）をシード
+    const books = [{ id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: false }]
+    for (let i = 1; i < 100; i += 1) {
+      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}`, createdAt: null, public: false })
+    }
+    seedBooks(books)
+    const { result } = renderHook(() => useCmmSync())
+    syncMemos.mockResolvedValue(
+      okResult({
+        imported: [
+          {
+            type: 'new-memo',
+            key: 'way/2002',
+            cmmId: 'act/31',
+            cmmUpdatedAt: '2026-02-01T00:00:00Z',
+            name: '遠くの公園',
+            memo: '',
+            rating: 0,
+            bookName: 'ハイキング',
+            bookId: null,
+            createBook: true,
+            lat: 35.0,
+            lon: 135.77,
+          },
+        ],
+      })
+    )
+
+    await act(async () => {
+      await result.current.runSync({ username: 'u', password: 'p' })
+    })
+
+    // ブックは100冊のまま（「ハイキング」は作られない）
+    const storedBooks = loadScrapbooks()
+    expect(storedBooks).toHaveLength(100)
+    expect(storedBooks.some((b) => b.name === 'ハイキング')).toBe(false)
+    // メモは「デフォルト」に追加される
+    const item = loadMemocho().find((it) => it.type === 'way' && it.id === 2002)
+    expect(item).toBeTruthy()
+    expect(item.bookId).toBe('default')
+    expect(item.cmmId).toBe('act/31')
   })
 
   it('new-memo でキーが重複 → 追加されない', async () => {

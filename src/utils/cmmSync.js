@@ -6,7 +6,8 @@
  *（呼び出し側が result.lastSyncAt を保存する）。
  *
  * 後端: https://cmapmaker.openacrossbase.net（community_mapmaker_backend）
- * アプリキー: machi-scrapbook（スキーマ: name / memo / rating / book）
+ * アプリキー: machi-scrapbook（スキーマ: name / memo / rating / book / tags）
+ * - tags: OSM タグの JSON 文字列（(ピースG0)）。空・未定義なら項目を送らない
  *
  * 構成:
  *  - API クライアント: fetchActivities（一覧取得・認証不要）/
@@ -126,10 +127,12 @@ function finiteNumber(value) {
 
 /**
  * メモ 1 件を Activity 入力値に変換する。
- * 戻り値: { osmid, name, memo, book, [rating], [latitude, longitude] }
+ * 戻り値: { osmid, name, memo, book, [rating], [latitude, longitude], [tags] }
  * - osmid: メモの key（type/id）そのまま
  * - rating: 1..5 のときだけ "1".."5" 文字列として含める（0 は省略）
  * - 座標: lat/lon が両方揃っているときだけ含める
+ * - tags: (ピースG0) OSM タグの JSON 文字列。空・未定義の tags は送らない
+ *   （rating の「0 なら送らない」と同じく、意味のない値は送らない）
  * 更新用の id は含めない（saveBatch 側で付ける）。
  */
 export function memoToActivity(memo, books = []) {
@@ -141,6 +144,14 @@ export function memoToActivity(memo, books = []) {
   }
   const rating = parseCmmRating(memo ? memo.rating : null)
   if (rating > 0) activity.rating = String(rating)
+  // (ピースG0) OSM タグを JSON 文字列として送る。空オブジェクト・未定義・
+  // 非オブジェクトは項目自体を送らない
+  const tags = memo && memo.tags != null && typeof memo.tags === 'object' && !Array.isArray(memo.tags)
+    ? memo.tags
+    : null
+  if (tags !== null && Object.keys(tags).length > 0) {
+    activity.tags = JSON.stringify(tags)
+  }
   const lat = finiteNumber(memo ? memo.lat : null)
   const lon = finiteNumber(memo ? memo.lon : null)
   if (lat !== null && lon !== null) {
@@ -151,20 +162,45 @@ export function memoToActivity(memo, books = []) {
 }
 
 /**
+ * (ピースG0) Activity の tags（JSON 文字列）をメモの tags オブジェクトへ解釈する。
+ * - 項目が無い（undefined / null）: undefined を返す（パッチに含めない＝従来どおり）
+ * - 文字列: JSON として解釈し、プレーンオブジェクトならそれを返す。
+ *   不正な JSON・オブジェクト以外（配列・スカラー等）は空オブジェクト {}
+ * - 文字列でない（オブジェクト等）: 空オブジェクト {}
+ * 同期全体を失敗させない（例外を捕捉する）。
+ */
+export function parseCmmTags(value) {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') return {}
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+  } catch {
+    // 不正な JSON は空オブジェクト
+  }
+  return {}
+}
+
+/**
  * Activity 1 件をメモ更新用のパッチに変換する（memoToActivity の逆）。
- * 戻り値: { name, memo, rating, book }
+ * 戻り値: { name, memo, rating, book, [tags] }
  * - name: 空・null のときは保存名センチネル「名称なし」
  * - rating: '1'..'5' を 1..5 の整数に（未設定は 0）
  * - book: ブック名（空・null は ''）
+ * - tags: (ピースG0) 項目があるときだけ含む（parseCmmTags）。無い既存の投稿は
+ *   パッチに tags を含めず、ローカル側の tags はそのまま維持する
  */
 export function activityToMemoPatch(activity) {
   const a = activity && typeof activity === 'object' ? activity : {}
-  return {
+  const patch = {
     name: typeof a.name === 'string' && a.name !== '' ? a.name : NAME_SENTINEL,
     memo: a.memo == null ? '' : String(a.memo),
     rating: parseCmmRating(a.rating),
     book: typeof a.book === 'string' ? a.book : '',
   }
+  const tags = parseCmmTags(a.tags)
+  if (tags !== undefined) patch.tags = tags
+  return patch
 }
 
 /* ---------------------------------------------------------------------------
@@ -417,7 +453,7 @@ function cmmUpdatedAtOf(activity, fallbackMs) {
 function memoImportEntry(memo, activity, books) {
   const patch = activityToMemoPatch(activity)
   const book = resolveRemoteBook(patch.book, books)
-  return {
+  const entry = {
     type: 'update-memo',
     key: memochoKeyOf(memo),
     cmmId: activity.id,
@@ -429,6 +465,10 @@ function memoImportEntry(memo, activity, books) {
     bookId: book.bookId,
     createBook: book.createBook,
   }
+  // (ピースG0) tags 項目がある Activity だけ tags をエントリに含める。
+  // 無い場合はキー自体を出さず、ローカル側の tags を維持する
+  if (patch.tags !== undefined) entry.tags = patch.tags
+  return entry
 }
 
 /** リモートにだけ存在する Activity の新規メモ（new-memo）エントリを生成する。 */
@@ -448,6 +488,9 @@ function newMemoEntry(activity, books) {
     createBook: book.createBook,
     lat: finiteNumber(activity.latitude),
     lon: finiteNumber(activity.longitude),
+    // (ピースG0) tags: 解釈できたオブジェクトをそのまま持つ。項目が無い
+    // 既存の投稿は null（スナップショット側で従来どおり tags: null）
+    tags: patch.tags ?? null,
   }
 }
 

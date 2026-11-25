@@ -252,12 +252,13 @@ export function updateItemFields(items, key, patch) {
 /**
  * CMM 同期の取り込みエントリ（new-memo）から新しいアイテムを追加する。
  *
- * entry: { key: 'node/123', name, memo, rating, bookId, cmmId, cmmUpdatedAt, lat, lon }
+ * entry: { key: 'node/123', name, memo, rating, bookId, cmmId, cmmUpdatedAt, lat, lon, [tags] }
  *
  * - key を type/id に分解して検証（node/way/relation）。不正なら配列をそのまま返す
  * - 同じキーのアイテムが既にあれば（アクティブ・ごみ箱いずれも）配列をそのまま返す
  * - フィールドは normalizeItem と同じ正規化: name が空なら '名称なし'、
  *   rating は 0〜5 の整数以外は 0、lat/lon は数値以外は null、
+ *   tags はプレーンオブジェクトの場合のみ浅いコピー（無い・不正は null）、
  *   cmmId/cmmUpdatedAt は空でない文字列の場合のみ保持
  */
 export function addImportedMemo(items, entry) {
@@ -275,7 +276,12 @@ export function addImportedMemo(items, entry) {
     name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : '名称なし',
     lat: typeof entry.lat === 'number' && Number.isFinite(entry.lat) ? entry.lat : null,
     lon: typeof entry.lon === 'number' && Number.isFinite(entry.lon) ? entry.lon : null,
-    tags: null,
+    // (ピースG0) 取り込み元 Activity の OSM タグを保存する。addMemocho と同じく
+    // プレーンオブジェクトのみ浅いコピーし、無い・不正な場合は null
+    tags:
+      entry.tags != null && typeof entry.tags === 'object' && !Array.isArray(entry.tags)
+        ? { ...entry.tags }
+        : null,
     memo: entry.memo == null ? '' : String(entry.memo),
     rating:
       typeof entry.rating === 'number' &&
