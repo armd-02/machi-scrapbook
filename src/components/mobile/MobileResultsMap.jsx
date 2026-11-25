@@ -540,18 +540,18 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, o
   // 地図コンテナは既定高さクラス（poi: h-[200px] / barrier_free: h-[320px]）のまま
   // （ドラッグ後はstyle上書き）
   return (
-    <div className="rounded-lg overflow-hidden border border-slate-200">
+    <div className="results-map rounded-lg overflow-hidden border border-slate-200">
       <div
         ref={containerRef}
         role="application"
         aria-label={label}
-        className={isBarrierFree ? 'h-[320px] bg-slate-100' : 'h-[200px] bg-slate-100'}
+        className={`results-map-canvas bg-slate-100 ${isBarrierFree ? 'h-[320px]' : 'h-[200px]'}`}
         style={{ ...mapHeight.containerStyle, maxHeight: 'var(--results-map-max-height, none)' }}
       />
       {/* 高さドラッグハンドル（検索タブの地図と同一のフック・見た目） */}
       <div
         {...mapHeight.handleProps}
-        className="h-7 bg-slate-100 border-t border-slate-200 flex items-center justify-center"
+        className="results-map-height-handle h-7 bg-slate-100 border-t border-slate-200 flex items-center justify-center"
       >
         <span className="w-8 h-1 rounded-full bg-slate-300" />
       </div>

@@ -17,6 +17,7 @@ import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
 import { useCmmSync } from '../../hooks/useCmmSync'
 import { cmmToMs } from '../../utils/cmmSync'
+import { publicMapUrl } from '../../utils/publicMapUrl'
 import CmmLoginDialog from '../CmmLoginDialog'
 import CmmSyncResultPanel from '../CmmSyncResultPanel'
 
@@ -151,10 +152,12 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   // 呼び出し引数として一度だけ渡され、保存されない
   const cmmSync = useCmmSync()
   const [loginOpen, setLoginOpen] = useState(false)
+  const [syncedPublicUrl, setSyncedPublicUrl] = useState(null)
 
   const handleCmmSync = async (credentials) => {
     setLoginOpen(false)
-    await cmmSync.runSync(credentials)
+    const result = await cmmSync.runSync(credentials)
+    if (result.errors.length === 0) setSyncedPublicUrl(publicMapUrl(result.userId))
   }
 
   // (スクラップブックバー) 選択中のブック（'all' ＝ すべて）。localStorage に保存され、
@@ -331,6 +334,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           lastSyncAt={cmmSync.lastSyncAt}
           syncResult={cmmSync.result}
           onSyncClose={cmmSync.dismissResult}
+          syncedPublicUrl={syncedPublicUrl}
         />
       </div>
 
@@ -683,12 +687,17 @@ function MemochoCard({
 function ScrapbookBar({
   books, bookFilter, onSelectBook, onCreate, onRename, onSetPublic, onDelete,
   bookCount, editMode, onToggleEditMode,
-  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose
+  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose, syncedPublicUrl
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [renameName, setRenameName] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [copyFormOpen, setCopyFormOpen] = useState(false)
+  const [copyUserId, setCopyUserId] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState('')
+  const copyInputId = React.useId()
+  const copyUrl = publicMapUrl(copyUserId)
   const rootRef = useRef(null)
 
   const selected = bookFilter === 'all' ? null : (books.find((b) => b.id === bookFilter) ?? null)
@@ -767,6 +776,26 @@ function ScrapbookBar({
   const actionButtonClass =
     'shrink-0 min-h-[44px] px-3 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed'
 
+  const copyPublicMap = async (url) => {
+    setCopyFeedback('')
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopyFormOpen(false)
+      setCopyFeedback('公開マップのURLをコピーしました')
+    } catch {
+      setCopyFeedback('公開マップのURLをコピーできませんでした')
+    }
+  }
+
+  const handleCopyClick = () => {
+    if (syncedPublicUrl) {
+      copyPublicMap(syncedPublicUrl)
+      return
+    }
+    setCopyFeedback('')
+    setCopyFormOpen((open) => !open)
+  }
+
   return (
     <div ref={rootRef} className="relative">
       {/* (ピースI) 2行構成: 1行目はセレクト＋⚙＋カテゴリ編集、2行目は同期。
@@ -807,10 +836,8 @@ function ScrapbookBar({
             {editMode ? 'カテゴリ編集: ON' : 'カテゴリ編集: OFF'}
           </button>
         </div>
-        {/* 2行目: (CMM同期、ピースC) 同期ボタン＋最終同期時刻／「未同期」。
-            同期ボタン: 押すとログインダイアログが開く。同期中は無効化＋
-            スピンアイコン＋「同期中…」 */}
-        <div className="flex items-center gap-2">
+        {/* 2行目: 公開地図への反映・URLのコピー・最終同期時刻 */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onSyncClick}
@@ -839,6 +866,14 @@ function ScrapbookBar({
             )}
             {syncing ? '反映中…' : '公開地図へ反映'}
           </button>
+          <button
+            type="button"
+            onClick={handleCopyClick}
+            aria-expanded={syncedPublicUrl ? undefined : copyFormOpen}
+            className="min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          >
+            公開マップのURLをコピー
+          </button>
           {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
             <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
               最終: {formatLastSyncAt(lastSyncAt)}
@@ -847,6 +882,33 @@ function ScrapbookBar({
             <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
           )}
         </div>
+        {copyFormOpen && !syncedPublicUrl && (
+          <form
+            className="space-y-1"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (copyUrl) copyPublicMap(copyUrl)
+            }}
+          >
+            <label htmlFor={copyInputId} className="text-xs text-slate-600">
+              コミュニティマップメーカーのユーザーID（メールアドレス不可）
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id={copyInputId}
+                value={copyUserId}
+                onChange={(e) => setCopyUserId(e.target.value)}
+                autoCapitalize="none"
+                autoFocus
+                className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg"
+              />
+              <button type="submit" disabled={!copyUrl} className={actionButtonClass}>
+                コピー
+              </button>
+            </div>
+          </form>
+        )}
+        {copyFeedback && <p role="status" className="text-xs text-slate-600">{copyFeedback}</p>}
       </div>
 
       {/* (CMM同期、ピースC) 直近の同期結果: 成功は件数サマリー（role=status）、

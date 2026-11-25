@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { publicMapUrl } from '../utils/publicMapUrl'
 
 /**
  * CMM 同期結果パネル（ピースC）
@@ -139,15 +140,6 @@ function PublicUrlRow({ url }) {
       </button>
     </div>
   )
-}
-
-/**
- * （ピースJ）公開地図ページのURLを作る。userId が空・「@」を含む
- * （メールアドレス形式のIDはサーバー側フィルタに渡せない）場合は null
- */
-function publicMapUrl(userId) {
-  if (typeof userId !== 'string' || userId === '' || userId.includes('@')) return null
-  return `https://machi-scrapbook.openacrossbase.net/map/?userid=${encodeURIComponent(userId)}`
 }
 
 /**

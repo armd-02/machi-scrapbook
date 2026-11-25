@@ -1,0 +1,33 @@
+@media (min-width: 1024px) and (orientation: landscape) {
+  .public-map-layout {
+    flex-direction: row;
+  }
+
+  .public-map-pane {
+    flex: 1 1 0%;
+    min-width: 0;
+    padding-bottom: 0.75rem;
+  }
+
+  .public-map-pane .results-map-panel:has(> .results-map) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .public-map-pane .results-map {
+    display: flex;
+    flex: 1 1 0%;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .public-map-pane .results-map-canvas {
+    flex: 1 1 0%;
+    min-height: 0;
+  }
+
+  .public-map-pane .results-map-height-handle {
+    display: none;
+  }
+}

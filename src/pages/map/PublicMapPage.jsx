@@ -13,6 +13,7 @@ import { activityToMapItem } from '../../utils/publicMapItems'
 import { memochoKeyOf } from '../../utils/memocho'
 import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
 import { cuisineFacetValues } from '../../utils/resultFilters'
+import './publicMapLayout.css'
 
 /**
  * (ピースG1) 公開マップページ（/map/）
@@ -26,9 +27,8 @@ import { cuisineFacetValues } from '../../utils/resultFilters'
  *   userid でサーバー側フィルタ）。Overpass には一切アクセスしない。
  * - 各 Activity をまちメモ帳アイテムと同じ形の表示アイテムに変換する
  *   （publicMapItems.js）。
- * - 画面構成はまちメモ帳画面と同じレイアウト: 地図を上部に固定
- *   （shrink-0・折りたたみ式だが既定は展開）・その下のカード一覧は
- *   独立スクロール（flex-1 overflow-y-auto min-h-0）。
+ * - PCの横長画面は左に地図、右にフィルタとカード一覧を表示する。
+ *   それ以外は地図を上部に固定する。カード一覧側は独立してスクロールする。
  * - 地図のピンタップは対応するカードへスクロールして選択状態にする
  *   （まちメモ帳・検索結果と同じ挙動）。カードタップは地図のピンを
  *   選択する（双向）。
@@ -149,10 +149,10 @@ export default function PublicMapPage() {
             <p className="text-sm text-slate-500">ユーザー「{userid}」の公開データが見つかりませんでした。</p>
           </div>
         ) : (
-          <>
-            {/* (地図) 上部に固定（shrink-0）。座標を持つアイテムが1件以上あるときだけ表示 */}
+          <main className="public-map-layout flex min-h-0 flex-1 flex-col">
+            {/* 座標を持つアイテムが1件以上あるときだけ地図を表示 */}
             {mapItems.length > 0 && (
-              <div className="shrink-0 px-3 pt-2">
+              <div className="public-map-pane shrink-0 px-3 pt-2">
                 <CollapsibleResultsMap
                   title="公開マップ"
                   initiallyOpen
@@ -164,8 +164,7 @@ export default function PublicMapPage() {
               </div>
             )}
 
-            {/* カード一覧: 独立スクロール（地図は上部に固定される） */}
-            <div className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 px-3 py-3 space-y-3">
+            <div className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 min-w-0 px-3 py-3 space-y-3">
               {/* (ピースG2) フィルタバー（メモ帳画面と同じ構成・部品を再利用） */}
               <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
                 <FilterInput
@@ -240,7 +239,7 @@ export default function PublicMapPage() {
                 </ul>
               )}
             </div>
-          </>
+          </main>
         )}
       </div>
     </AppContext.Provider>

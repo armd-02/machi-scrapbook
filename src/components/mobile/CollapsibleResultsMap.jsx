@@ -65,7 +65,7 @@ export default function CollapsibleResultsMap({
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div className="results-map-panel bg-white border border-slate-200 rounded-xl overflow-hidden">
       <div className="flex items-center">
         <button
           type="button"

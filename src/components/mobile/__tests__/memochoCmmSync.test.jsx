@@ -83,6 +83,13 @@ function renderSection(overrides = {}) {
 
 const syncButton = () => screen.getByRole('button', { name: '公開地図へ反映' })
 const syncingButton = () => screen.getByRole('button', { name: '公開地図へ反映中' })
+const copyButton = () => screen.getByRole('button', { name: '公開マップのURLをコピー' })
+
+function mockClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', Object.create(navigator, { clipboard: { value: { writeText } } }))
+  return writeText
+}
 
 const okResult = (overrides = {}) => ({
   created: [],
@@ -114,6 +121,7 @@ afterEach(() => {
   localStorage.clear()
   resetMemochoStore()
   resetScrapbooksStore()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -129,6 +137,29 @@ describe('バーの表示', () => {
     renderSection()
     expect(screen.queryByText('未同期')).toBeNull()
     expect(screen.getByText(/最終: \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)).toBeTruthy()
+  })
+})
+
+describe('公開マップのURLをコピー', () => {
+  it('未同期でもユーザーIDを入力してURLをコピーできる', async () => {
+    const writeText = mockClipboard()
+    renderSection()
+    fireEvent.click(copyButton())
+
+    const userId = screen.getByLabelText(/コミュニティマップメーカーのユーザーID/)
+    const submit = screen.getByRole('button', { name: 'コピー', exact: true })
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(userId, { target: { value: 'user@example.com' } })
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(userId, { target: { value: ' user+1 ' } })
+    fireEvent.click(submit)
+
+    expect(writeText).toHaveBeenCalledWith(
+      'https://machi-scrapbook.openacrossbase.net/map/?userid=user%2B1'
+    )
+    expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
+    expect(screen.getByText('未同期')).toBeTruthy()
+    expect(syncMemos).not.toHaveBeenCalled()
   })
 })
 
@@ -216,7 +247,8 @@ describe('同期実行', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('(ピースJ) 成功すると結果パネルにそのユーザーの公開地図URLが表示される', async () => {
+  it('同期結果を閉じても、公開マップのURLを直接コピーできる', async () => {
+    const writeText = mockClipboard()
     renderSection()
     fireEvent.click(syncButton())
     fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
@@ -228,6 +260,12 @@ describe('同期実行', () => {
     })
     expect(link.target).toBe('_blank')
     expect(screen.getByRole('button', { name: 'リンクをコピー' })).toBeTruthy()
+    const url = link.href
+    fireEvent.click(screen.getByRole('button', { name: '同期結果を閉じる' }))
+    expect(screen.queryByRole('link', { name: url })).toBeNull()
+    fireEvent.click(copyButton())
+    expect(writeText).toHaveBeenCalledWith(url)
+    expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
   })
 
   it('失敗（auth） → role="alert" で「ユーザー名とパスワードを確認」の案内が出る', async () => {
