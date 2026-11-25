@@ -18,13 +18,15 @@
  * - 認証情報は localStorage に保存されない（呼び出し引数として一度だけ渡される）
  * - （ピースJ）result に userId（username）が含まれ、パスワードは含まず、
  *   localStorage には書かれない
+ * - （ピースL）同期を実行したら使った username が localStorage
+ *   （machi-cmm-last-userid-v1）に保存され state に反映される
  * - syncing フラグが同期実行中に true、完了後に false
  * - dismissResult で結果がクリアされる
  * - loadLastSyncAt / saveLastSyncAt のユニット挙動
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useCmmSync, CMM_LAST_SYNC_KEY, loadLastSyncAt, saveLastSyncAt } from '../useCmmSync'
+import { useCmmSync, CMM_LAST_SYNC_KEY, CMM_LAST_USERID_KEY, loadLastSyncAt, saveLastSyncAt, loadLastUserId, saveLastUserId } from '../useCmmSync'
 import { syncMemos, CmmError } from '../../utils/cmmSync'
 import { resetMemochoStore } from '../useMemocho'
 import { resetScrapbooksStore } from '../useScrapbooks'
@@ -510,6 +512,39 @@ describe('最終同期時刻', () => {
   })
 })
 
+describe('最後のユーザーID', () => {
+  it('同期を実行したら username が localStorage（machi-cmm-last-userid-v1）に保存され state へ反映される', async () => {
+    const { result } = renderHook(() => useCmmSync())
+    await act(async () => {
+      await result.current.runSync({ username: 'user1', password: 'p' })
+    })
+
+    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+    expect(result.current.lastUserId).toBe('user1')
+  })
+
+  it('username が空なら保存されず lastUserId は null', async () => {
+    const { result } = renderHook(() => useCmmSync())
+    await act(async () => {
+      await result.current.runSync({ username: '', password: 'p' })
+    })
+
+    expect(localStorage.getItem(CMM_LAST_USERID_KEY)).toBeNull()
+    expect(result.current.lastUserId).toBeNull()
+  })
+
+  it('saveLastUserId(null) だと何も保存されない', () => {
+    saveLastUserId(null)
+    expect(localStorage.getItem(CMM_LAST_USERID_KEY)).toBeNull()
+    expect(loadLastUserId()).toBeNull()
+  })
+
+  it('壊れた保存値は loadLastUserId が null で返す', () => {
+    localStorage.setItem(CMM_LAST_USERID_KEY, '{壊れたJSON')
+    expect(loadLastUserId()).toBeNull()
+  })
+})
+
 describe('エラー時の挙動', () => {
   it('syncMemos が CmmError を投げたら → 空の結果＋errors、lastSyncAt は更新されない', async () => {
     const { result } = renderHook(() => useCmmSync())
@@ -600,9 +635,12 @@ describe('状態管理', () => {
     expect(returned.userId).toBe('user1')
     // 結果にパスワードは含まれない
     expect(JSON.stringify(result.current.result)).not.toContain('secret-pass')
-    // localStorage には username も書かれない
+    // localStorage にはパスワードは書かれない
     for (const [key, value] of Object.entries(localStorage)) {
-      expect(value).not.toContain('user1')
+      expect(value).not.toContain('secret-pass')
     }
+    // (ピースL) username は localStorage（machi-cmm-last-userid-v1）に保存される
+    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+    expect(result.current.lastUserId).toBe('user1')
   })
 })

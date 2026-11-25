@@ -70,11 +70,12 @@ import CmmSyncResultPanel from '../CmmSyncResultPanel'
  *     メモだけリスト・マップに表示される（「すべて」なら全部）。従来のフィルタ条件と
  *     AND 結合して適用される。選択は localStorage（machi-memocho-book-filter）に
  *     保存され次回も維持される（stale な選択は「すべて」にフォールバック）
- *   - 「カテゴリメニュー」（⚙️）: 新規作成（作ったら選択状態にする）・名前を変更
+ *   - 「カテゴリ管理」ボタン: 新規作成（作ったら選択状態にする）・名前を変更
  *     （選択中のブック・「すべて」選択中は不可）・削除（選択中のブック・2段階確認・
- *     そのブックのメモはすべて「デフォルト」へ移動）。「デフォルト」は削除不可
- *   - 「カテゴリ編集」ボタン: カテゴリ編集モードの ON/OFF を切り替える（ボタンの
- *     表示で状態が分かる）
+ *     そのブックのメモはすべて「デフォルト」へ移動）。「デフォルト」は削除不可。
+ *     メニュー末尾の「メモのカテゴリを変更」でカテゴリ編集モードを ON にできる
+ *   - カテゴリ編集モード ON のとき、「カテゴリ管理」ボタンのラベルは「カテゴリ編集中」
+ *     になり、ボタンを押すと編集モードを終了する（メニューは開かない）
  *   - ごみ箱ビュー（view='trash'）にはバーを出さない
  *
  * - カテゴリ編集モード（ピース3）: モード ON のとき、各メモカードの下部に所属
@@ -152,12 +153,10 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   // 呼び出し引数として一度だけ渡され、保存されない
   const cmmSync = useCmmSync()
   const [loginOpen, setLoginOpen] = useState(false)
-  const [syncedPublicUrl, setSyncedPublicUrl] = useState(null)
 
   const handleCmmSync = async (credentials) => {
     setLoginOpen(false)
-    const result = await cmmSync.runSync(credentials)
-    if (result.errors.length === 0) setSyncedPublicUrl(publicMapUrl(result.userId))
+    await cmmSync.runSync(credentials)
   }
 
   // (スクラップブックバー) 選択中のブック（'all' ＝ すべて）。localStorage に保存され、
@@ -334,7 +333,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           lastSyncAt={cmmSync.lastSyncAt}
           syncResult={cmmSync.result}
           onSyncClose={cmmSync.dismissResult}
-          syncedPublicUrl={syncedPublicUrl}
+          lastUserId={cmmSync.lastUserId}
         />
       </div>
 
@@ -642,7 +641,7 @@ function MemochoCard({
  * スクラップブックの切り替え・管理バー。
  *
  * (ピースI) レイアウトは2行構成: 1行目はブック切替セレクト（flex-1・
- * min-w-0）＋⚙（カテゴリメニュー）＋カテゴリ編集ボタン、2行目は同期ボタン
+ * min-w-0）＋「カテゴリ管理」ドロップダウンボタン、2行目は同期ボタン
  * ＋最終同期時刻／「未同期」表示。セレクトは1行目の残り幅すべてを使い、
  * 狭い画面でも選択中のカテゴリ名が読める幅を確保する。
  *
@@ -650,7 +649,8 @@ function MemochoCard({
  *   選択中のブックのメモだけリスト・マップに表示される（「すべて」なら全部）。
  *   選択は localStorage（BOOK_FILTER_STORAGE_KEY）に保存され次回も維持される。
  *   見た目はメモ帳の絞り込みセレクト（FilterSelect）と同じ
- * - 「カテゴリメニュー」（⚙️）: 新規作成・名前を変更・公開設定・削除のドロップダウン。
+ * - 「カテゴリ管理」ボタン（文字ラベルに「▾」を付けたドロップダウン）:
+ *   新規作成・名前を変更・公開設定・削除のメニュー。
  *   - 新規作成: 名前を入力して作成し、作ったらそのブックを選択状態にする
  *   - 名前を変更: 選択中のブックの名前を変更する（「すべて」選択中は不可）
  *   - 公開設定: 選択中のブックの公開（public）を切り替える（「すべて」選択中は不可）。
@@ -658,10 +658,12 @@ function MemochoCard({
  *     「非公開にする」、非公開なら「公開にする」）。タップで即座に保存される
  *   - 削除: 選択中のブックを削除し、そのブックのメモはすべて「デフォルト」へ
  *     移す（2段階確認）。「デフォルト」は削除できない（名前変更は可）
+ *   - メニューの末尾: 区切り線＋「メモのカテゴリを変更」。押すとカテゴリ編集モードを
+ *     ON にしてメニューを閉じる
  * - 公開ブックはセレクトのラベルに「（公開）」が付く
- * - 「カテゴリ編集」ボタン: カテゴリ編集モードの ON/OFF を切り替える
- *   （ボタンの表示で ON/OFF が分かる）。モード ON のとき、各カードに所属ブックの
- *   変更 UI（セレクト）が出る（ピース3）
+ * - カテゴリ編集モード ON のとき、「カテゴリ管理」ボタンのラベルは「カテゴリ編集中」
+ *   になり、ボタンを押すと編集モードを終了する（メニューは開かない）。モード ON の
+ *   とき、各カードに所属ブックの変更 UI（セレクト）が出る（ピース3）
  * - 「CMM 同期」ボタン（(CMM同期、ピースC)）: 押すとログインダイアログ
  *   （CmmLoginDialog）が表示され、認証情報を入力して同期が実行される。
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
@@ -681,23 +683,20 @@ function MemochoCard({
  * @param {() => void} onSyncClick 同期ボタンの押下（ログインダイアログを開く）
  * @param {boolean} syncing 同期実行中か
  * @param {string|null} lastSyncAt 最終同期時刻（RFC3339 文字列）
+ * @param {string|null} lastUserId 同期で使ったユーザー名（localStorage 保存）
  * @param {object|null} syncResult 直近の同期結果（syncMemos の戻り値）
  * @param {() => void} onSyncClose 同期結果パネルを閉じる
  */
 function ScrapbookBar({
   books, bookFilter, onSelectBook, onCreate, onRename, onSetPublic, onDelete,
   bookCount, editMode, onToggleEditMode,
-  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose, syncedPublicUrl
+  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose, lastUserId
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [renameName, setRenameName] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [copyFormOpen, setCopyFormOpen] = useState(false)
-  const [copyUserId, setCopyUserId] = useState('')
   const [copyFeedback, setCopyFeedback] = useState('')
-  const copyInputId = React.useId()
-  const copyUrl = publicMapUrl(copyUserId)
   const rootRef = useRef(null)
 
   const selected = bookFilter === 'all' ? null : (books.find((b) => b.id === bookFilter) ?? null)
@@ -780,28 +779,34 @@ function ScrapbookBar({
     setCopyFeedback('')
     try {
       await navigator.clipboard.writeText(url)
-      setCopyFormOpen(false)
       setCopyFeedback('公開マップのURLをコピーしました')
     } catch {
       setCopyFeedback('公開マップのURLをコピーできませんでした')
     }
   }
 
+  // (ピースL) 公開マップのURLコピーは、同期で使ったユーザーID（localStorage
+  // に保存済み）を使い回す。入力欄では入力しない
   const handleCopyClick = () => {
-    if (syncedPublicUrl) {
-      copyPublicMap(syncedPublicUrl)
+    setCopyFeedback('')
+    if (lastUserId == null || lastUserId === '') {
+      setCopyFeedback('公開マップのURLは、『公開地図へ反映』をした後にコピーできます')
       return
     }
-    setCopyFeedback('')
-    setCopyFormOpen((open) => !open)
+    const url = publicMapUrl(lastUserId)
+    if (url == null) {
+      setCopyFeedback('メールアドレス形式のIDでは公開マップのURLを作れません')
+      return
+    }
+    copyPublicMap(url)
   }
 
   return (
     <div ref={rootRef} className="relative">
-      {/* (ピースI) 2行構成: 1行目はセレクト＋⚙＋カテゴリ編集、2行目は同期。
+      {/* (ピースI) 2行構成: 1行目はセレクト＋「カテゴリ管理」ボタン、2行目は同期。
           セレクトは1行目の残り幅すべてを使える（flex-1・min-w-0） */}
       <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-col gap-2">
-        {/* 1行目: ブック切替セレクト＋カテゴリメニュー（⚙）＋カテゴリ編集 */}
+        {/* 1行目: ブック切替セレクト＋カテゴリ管理（ドロップダウン） */}
         <div className="flex items-center gap-2">
           {/* ブック切替セレクト: 「すべて」＋各ブック（デフォルト先頭）。
               見た目は絞り込みセレクト（FIELD_CLASS）と揃える */}
@@ -818,22 +823,14 @@ function ScrapbookBar({
           </select>
           <button
             type="button"
-            onClick={toggleMenu}
-            aria-label="カテゴリメニュー"
-            aria-expanded={menuOpen}
-            className="shrink-0 w-9 min-h-[44px] grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            ⚙️
-          </button>
-          <button
-            type="button"
-            onClick={onToggleEditMode}
-            aria-pressed={editMode}
-            className={`shrink-0 min-h-[44px] px-2.5 text-xs font-medium rounded-lg border transition-colors ${
+            onClick={editMode ? onToggleEditMode : toggleMenu}
+            aria-label={editMode ? 'カテゴリ編集中' : 'カテゴリ管理'}
+            aria-expanded={editMode ? false : menuOpen}
+            className={`shrink-0 min-h-[44px] px-3 text-sm font-semibold rounded-lg border transition-colors ${
               editMode ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             }`}
           >
-            {editMode ? 'カテゴリ編集: ON' : 'カテゴリ編集: OFF'}
+            {editMode ? 'カテゴリ編集中' : 'カテゴリ管理▾'}
           </button>
         </div>
         {/* 2行目: 公開地図への反映・URLのコピー・最終同期時刻 */}
@@ -869,7 +866,6 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={handleCopyClick}
-            aria-expanded={syncedPublicUrl ? undefined : copyFormOpen}
             className="min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
           >
             公開マップのURLをコピー
@@ -882,32 +878,6 @@ function ScrapbookBar({
             <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
           )}
         </div>
-        {copyFormOpen && !syncedPublicUrl && (
-          <form
-            className="space-y-1"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (copyUrl) copyPublicMap(copyUrl)
-            }}
-          >
-            <label htmlFor={copyInputId} className="text-xs text-slate-600">
-              コミュニティマップメーカーのユーザーID（メールアドレス不可）
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id={copyInputId}
-                value={copyUserId}
-                onChange={(e) => setCopyUserId(e.target.value)}
-                autoCapitalize="none"
-                autoFocus
-                className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg"
-              />
-              <button type="submit" disabled={!copyUrl} className={actionButtonClass}>
-                コピー
-              </button>
-            </div>
-          </form>
-        )}
         {copyFeedback && <p role="status" className="text-xs text-slate-600">{copyFeedback}</p>}
       </div>
 
@@ -922,7 +892,7 @@ function ScrapbookBar({
       {menuOpen && (
         <div
           role="menu"
-          aria-label="カテゴリメニュー"
+          aria-label="カテゴリ管理"
           className="absolute right-0 top-full mt-1.5 w-64 z-40 bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-3"
         >
           {/* 新規作成 */}
@@ -1050,6 +1020,21 @@ function ScrapbookBar({
           ) : (
             <p className="text-[10px] text-slate-400">削除するブックを選択してください。</p>
           )}
+
+          <div className="border-t border-slate-200" />
+
+          {/* メニュー末尾: 押すとカテゴリ編集モードを ON にしてメニューを閉じる */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onToggleEditMode()
+              closeMenu()
+            }}
+            className="w-full min-h-[44px] px-3 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
+          >
+            メモのカテゴリを変更
+          </button>
         </div>
       )}
     </div>

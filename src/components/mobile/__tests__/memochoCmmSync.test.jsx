@@ -16,6 +16,8 @@
  * - 成功 → 作成された Activity の cmmId が該当メモに保存される
  * - 失敗（auth） → role="alert" で「ユーザー名・パスワードを確認」の案内
  * - localStorage に最終同期時刻があると「最終: ...」が表示される
+ * - 同期を実行したら使ったユーザー名（username）を localStorage に保存し、
+ *   「公開マップのURLをコピー」がそのユーザーIDから URL をコピーする（入力欄なし）
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -28,7 +30,7 @@ import { SCRAPBOOKS_STORAGE_KEY } from '../../../utils/scrapbooks'
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
 import { syncMemos, CmmError } from '../../../utils/cmmSync'
-import { CMM_LAST_SYNC_KEY } from '../../../hooks/useCmmSync'
+import { CMM_LAST_SYNC_KEY, CMM_LAST_USERID_KEY } from '../../../hooks/useCmmSync'
 
 vi.mock('../../../utils/cmmSync', async (importOriginal) => {
   const actual = await importOriginal()
@@ -141,25 +143,44 @@ describe('バーの表示', () => {
 })
 
 describe('公開マップのURLをコピー', () => {
-  it('未同期でもユーザーIDを入力してURLをコピーできる', async () => {
+  it('ユーザーIDが未保存なら案内が出てコピーされない（入力欄は無い）', async () => {
     const writeText = mockClipboard()
     renderSection()
     fireEvent.click(copyButton())
 
-    const userId = screen.getByLabelText(/コミュニティマップメーカーのユーザーID/)
-    const submit = screen.getByRole('button', { name: 'コピー', exact: true })
-    expect(submit.disabled).toBe(true)
-    fireEvent.change(userId, { target: { value: 'user@example.com' } })
-    expect(submit.disabled).toBe(true)
-    fireEvent.change(userId, { target: { value: ' user+1 ' } })
-    fireEvent.click(submit)
-
-    expect(writeText).toHaveBeenCalledWith(
-      'https://machi-scrapbook.openacrossbase.net/map/?userid=user%2B1'
-    )
-    expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: /コミュニティマップメーカーのユーザーID/ })).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('公開マップのURLは、『公開地図へ反映』をした後にコピーできます')
+    expect(writeText).not.toHaveBeenCalled()
     expect(screen.getByText('未同期')).toBeTruthy()
     expect(syncMemos).not.toHaveBeenCalled()
+  })
+
+  it('同期を実行したら使ったユーザーIDが保存され、URLがコピーできる', async () => {
+    const writeText = mockClipboard()
+    renderSection()
+    fireEvent.click(syncButton())
+    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
+    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
+    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+
+    // 同期実行で user1 が localStorage に保存される
+    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+
+    fireEvent.click(copyButton())
+    expect(writeText).toHaveBeenCalledWith(
+      'https://machi-scrapbook.openacrossbase.net/map/?userid=user1'
+    )
+    expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
+  })
+
+  it('ユーザーIDがメールアドレス形式なら案内が出てコピーされない', async () => {
+    const writeText = mockClipboard()
+    localStorage.setItem(CMM_LAST_USERID_KEY, JSON.stringify('user1@example.com'))
+    renderSection()
+    fireEvent.click(copyButton())
+
+    expect(screen.getByRole('status').textContent).toBe('メールアドレス形式のIDでは公開マップのURLを作れません')
+    expect(writeText).not.toHaveBeenCalled()
   })
 })
 
@@ -238,6 +259,9 @@ describe('同期実行', () => {
     expect(screen.getByText(/最終: \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)).toBeTruthy()
     expect(JSON.parse(localStorage.getItem(CMM_LAST_SYNC_KEY))).toBe('2026-01-18T14:32:00Z')
 
+    // 使ったユーザー名も localStorage に保存される
+    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+
     // cmmId が該当メモに保存される
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
     expect(item.cmmId).toBe('act/11')
@@ -283,5 +307,8 @@ describe('同期実行', () => {
     // 最終同期時刻は更新されない
     expect(localStorage.getItem(CMM_LAST_SYNC_KEY)).toBeNull()
     expect(screen.getByText('未同期')).toBeTruthy()
+
+    // ユーザー名は同期実行時点で保存される（失敗でも保存される）
+    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
   })
 })
