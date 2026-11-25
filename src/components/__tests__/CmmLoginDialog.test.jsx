@@ -4,7 +4,7 @@
  *
  * 検証内容:
  * - open=false のときは何もレンダリングしない
- * - open=true のときは dialog（aria-label「CMM 同期ログイン」）が表示される
+ * - open=true のときは dialog（aria-label「公開地図への反映ログイン」）が表示される
  * - 入力値が空のときは「同期する」が無効
  * - ユーザー名（trim 済み）＋パスワードを入力して「同期する」で
  *   onSync({ username, password }) が呼ばれる
@@ -35,9 +35,9 @@ describe('表示', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('open=true のときは「CMM 同期ログイン」の dialog が表示される', () => {
+  it('open=true のときは「公開地図への反映ログイン」の dialog が表示される', () => {
     render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    expect(screen.getByRole('dialog', { name: 'CMM 同期ログイン' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '公開地図への反映ログイン' })).toBeTruthy()
     expect(screen.getByLabelText('ユーザー名')).toBeTruthy()
     expect(screen.getByLabelText('パスワード')).toBeTruthy()
     expect(screen.getByRole('button', { name: '同期する' })).toBeTruthy()
@@ -53,7 +53,7 @@ describe('表示', () => {
 describe('初回案内（ピースF）', () => {
   it('案内文と2つのリンク（アカウント登録・プロジェクト参加）が表示される', () => {
     render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    const dialog = screen.getByRole('dialog', { name: 'CMM 同期ログイン' })
+    const dialog = screen.getByRole('dialog', { name: '公開地図への反映ログイン' })
     expect(dialog.textContent).toContain('初めての同期には、コミュニティマップメーカーのアカウント')
     const register = screen.getByRole('link', { name: 'アカウント登録' })
     const join = screen.getByRole('link', { name: 'プロジェクト参加' })

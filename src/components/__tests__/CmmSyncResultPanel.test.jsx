@@ -16,15 +16,27 @@
  * - （ピースF）403 project_access_denied を含む場合、
  *   プロジェクト未参加の専用案内とポータルリンクが表示される。
  *   他のエラーでは専用案内は出ない。混合時は併記。
+ * - （ピースJ）公開地図URL: userId が有効（空でなく「@」を含まない）かつ
+ *   auth/permission エラーが無いときに表示される。URL エンコード・別タブリンク・
+ *   「リンクをコピー」が clipboard に URL を渡す。clipboard 未対応でもエラーにならない。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import CmmSyncResultPanel from '../CmmSyncResultPanel'
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  delete navigator.clipboard
 })
+
+/** jsdom には navigator.clipboard が無いので、テストごとにスタブする */
+function stubClipboard(writeText) {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+  })
+}
 
 const makeResult = (overrides = {}) => ({
   created: [],
@@ -199,5 +211,86 @@ describe('プロジェクト未参加（403 project_access_denied、ピースF�
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toContain('このプロジェクトに参加していないため、同期できませんでした')
     expect(alert.textContent).toContain('リクエストの内容に問題があります')
+  })
+})
+
+describe('公開地図URL（ピースJ）', () => {
+  const urlOf = (userId) =>
+    `https://machi-scrapbook.openacrossbase.net/map/?userid=${encodeURIComponent(userId)}`
+
+  it('userId が結果にあると公開地図URLが別タブリンクで表示される', () => {
+    render(<CmmSyncResultPanel result={makeResult({ userId: 'user1' })} onClose={vi.fn()} />)
+    expect(screen.getByText('公開地図')).toBeTruthy()
+    const link = screen.getByRole('link', { name: urlOf('user1') })
+    expect(link.href).toBe(urlOf('user1'))
+    expect(link.target).toBe('_blank')
+  })
+
+  it('userId の特殊文字はURLエンコードされる', () => {
+    render(<CmmSyncResultPanel result={makeResult({ userId: 'user 1/jp' })} onClose={vi.fn()} />)
+    const link = screen.getByRole('link')
+    expect(link.href).toBe(urlOf('user 1/jp'))
+  })
+
+  it('userId が無い・空の場合は表示されない', () => {
+    for (const userId of [undefined, null, '']) {
+      cleanup()
+      render(<CmmSyncResultPanel result={makeResult({ userId })} onClose={vi.fn()} />)
+      expect(screen.queryByText('公開地図')).toBeNull()
+    }
+  })
+
+  it('userId が「@」を含む（メールアドレス形式）場合は表示されない', () => {
+    render(<CmmSyncResultPanel result={makeResult({ userId: 'user@example.com' })} onClose={vi.fn()} />)
+    expect(screen.queryByText('公開地図')).toBeNull()
+  })
+
+  it('auth エラーがあるときは表示されない', () => {
+    render(
+      <CmmSyncResultPanel
+        result={makeResult({ userId: 'user1', errors: [{ kind: 'auth', message: '401' }] })}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('公開地図')).toBeNull()
+  })
+
+  it('permission エラーがあるときは表示されない', () => {
+    render(
+      <CmmSyncResultPanel
+        result={makeResult({ userId: 'user1', errors: [{ kind: 'permission', message: '403' }] })}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('公開地図')).toBeNull()
+  })
+
+  it('validation / network のみなら表示される', () => {
+    for (const error of [{ kind: 'validation', message: '422' }, { kind: 'network', message: 'x' }]) {
+      cleanup()
+      render(
+        <CmmSyncResultPanel result={makeResult({ userId: 'user1', errors: [error] })} onClose={vi.fn()} />
+      )
+      expect(screen.getByText('公開地図')).toBeTruthy()
+    }
+  })
+
+  it('「リンクをコピー」で clipboard にURLが渡され、「コピーしました」になる', async () => {
+    const writeText = vi.fn(async () => {})
+    stubClipboard(writeText)
+    render(<CmmSyncResultPanel result={makeResult({ userId: 'user1' })} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'リンクをコピー' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(urlOf('user1')))
+    expect(screen.getByRole('button', { name: 'コピーしました' })).toBeTruthy()
+  })
+
+  it('clipboard が使えない環境ではコピー失敗をエラーにせず、リンク表示だけが残る', () => {
+    delete navigator.clipboard
+    render(<CmmSyncResultPanel result={makeResult({ userId: 'user1' })} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'リンクをコピー' }))
+    // エラーにならず、「コピーしました」にもならず、リンク表示だけが残る
+    expect(screen.queryByText('コピーしました')).toBeNull()
+    expect(screen.getByText('公開地図')).toBeTruthy()
+    expect(screen.getByRole('link', { name: urlOf('user1') })).toBeTruthy()
   })
 })

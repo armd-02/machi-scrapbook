@@ -7,10 +7,10 @@
  * 結果表示・cmmId 保存・最終同期時刻表示 の流れを検証する。
  *
  * 検証内容:
- * - バーに「CMM を同期」ボタンと「未同期」表示が出る
+ * - バーに「公開地図へ反映」ボタンと「未同期」表示が出る
  * - 同期ボタンでログインダイアログが開き、キャンセルで閉じて同期は実行されない
- * - 認証情報を入力して「同期する」で syncMemos が呼ばれ、同期中は
- *   ボタンが無効化され「同期中…」表示になる
+ * - 認証情報を入力して「同期する」で syncMemos が呼ばれ、反映中は
+ *   ボタンが無効化され「反映中…」表示になる
  * - 成功 → 結果パネル（role="status"）で件数サマリー、最終同期時刻が
  *   「最終: ...」で表示され、localStorage に保存される
  * - 成功 → 作成された Activity の cmmId が該当メモに保存される
@@ -81,8 +81,8 @@ function renderSection(overrides = {}) {
   return render(<SectionHarness {...overrides} />)
 }
 
-const syncButton = () => screen.getByRole('button', { name: 'CMM を同期' })
-const syncingButton = () => screen.getByRole('button', { name: 'CMM を同期中' })
+const syncButton = () => screen.getByRole('button', { name: '公開地図へ反映' })
+const syncingButton = () => screen.getByRole('button', { name: '公開地図へ反映中' })
 
 const okResult = (overrides = {}) => ({
   created: [],
@@ -118,7 +118,7 @@ afterEach(() => {
 })
 
 describe('バーの表示', () => {
-  it('「CMM を同期」ボタンと「未同期」表示が表示される', () => {
+  it('「公開地図へ反映」ボタンと「未同期」表示が表示される', () => {
     renderSection()
     expect(syncButton()).toBeTruthy()
     expect(screen.getByText('未同期')).toBeTruthy()
@@ -136,7 +136,7 @@ describe('ログインダイアログ', () => {
   it('同期ボタンを押すとログインダイアログが開く', () => {
     renderSection()
     fireEvent.click(syncButton())
-    expect(screen.getByRole('dialog', { name: 'CMM 同期ログイン' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '公開地図への反映ログイン' })).toBeTruthy()
   })
 
   it('キャンセルでダイアログが閉じられ、syncMemos は呼ばれない', async () => {
@@ -149,7 +149,7 @@ describe('ログインダイアログ', () => {
 })
 
 describe('同期実行', () => {
-  it('認証情報を入力して「同期する」で syncMemos が呼ばれ、同期中は「同期中…」＋無効化', async () => {
+  it('認証情報を入力して「同期する」で syncMemos が呼ばれ、反映中は「反映中…」＋無効化', async () => {
     renderSection()
     fireEvent.click(syncButton())
     fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
@@ -165,12 +165,12 @@ describe('同期実行', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '同期する' }))
 
-    // ダイアログは閉じられ、ボタンが無効化された「同期中…」表示になる
+    // ダイアログは閉じられ、ボタンが無効化された「反映中…」表示になる
     expect(screen.queryByRole('dialog')).toBeNull()
     const btn = syncingButton()
     expect(btn).toBeTruthy()
     expect(btn.disabled).toBe(true)
-    expect(btn.textContent).toContain('同期中…')
+    expect(btn.textContent).toContain('反映中…')
 
     // 引数検証: 認証情報・メモ・ブックが渡る
     expect(syncMemos).toHaveBeenCalledWith(
@@ -184,7 +184,7 @@ describe('同期実行', () => {
       resolveSync()
     })
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'CMM を同期中' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '公開地図へ反映中' })).toBeNull()
     )
     expect(syncButton().disabled).toBe(false)
   })
@@ -214,6 +214,20 @@ describe('同期実行', () => {
     // ✕ で結果パネルが閉じる
     fireEvent.click(screen.getByRole('button', { name: '同期結果を閉じる' }))
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('(ピースJ) 成功すると結果パネルにそのユーザーの公開地図URLが表示される', async () => {
+    renderSection()
+    fireEvent.click(syncButton())
+    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
+    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
+    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+
+    const link = await screen.findByRole('link', {
+      name: 'https://machi-scrapbook.openacrossbase.net/map/?userid=user1',
+    })
+    expect(link.target).toBe('_blank')
+    expect(screen.getByRole('button', { name: 'リンクをコピー' })).toBeTruthy()
   })
 
   it('失敗（auth） → role="alert" で「ユーザー名とパスワードを確認」の案内が出る', async () => {

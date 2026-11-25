@@ -79,7 +79,13 @@ function setUrl(path) {
   window.history.pushState({}, '', path)
 }
 
-function getMap() {
+// 地図はマウント後の effect で非同期に生成される（モックの load は
+// queueMicrotask）。高負荷時（全件テスト実行）に生成がカード表示より
+// 遅れることがあるため、生成を待ってから返す
+async function getMap() {
+  await waitFor(() => {
+    if (!mockState.api._state.maps.at(-1)) throw new Error('マップがまだ生成されていません')
+  }, 3000)
   return mockState.api._state.maps.at(-1)
 }
 
@@ -117,7 +123,7 @@ describe('userid 指定', () => {
     expect(calls.some((u) => u.includes('/api/activities.php') && u.includes('userid=testuser'))).toBe(true)
 
     // 地図ピン: 最後の setData GeoJSON に2機能・tags 由来のアイコン名
-    const map = getMap()
+    const map = await getMap()
     await waitFor(() => {
       expect(map._lastGeoJSON.data.features).toHaveLength(2)
     }, 3000)
@@ -164,7 +170,7 @@ describe('userid 指定', () => {
     render(<PublicMapPage />)
     // カードが表示された（= このテスト用の地図がマウントされた）のを待つ
     await screen.findByText('テスト図書館')
-    const map = getMap()
+    const map = await getMap()
     await waitFor(() => {
       expect(map._lastGeoJSON.data.features).toHaveLength(2)
     }, 3000)
@@ -246,7 +252,7 @@ describe('データの変換', () => {
     expect(await screen.findByText('テスト珈琲店')).toBeTruthy()
     expect(screen.getByText('テスト図書館')).toBeTruthy()
     // ピンは座標のある1件のみ
-    const map = getMap()
+    const map = await getMap()
     await waitFor(() => {
       expect(map._lastGeoJSON.data.features).toHaveLength(1)
     })
@@ -324,7 +330,7 @@ describe('ピースG2: フィルタ・メモ帳追加', () => {
     // 件数表示: 「全2件中、1件を表示」
     expect(screen.getByText('全2件中、1件を表示')).toBeTruthy()
     // 地図ピンも絞られる（GeoJSON にカフェだけ）
-    const map = getMap()
+    const map = await getMap()
     await waitFor(() => {
       expect(map._lastGeoJSON.data.features).toHaveLength(1)
     })

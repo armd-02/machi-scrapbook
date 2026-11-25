@@ -16,6 +16,8 @@
  * - lastSyncAt → localStorage（machi-cmm-last-sync-v1）に保存され state へ反映
  * - syncMemos が例外を投げたら → 空の結果＋errors にエラー、lastSyncAt は更新されない
  * - 認証情報は localStorage に保存されない（呼び出し引数として一度だけ渡される）
+ * - （ピースJ）result に userId（username）が含まれ、パスワードは含まず、
+ *   localStorage には書かれない
  * - syncing フラグが同期実行中に true、完了後に false
  * - dismissResult で結果がクリアされる
  * - loadLastSyncAt / saveLastSyncAt のユニット挙動
@@ -586,5 +588,21 @@ describe('状態管理', () => {
       expect(value).not.toContain('super-secret-pass')
     }
     expect(localStorage.getItem('machi-cmm-credentials')).toBeNull()
+  })
+
+  it('(ピースJ) result に userId（username）が含まれ、パスワードは含まず localStorage には書かれない', async () => {
+    const { result } = renderHook(() => useCmmSync())
+    const returned = await act(async () => {
+      return result.current.runSync({ username: 'user1', password: 'secret-pass' })
+    })
+
+    expect(result.current.result.userId).toBe('user1')
+    expect(returned.userId).toBe('user1')
+    // 結果にパスワードは含まれない
+    expect(JSON.stringify(result.current.result)).not.toContain('secret-pass')
+    // localStorage には username も書かれない
+    for (const [key, value] of Object.entries(localStorage)) {
+      expect(value).not.toContain('user1')
+    }
   })
 })

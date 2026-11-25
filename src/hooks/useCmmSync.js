@@ -36,7 +36,9 @@ export function saveLastSyncAt(value) {
  * 戻り値:
  *   status      'idle' | 'syncing' | 'done'
  *   syncing     status === 'syncing'（ボタンの無効化・ラベル切替に使う）
- *   result      直近の同期結果（syncMemos の戻り値）。未同期なら null
+ *   result      直近の同期結果（syncMemos の戻り値に userId を追加したもの）。未同期なら null
+ *   （ピースJ） result.userId はこの同期で使った username。メモリ上の state のみで
+ *   localStorage には保存せず、パスワードは含めない（公開URL表示に使う）
  *   lastSyncAt  最終同期時刻（RFC3339 文字列、localStorage 保存）。未同期なら null
  *   runSync(credentials)  同期を実行する。credentials = { username, password }。
  *                  認証情報は syncMemos の呼び出し引数として渡すだけで、
@@ -64,6 +66,12 @@ export function useCmmSync() {
   /** 同期を実行し、結果をローカル状態へ反映する。エラーを投げずに result を返す */
   async function runSync(credentials) {
     setStatus('syncing')
+    // (ピースJ) この同期で使った username を結果 state に userId として載せる。
+    // メモリ上の state のみ（localStorage には書かない）。パスワードは含めない
+    const userId =
+      credentials != null && typeof credentials.username === 'string' && credentials.username !== ''
+        ? credentials.username
+        : null
     let syncResult
     try {
       syncResult = await syncMemos({
@@ -91,8 +99,9 @@ export function useCmmSync() {
       setLastSyncAt(syncResult.lastSyncAt)
     }
     setStatus('done')
-    setResult(syncResult)
-    return syncResult
+    const displayResult = { ...syncResult, userId }
+    setResult(displayResult)
+    return displayResult
   }
 
   function dismissResult() {

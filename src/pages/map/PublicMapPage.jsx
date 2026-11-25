@@ -120,7 +120,7 @@ export default function PublicMapPage() {
           <h1 className="text-base font-bold text-slate-800 break-words">
             {userid ? `${userid} さんのまちのスクラップブック` : 'まちのスクラップブック 公開マップ'}
           </h1>
-          <p className="text-xs text-slate-500">CMM（コミュニティマップメーカー）で共有されている公開スクラップブック</p>
+          <p className="text-xs text-slate-500">共有されている公開スクラップブック</p>
         </header>
 
         {!userid ? (

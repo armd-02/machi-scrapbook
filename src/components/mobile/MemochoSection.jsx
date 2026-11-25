@@ -637,6 +637,11 @@ function MemochoCard({
  * (スクラップブックバー) メモマップの上（スクロールしない固定領域）に置く、
  * スクラップブックの切り替え・管理バー。
  *
+ * (ピースI) レイアウトは2行構成: 1行目はブック切替セレクト（flex-1・
+ * min-w-0）＋⚙（カテゴリメニュー）＋カテゴリ編集ボタン、2行目は同期ボタン
+ * ＋最終同期時刻／「未同期」表示。セレクトは1行目の残り幅すべてを使い、
+ * 狭い画面でも選択中のカテゴリ名が読める幅を確保する。
+ *
  * - セレクトボックス: 「すべて」＋各ブック（「デフォルト」を先頭に）。単一選択で、
  *   選択中のブックのメモだけリスト・マップに表示される（「すべて」なら全部）。
  *   選択は localStorage（BOOK_FILTER_STORAGE_KEY）に保存され次回も維持される。
@@ -764,77 +769,84 @@ function ScrapbookBar({
 
   return (
     <div ref={rootRef} className="relative">
-      <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-wrap items-center gap-2">
-        {/* ブック切替セレクト: 「すべて」＋各ブック（デフォルト先頭）。
-            見た目は絞り込みセレクト（FIELD_CLASS）と揃える */}
-        <select
-          value={bookFilter}
-          onChange={(e) => onSelectBook(e.target.value)}
-          aria-label="スクラップブック"
-          className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        >
-          <option value="all">すべて</option>
-          {books.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}{b.public ? '（公開）' : ''}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={toggleMenu}
-          aria-label="カテゴリメニュー"
-          aria-expanded={menuOpen}
-          className="shrink-0 w-9 min-h-[44px] grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-        >
-          ⚙️
-        </button>
-        <button
-          type="button"
-          onClick={onToggleEditMode}
-          aria-pressed={editMode}
-          className={`shrink-0 min-h-[44px] px-2.5 text-xs font-medium rounded-lg border transition-colors ${
-            editMode ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          {editMode ? 'カテゴリ編集: ON' : 'カテゴリ編集: OFF'}
-        </button>
-        {/* (CMM同期、ピースC) 同期ボタン: 押すとログインダイアログが開く。
-            同期中は無効化＋スピンアイコン＋「同期中…」。幅が狭い画面では
-            flex-wrap で次の行に回り込む */}
-        <button
-          type="button"
-          onClick={onSyncClick}
-          disabled={syncing}
-          aria-label={syncing ? 'CMM を同期中' : 'CMM を同期'}
-          className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {syncing ? (
-            <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+      {/* (ピースI) 2行構成: 1行目はセレクト＋⚙＋カテゴリ編集、2行目は同期。
+          セレクトは1行目の残り幅すべてを使える（flex-1・min-w-0） */}
+      <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-col gap-2">
+        {/* 1行目: ブック切替セレクト＋カテゴリメニュー（⚙）＋カテゴリ編集 */}
+        <div className="flex items-center gap-2">
+          {/* ブック切替セレクト: 「すべて」＋各ブック（デフォルト先頭）。
+              見た目は絞り込みセレクト（FIELD_CLASS）と揃える */}
+          <select
+            value={bookFilter}
+            onChange={(e) => onSelectBook(e.target.value)}
+            aria-label="スクラップブック"
+            className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          >
+            <option value="all">すべて</option>
+            {books.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}{b.public ? '（公開）' : ''}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={toggleMenu}
+            aria-label="カテゴリメニュー"
+            aria-expanded={menuOpen}
+            className="shrink-0 w-9 min-h-[44px] grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
+            ⚙️
+          </button>
+          <button
+            type="button"
+            onClick={onToggleEditMode}
+            aria-pressed={editMode}
+            className={`shrink-0 min-h-[44px] px-2.5 text-xs font-medium rounded-lg border transition-colors ${
+              editMode ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            {editMode ? 'カテゴリ編集: ON' : 'カテゴリ編集: OFF'}
+          </button>
+        </div>
+        {/* 2行目: (CMM同期、ピースC) 同期ボタン＋最終同期時刻／「未同期」。
+            同期ボタン: 押すとログインダイアログが開く。同期中は無効化＋
+            スピンアイコン＋「同期中…」 */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onSyncClick}
+            disabled={syncing}
+            aria-label={syncing ? '公開地図へ反映中' : '公開地図へ反映'}
+            className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {syncing ? (
+              <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M21 21v-5h-5" />
+              </svg>
+            )}
+            {syncing ? '反映中…' : '公開地図へ反映'}
+          </button>
+          {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
+            <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
+              最終: {formatLastSyncAt(lastSyncAt)}
+            </span>
           ) : (
-            <svg
-              viewBox="0 0 24 24"
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-              <path d="M21 21v-5h-5" />
-            </svg>
+            <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
           )}
-          {syncing ? '同期中…' : 'CMM 同期'}
-        </button>
-        {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
-          <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
-            最終: {formatLastSyncAt(lastSyncAt)}
-          </span>
-        ) : (
-          <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
-        )}
+        </div>
       </div>
 
       {/* (CMM同期、ピースC) 直近の同期結果: 成功は件数サマリー（role=status）、

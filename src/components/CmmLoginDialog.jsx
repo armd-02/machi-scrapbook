@@ -58,10 +58,10 @@ export default function CmmLoginDialog({ open, onSync, onClose }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="CMM 同期ログイン"
+        aria-label="公開地図への反映ログイン"
         className="relative w-full max-w-sm bg-white rounded-xl shadow-lg p-5"
       >
-        <h2 className="text-base font-bold text-slate-800">CMM 同期ログイン</h2>
+        <h2 className="text-base font-bold text-slate-800">公開地図への反映ログイン</h2>
         <p className="mt-1 text-xs text-slate-500">
           community map maker のアカウントを入力してください。
           認証情報は今回の同期でのみ使用され、保存されません。

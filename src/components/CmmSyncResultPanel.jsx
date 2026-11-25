@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 /**
  * CMM 同期結果パネル（ピースC）
@@ -12,11 +12,15 @@ import React from 'react'
  * - （ピースF）403 の project_access_denied を含む場合は、
  *   「プロジェクトに参加していない」旨の専用案内とポータルの参加リンクを
  *   優先して表示する（他のエラーは従来どおりの表示のまま併記）
+ * - （ピースJ）公開地図のURL表示: userId が空でなく「@」を含まず、かつ
+ *   auth / permission のエラーが無いときに、banner の下に「公開地図」の
+ *   リンク（別タブで開く）＋「リンクをコピー」ボタンを表示する
  *
- * 右端の ✕ ボタンで閉じる。
+ * banner の右端の ✕ ボタンで閉じる。
  *
  * props:
- *   result   syncMemos の戻り値（{ created, updated, deleted, imported, errors, lastSyncAt }）
+ *   result   同期結果（syncMemos の戻り値＋ userId。{ created, updated,
+ *            deleted, imported, errors, lastSyncAt, userId }）
  *   onClose  閉じるコールバック
  */
 export default function CmmSyncResultPanel({ result, onClose }) {
@@ -25,66 +29,125 @@ export default function CmmSyncResultPanel({ result, onClose }) {
   const errors = Array.isArray(result.errors) ? result.errors : []
   const denied = errors.some(isProjectAccessDenied)
   const otherErrors = denied ? errors.filter((e) => !isProjectAccessDenied(e)) : errors
+  // (ピースJ) 認証・権限のエラーがあるときは公開URLを表示しない
+  const authOrPermission = errors.some((e) => e != null && (e.kind === 'auth' || e.kind === 'permission'))
+  const publicUrl = publicMapUrl(result.userId)
 
-  if (errors.length === 0) {
-    return (
-      <div
-        role="status"
-        className="flex items-start gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-sm text-emerald-800"
-      >
-        <span className="flex-1">
-          同期完了: {result.created.length}件新規 {result.updated.length}件更新{' '}
-          {result.deleted.length}件削除 {result.imported.length}件取り込み
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="同期結果を閉じる"
-          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md
-            text-emerald-700 hover:bg-emerald-100"
+  return (
+    <div className="space-y-1.5">
+      {errors.length === 0 ? (
+        <div
+          role="status"
+          className="flex items-start gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-sm text-emerald-800"
         >
-          ✕
-        </button>
-      </div>
-    )
+          <span className="flex-1">
+            同期完了: {result.created.length}件新規 {result.updated.length}件更新{' '}
+            {result.deleted.length}件削除 {result.imported.length}件取り込み
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="同期結果を閉じる"
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md
+              text-emerald-700 hover:bg-emerald-100"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <div
+          role="alert"
+          className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700"
+        >
+          <div className="flex-1 space-y-1">
+            <p className="font-medium">同期に失敗しました</p>
+            {denied && (
+              <p>
+                このプロジェクトに参加していないため、同期できませんでした。
+                <a
+                  href="https://cmapmaker.openacrossbase.net/#projects"
+                  target="_blank"
+                  rel="noopener"
+                  className="underline underline-offset-2"
+                >
+                  コミュニティマップメーカーのポータル
+                </a>
+                でプロジェクト「まちのスクラップブック」に参加してから、もう一度同期してください。
+              </p>
+            )}
+            {otherErrors.map((error, index) => (
+              <p key={index}>{errorMessage(error)}</p>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="エラーメッセージを閉じる"
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md
+              text-red-600 hover:bg-red-100"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {publicUrl != null && !authOrPermission && (
+        <PublicUrlRow url={publicUrl} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * （ピースJ）公開地図ページのURL表示。「公開地図」ラベル＋リンク（別タブ）
+ * ＋「リンクをコピー」ボタン。コピー成功で一時的に「コピーしました」になる。
+ * クリップボードが使えない環境ではコピー失敗をエラーにしない（リンクのみ残る）
+ */
+function PublicUrlRow({ url }) {
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // クリップボードが使えない環境（jsdom・旧ブラウザ等）では何もしない
+    }
   }
 
   return (
-    <div
-      role="alert"
-      className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700"
-    >
-      <div className="flex-1 space-y-1">
-        <p className="font-medium">同期に失敗しました</p>
-        {denied && (
-          <p>
-            このプロジェクトに参加していないため、同期できませんでした。
-            <a
-              href="https://cmapmaker.openacrossbase.net/#projects"
-              target="_blank"
-              rel="noopener"
-              className="underline underline-offset-2"
-            >
-              コミュニティマップメーカーのポータル
-            </a>
-            でプロジェクト「まちのスクラップブック」に参加してから、もう一度同期してください。
-          </p>
-        )}
-        {otherErrors.map((error, index) => (
-          <p key={index}>{errorMessage(error)}</p>
-        ))}
-      </div>
+    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 text-sm text-blue-900">
+      <span className="shrink-0 font-medium">公開地図</span>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex-1 min-w-0 break-all underline underline-offset-2"
+      >
+        {url}
+      </a>
       <button
         type="button"
-        onClick={onClose}
-        aria-label="エラーメッセージを閉じる"
-        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md
-          text-red-600 hover:bg-red-100"
+        onClick={handleCopy}
+        className="shrink-0 min-h-7 px-2 text-xs font-medium rounded-md border border-blue-300 bg-white text-blue-800 hover:bg-blue-100"
       >
-        ✕
+        {copied ? 'コピーしました' : 'リンクをコピー'}
       </button>
     </div>
   )
+}
+
+/**
+ * （ピースJ）公開地図ページのURLを作る。userId が空・「@」を含む
+ * （メールアドレス形式のIDはサーバー側フィルタに渡せない）場合は null
+ */
+function publicMapUrl(userId) {
+  if (typeof userId !== 'string' || userId === '' || userId.includes('@')) return null
+  return `https://machi-scrapbook.openacrossbase.net/map/?userid=${encodeURIComponent(userId)}`
 }
 
 /**

@@ -147,6 +147,30 @@ describe('バーの表示', () => {
     expect(screen.queryByRole('button', { name: 'カテゴリメニュー' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'カテゴリ編集: OFF' })).toBeNull()
   })
+
+  // (ピースI) 2行構成: 1行目はセレクト＋⚙＋カテゴリ編集、2行目は同期ボタン＋
+  // 最終同期表示。セレクトと同期ボタンが別の行（別のコンテナ）にあることを確認
+  it('セレクトと同期ボタンは別の行（別のコンテナ）にある（2行構成）', () => {
+    seedMemos([makeItem()])
+    renderSection()
+
+    const select = bookSelect()
+    const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
+
+    // 1行目: セレクト＋カテゴリメニュー（⚙）＋カテゴリ編集
+    const row1 = select.closest('div.flex')
+    expect(row1).toBeTruthy()
+    expect(row1.contains(screen.getByRole('button', { name: 'カテゴリメニュー' }))).toBe(true)
+    expect(row1.contains(screen.getByRole('button', { name: 'カテゴリ編集: OFF' }))).toBe(true)
+    expect(row1.contains(syncBtn)).toBe(false)
+
+    // 2行目: 同期ボタン＋未同期表示。セレクトは入らない
+    const row2 = syncBtn.closest('div.flex')
+    expect(row2).toBeTruthy()
+    expect(row2).not.toBe(row1)
+    expect(row2.contains(screen.getByText('未同期'))).toBe(true)
+    expect(row2.contains(select)).toBe(false)
+  })
 })
 
 describe('ブック絞り込み', () => {
