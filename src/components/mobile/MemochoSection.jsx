@@ -669,6 +669,9 @@ function MemochoCard({
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
  *   ボタンの右に「最終: YYYY/MM/DD HH:MM」を表示する。同期完了後はバーの下に
  *   結果パネル（CmmSyncResultPanel）が表示され、✕ で閉じられる
+ * - (ピースM) 非公開のカテゴリを選択中のときは、「公開地図へ反映」と「公開マップのURLをコピー」
+ *   ボタンを無効化（グレーアウト）し、「選択中のカテゴリは非公開です」の注記を表示する。
+ *   「すべて」選択中または公開カテゴリ選択中は従来どおり有効。最終同期時刻の表示はそのまま
  *
  * @param {Array} books 現在あるブック配列（既定ブックが先頭）
  * @param {string} bookFilter 選択中のブックID（'all' ＝ すべて）
@@ -703,6 +706,8 @@ function ScrapbookBar({
   const canRename = selected != null
   const canPublish = selected != null
   const canDelete = selected != null && selected.id !== DEFAULT_BOOK_ID
+  // (ピースM) 非公開のカテゴリが選択中のとき、公開系ボタンを無効化する
+  const isPrivateSelected = selected != null && !selected.public
   // (ピースH) ブック数の上限（デフォルト含む 100 冊）に達しているか
   const atBookLimit = (Array.isArray(books) ? books : []).length >= MAX_BOOKS
 
@@ -838,7 +843,7 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={onSyncClick}
-            disabled={syncing}
+            disabled={syncing || isPrivateSelected}
             aria-label={syncing ? '公開地図へ反映中' : '公開地図へ反映'}
             className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -866,10 +871,17 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={handleCopyClick}
-            className="min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            disabled={isPrivateSelected}
+            className="min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             公開マップのURLをコピー
           </button>
+          {/* (ピースM) 非公開カテゴリ選択中の無効化理由 */}
+          {isPrivateSelected && (
+            <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
+              選択中のカテゴリは非公開です
+            </span>
+          )}
           {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
             <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
               最終: {formatLastSyncAt(lastSyncAt)}

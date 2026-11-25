@@ -33,6 +33,11 @@
  *   - 特定ブック表示中に別のブックへ移すとカードはその場で一覧から消える
  *   - 「すべて」表示中は消えず、所属表示だけが変わる
  *   - ブックの改名でカード側の表示も更新される
+ * - (ピースM) 非公開カテゴリ選択時に公開系ボタンの無効化:
+ *   - 非公開カテゴリを選択中 → 「公開地図へ反映」と「公開マップのURLをコピー」は
+ *     disabled になり、「選択中のカテゴリは非公開です」の注記が出る
+ *   - 「すべて」または公開カテゴリの選択中は有効のまま
+ *   - 最終同期時刻の表示はそのまま残る
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -41,6 +46,7 @@ import MemochoSection from '../MemochoSection'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
 import { resetScrapbooksStore } from '../../../hooks/useScrapbooks'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
+import { CMM_LAST_SYNC_KEY } from '../../../hooks/useCmmSync'
 import { SCRAPBOOKS_STORAGE_KEY } from '../../../utils/scrapbooks'
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
@@ -733,5 +739,57 @@ describe('カテゴリ編集モード（ピース3・カード側のブック変
     enterEditMode()
     expect(selectedText(cardSelect('テスト珈琲店'))).toBe('コーヒー')
     expect(JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))[0].bookId).toBe('sb_cafe')
+  })
+})
+
+describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', () => {
+  it('非公開カテゴリを選択中なら「公開地図へ反映」と「公開マップのURLをコピー」が無効化され、注記が出る', () => {
+    seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
+    seedMemos([makeItem({ bookId: 'sb_cafe' })])
+    renderSection()
+
+    selectBook('sb_cafe')
+
+    const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
+    const copyBtn = screen.getByRole('button', { name: '公開マップのURLをコピー' })
+    expect(syncBtn.disabled).toBe(true)
+    expect(copyBtn.disabled).toBe(true)
+    expect(screen.getByText('選択中のカテゴリは非公開です')).toBeTruthy()
+  })
+
+  it('「すべて」選択中は両ボタンとも有効で、注記は出ない', () => {
+    seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
+    seedMemos([makeItem({ bookId: 'sb_cafe' })])
+    renderSection()
+
+    const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
+    const copyBtn = screen.getByRole('button', { name: '公開マップのURLをコピー' })
+    expect(syncBtn.disabled).toBe(false)
+    expect(copyBtn.disabled).toBe(false)
+    expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
+  })
+
+  it('公開カテゴリを選択中は両ボタンとも有効で、注記は出ない', () => {
+    seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: true }])
+    seedMemos([makeItem({ bookId: 'sb_cafe' })])
+    renderSection()
+
+    selectBook('sb_cafe')
+
+    expect(screen.getByRole('button', { name: '公開地図へ反映' }).disabled).toBe(false)
+    expect(screen.getByRole('button', { name: '公開マップのURLをコピー' }).disabled).toBe(false)
+    expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
+  })
+
+  it('非公開カテゴリ選択中でも「最終: ...」の同期時刻表示はそのまま残る', () => {
+    localStorage.setItem(CMM_LAST_SYNC_KEY, JSON.stringify('2026-01-18T14:32:00Z'))
+    seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
+    seedMemos([makeItem({ bookId: 'sb_cafe' })])
+    renderSection()
+
+    selectBook('sb_cafe')
+
+    expect(screen.getByRole('button', { name: '公開地図へ反映' }).disabled).toBe(true)
+    expect(screen.getByText(/最終: \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)).toBeTruthy()
   })
 })
