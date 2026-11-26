@@ -104,6 +104,43 @@ body {
 }
 
 /*
+ * (ピースS) 施設カードの円形アクションボタンの共通クラス:
+ * MobileFacilityCard のメモ帳トグルボタン（検索結果・公開マップ）と、
+ * MemochoCard（メモ帳）の削除ボタンを共用する。
+ *   - .card-action-btn: ベース（w-8 h-8、円形、中央揃い）
+ *   - .card-action-btn--add: 未登録時。緑背景（bg-green-600）に白の「＋」
+ *   - .card-action-btn--delete: 登録済み・削除。白背景90%（bg-white/90）＋
+ *     shadow ＋ border-slate-200 ＋ text-slate-500 の「✕」
+ * 値は従来各コンポーネントで使っていた Tailwind ユーティリティと同一。
+ */
+.card-action-btn {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+}
+
+.card-action-btn--add {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+.card-action-btn--add:hover {
+  background-color: #15803d;
+}
+
+.card-action-btn--delete {
+  background-color: rgb(255 255 255 / 0.9);
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+}
+.card-action-btn--delete:hover {
+  color: #475569;
+  background-color: #f2f6fa;
+}
+
+/*
  * MapLibre map container.
  *
  * このルールは @layer components に入れる必要がある（バグ修正: 検索結果マップの

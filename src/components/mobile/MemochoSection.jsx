@@ -815,7 +815,7 @@ function MemochoCard({
           type="button"
           aria-label={`${item.name}をメモ帳から削除`}
           onClick={() => onConfirmDeleteShow && onConfirmDeleteShow()}
-          className={`absolute top-2 right-2 z-10 w-8 h-8 grid place-items-center rounded-full bg-white/90 shadow border border-slate-200 text-slate-500 hover:text-slate-600 hover:bg-slate-100`}
+          className={`absolute top-2 right-2 z-10 card-action-btn card-action-btn--delete`}
         >
           ✕
         </button>

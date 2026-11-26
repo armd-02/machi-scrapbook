@@ -390,11 +390,9 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     const btn = screen.getByRole('button', { name: /メモ帳に追加/ })
     expect(btn.getAttribute('aria-pressed')).toBe('false')
-    // 未登録: 緑背景の円形「＋」ボタン
-    expect(btn.className).toContain('bg-green-600')
-    expect(btn.className).toContain('rounded-full')
-    expect(btn.className).toContain('w-8')
-    expect(btn.className).toContain('h-8')
+    // 未登録: 緑背景の円形「＋」ボタン（共通クラス card-action-btn、index.css に定義）
+    expect(btn.className).toContain('card-action-btn')
+    expect(btn.className).toContain('card-action-btn--add')
     expect(btn.textContent).toBe('＋')
 
     fireEvent.click(btn)
@@ -402,10 +400,9 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     expect(screen.getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
     expect(btn.getAttribute('aria-pressed')).toBe('true')
-    // 登録済み: メモ帳カードの✕と同一の円形ボタン
-    expect(btn.className).toContain('bg-white/90')
-    expect(btn.className).toContain('border-slate-200')
-    expect(btn.className).toContain('text-slate-500')
+    // 登録済み: メモ帳カードの✕と同一の円形ボタン（共通クラス card-action-btn--delete）
+    expect(btn.className).toContain('card-action-btn')
+    expect(btn.className).toContain('card-action-btn--delete')
     expect(btn.textContent).toBe('✕')
     // localStorage にスナップショットが保存される
     const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))

@@ -430,13 +430,9 @@ describe('MemochoSection: カードの✕（2段階確認・論理削除）', ()
 
     // 1回目の✕タップ: 確認帯のみ表示。ストアは変わらない
     const deleteBtn = screen.getByRole('button', { name: 'テスト珈琲店をメモ帳から削除' })
-    // 見た目は施設カードの「登録済み」ボタンと同一（w-8 h-8・bg-white/90・shadow・border・slate-500）
-    expect(deleteBtn.className).toContain('w-8')
-    expect(deleteBtn.className).toContain('h-8')
-    expect(deleteBtn.className).toContain('rounded-full')
-    expect(deleteBtn.className).toContain('bg-white/90')
-    expect(deleteBtn.className).toContain('border-slate-200')
-    expect(deleteBtn.className).toContain('text-slate-500')
+    // 見た目は施設カードの「登録済み」ボタンと同一（共通クラス card-action-btn--delete、index.css に定義）
+    expect(deleteBtn.className).toContain('card-action-btn')
+    expect(deleteBtn.className).toContain('card-action-btn--delete')
     expect(deleteBtn.textContent).toBe('✕')
     fireEvent.click(deleteBtn)
     expect(screen.getByText(/削除しますか？/)).toBeTruthy()

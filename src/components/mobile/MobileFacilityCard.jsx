@@ -183,11 +183,7 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
       onClick={onToggleMemo}
       aria-label={registered ? 'メモ帳から削除' : 'メモ帳に追加'}
       aria-pressed={registered}
-      className={`shrink-0 w-8 h-8 grid place-items-center rounded-full ${
-        registered
-          ? 'bg-white/90 shadow border border-slate-200 text-slate-500 hover:text-slate-600'
-          : 'bg-green-600 hover:bg-green-700 text-white'
-      }${compact && hasThumbnail ? ' absolute right-1 top-1 z-20' : ''}`}
+      className={`shrink-0 card-action-btn ${registered ? 'card-action-btn--delete' : 'card-action-btn--add'}${compact && hasThumbnail ? ' absolute right-1 top-1 z-20' : ''}`}
     >
       {registered ? '✕' : '＋'}
     </button>
