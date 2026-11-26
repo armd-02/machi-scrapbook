@@ -24,7 +24,7 @@ import { publicMapUrl } from '../utils/publicMapUrl'
  *            deleted, imported, errors, lastSyncAt, userId }）
  *   onClose  閉じるコールバック
  */
-export default function CmmSyncResultPanel({ result, onClose }) {
+export default function CmmSyncResultPanel({ result, bookName, onClose }) {
   if (result == null) return null
 
   const errors = Array.isArray(result.errors) ? result.errors : []
@@ -32,7 +32,7 @@ export default function CmmSyncResultPanel({ result, onClose }) {
   const otherErrors = denied ? errors.filter((e) => !isProjectAccessDenied(e)) : errors
   // (ピースJ) 認証・権限のエラーがあるときは公開URLを表示しない
   const authOrPermission = errors.some((e) => e != null && (e.kind === 'auth' || e.kind === 'permission'))
-  const publicUrl = publicMapUrl(result.userId)
+  const publicUrl = publicMapUrl(result.userId, bookName)
 
   return (
     <div className="space-y-1.5">

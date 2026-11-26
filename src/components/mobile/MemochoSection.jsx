@@ -1055,7 +1055,7 @@ function ScrapbookBar({
       setCopyFeedback('公開マップのURLは、『公開地図へ反映』をした後にコピーできます')
       return
     }
-    const url = publicMapUrl(lastUserId)
+    const url = publicMapUrl(lastUserId, selected?.name)
     if (url == null) {
       setCopyFeedback('メールアドレス形式のIDでは公開マップのURLを作れません')
       return
@@ -1171,7 +1171,7 @@ function ScrapbookBar({
           エラーは kind 別の案内（role=alert）。✕ で閉じる */}
       {syncResult != null && (
         <div className="mt-1.5">
-          <CmmSyncResultPanel result={syncResult} onClose={onSyncClose} />
+          <CmmSyncResultPanel result={syncResult} bookName={selected?.public ? selected.name : null} onClose={onSyncClose} />
         </div>
       )}
 

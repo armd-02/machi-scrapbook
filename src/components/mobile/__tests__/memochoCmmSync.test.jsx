@@ -157,9 +157,29 @@ describe('公開マップのURLをコピー', () => {
 
     fireEvent.click(copyButton())
     expect(writeText).toHaveBeenCalledWith(
-      'https://machi-scrapbook.openacrossbase.net/map/?userid=user1'
+      'https://machi-scrapbook.openacrossbase.net/map/?userid=user1&book=%E3%83%87%E3%83%95%E3%82%A9%E3%83%AB%E3%83%88'
     )
     expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
+  })
+
+  it('選択した公開スクラップブックごとに違うURLをコピーする', async () => {
+    const writeText = mockClipboard()
+    localStorage.setItem(CMM_LAST_USERID_KEY, JSON.stringify('user1'))
+    seedBooks([
+      { id: 'parks', name: '公園 & 散歩', public: true },
+      { id: 'cafes', name: '喫茶店', public: true },
+    ])
+    renderSection()
+    const books = screen.getByRole('combobox', { name: 'スクラップブック' })
+
+    for (const [id, name] of [['parks', '公園 & 散歩'], ['cafes', '喫茶店']]) {
+      fireEvent.change(books, { target: { value: id } })
+      fireEvent.click(copyButton())
+      await screen.findByText('公開マップのURLをコピーしました')
+      const url = new URL(writeText.mock.calls.at(-1)[0])
+      expect(Object.fromEntries(url.searchParams)).toEqual({ userid: 'user1', book: name })
+    }
+    expect(writeText.mock.calls[0][0]).not.toBe(writeText.mock.calls[1][0])
   })
 
   it('ユーザーIDがメールアドレス形式なら案内が出てコピーされない', async () => {
@@ -265,7 +285,7 @@ describe('同期実行', () => {
     returnFromLogin()
 
     const link = await screen.findByRole('link', {
-      name: 'https://machi-scrapbook.openacrossbase.net/map/?userid=user1',
+      name: 'https://machi-scrapbook.openacrossbase.net/map/?userid=user1&book=%E3%83%87%E3%83%95%E3%82%A9%E3%83%AB%E3%83%88',
     })
     expect(link.target).toBe('_blank')
     expect(screen.getByRole('button', { name: 'リンクをコピー' })).toBeTruthy()

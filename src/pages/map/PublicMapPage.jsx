@@ -21,7 +21,7 @@ import './publicMapLayout.css'
  * URL の `userid` パラメータで指定されたユーザーの CMM 同期済み
  * スクラップブックを、地図＋カード一覧で表示する独立ページ。
  *
- * URL 形: /map/?userid=<ユーザーID>
+ * URL 形: /map/?userid=<ユーザーID>&book=<冊子名>（book を省略すると全冊子）
  *
  * - データソースは CMM 後端の Activity 一覧（fetchActivities・認証不要・
  *   userid でサーバー側フィルタ）。Overpass には一切アクセスしない。
@@ -52,11 +52,13 @@ import './publicMapLayout.css'
  * 明示的に渡しているため、state 側のフォールバックは使われない）。
  */
 export default function PublicMapPage() {
-  const userid = useMemo(() => {
-    const raw = new URLSearchParams(window.location.search).get('userid')
-    const value = typeof raw === 'string' ? raw.trim() : ''
-    return value !== '' ? value : null
+  const { userid, book } = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return { userid: params.get('userid')?.trim() || null, book: params.get('book') || null }
   }, [])
+  const title = userid
+    ? book ? `${book} | ${userid}さんの公開マップ` : `${userid}さんの公開マップ`
+    : 'まちのスクラップブック 公開マップ'
 
   const [state, dispatch] = useReducer(appReducer, createInitialState())
   // null = 読み込み中、[] = 読み込み完了（0件の場合を含む）
@@ -70,15 +72,18 @@ export default function PublicMapPage() {
     let cancelled = false
     ;(async () => {
       try {
-        const activities = await fetchActivities({ userid })
+        const activities = await fetchActivities({ userid, book })
         if (cancelled) return
-        setItems(activities.map((a) => activityToMapItem(a)).filter(Boolean))
+        setItems(activities
+          .filter((activity) => book === null || activity?.book === book)
+          .map(activityToMapItem)
+          .filter(Boolean))
       } catch (err) {
         if (!cancelled) setError(toErrorObject(err))
       }
     })()
     return () => { cancelled = true }
-  }, [userid])
+  }, [userid, book])
 
   const listItems = items ?? []
 
@@ -115,15 +120,15 @@ export default function PublicMapPage() {
 
   // タブタイトルもページタイトルに合わせる
   useEffect(() => {
-    if (userid) document.title = `${userid}さんの公開マップ`
-  }, [userid])
+    document.title = title
+  }, [title])
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>
       <div className="h-dvh flex flex-col overflow-hidden bg-slate-100">
         <header className="shrink-0 px-3 pt-3 pb-2">
           <h1 className="text-base font-bold text-slate-800 break-words">
-            {userid ? `${userid}さんの公開マップ` : 'まちのスクラップブック 公開マップ'}
+            {title}
           </h1>
         </header>
 
@@ -150,7 +155,9 @@ export default function PublicMapPage() {
           </div>
         ) : listItems.length === 0 ? (
           <div className="flex-1 overflow-y-auto min-h-0 px-3 py-6">
-            <p className="text-sm text-slate-500">ユーザー「{userid}」の公開データが見つかりませんでした。</p>
+            <p className="text-sm text-slate-500">
+              {book ? `「${book}」の公開データが見つかりませんでした。` : `ユーザー「${userid}」の公開データが見つかりませんでした。`}
+            </p>
           </div>
         ) : (
           <main className="public-map-layout flex min-h-0 flex-1 flex-col">

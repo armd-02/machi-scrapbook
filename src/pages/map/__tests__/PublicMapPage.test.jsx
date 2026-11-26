@@ -133,6 +133,34 @@ describe('userid 指定', () => {
     expect(library.properties.icon).toBe('library.png')
   })
 
+  it('book 付きのURLでは指定冊子のカードとピンだけを表示する', async () => {
+    const calls = []
+    const book = '喫茶店 & 散歩'
+    mockFetch([
+      makeActivity({ book }),
+      makeActivity({
+        id: 2,
+        osmid: 'node/2002',
+        name: 'テスト公園',
+        book: '公園',
+      }),
+    ], { calls })
+    setUrl(`/map/?userid=testuser&book=${encodeURIComponent(book)}`)
+    render(<PublicMapPage />)
+
+    expect(await screen.findByRole('heading', { name: `${book} | testuserさんの公開マップ` })).toBeTruthy()
+    expect(await screen.findByText('テスト珈琲店')).toBeTruthy()
+    expect(screen.queryByText('テスト公園')).toBeNull()
+    const query = new URL(calls[0]).searchParams
+    expect(query.get('userid')).toBe('testuser')
+    expect(query.get('filter[book]')).toBe(book)
+
+    const map = await getMap()
+    await waitFor(() => {
+      expect(map._lastGeoJSON.data.features.map((feature) => feature.properties.key)).toEqual(['node/1001'])
+    })
+  })
+
   it('tags がアイコンと種別ラベルを決定する', async () => {
     mockFetch([makeActivity()])
     setUrl('/map/?userid=testuser')

@@ -254,20 +254,22 @@ async function cmmRequest(path) {
 
 /**
  * リモートの Activity 一覧を取得する（認証不要）。
- * @param {{ since?: string|null, userid?: string|null }} options
+ * @param {{ since?: string|null, userid?: string|null, book?: string|null }} options
  *   since: 増分取得の境界（RFC3339・時区付き・境界値を含む）。
  *   null/空・解析不能なら全件取得。
  *   userid: 作成者（初回投稿者）のログイン用ユーザーIDで絞り込む
  *   （大文字・小文字は区別しない）。updated_since と併用できる。
  *   ユーザーID専用（メールアドレスには使えない）。
+ *   book: 公開スクラップブック名で完全一致検索する。
  * @returns {Promise<Array>} Activity 配列（スキーマフィールドはトップレベルに展開）
  */
-export async function fetchActivities({ since = null, userid = null } = {}) {
+export async function fetchActivities({ since = null, userid = null, book = null } = {}) {
   let sinceValue = typeof since === 'string' && since !== '' ? since : null
   if (sinceValue !== null && cmmToMs(sinceValue) === null) sinceValue = null
   const params = new URLSearchParams({ app: CMM_APP_KEY })
   if (sinceValue !== null) params.set('updated_since', sinceValue)
   if (typeof userid === 'string' && userid !== '') params.set('userid', userid)
+  if (typeof book === 'string' && book !== '') params.set('filter[book]', book)
   const payload = await cmmRequest(`/api/activities.php?${params.toString()}`)
   if (!Array.isArray(payload)) {
     throw new CmmError({ kind: 'network', message: 'CMM 一覧の応答形式が不正です' })
