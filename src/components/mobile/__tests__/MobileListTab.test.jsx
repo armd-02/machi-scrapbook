@@ -1490,7 +1490,7 @@ describe('MobileListTab: メモ帳の登録先', () => {
     fireEvent.change(destination, { target: { value: 'outing' } })
     fireEvent.click(within(card).getByRole('button', { name: /メモ帳に追加/ }))
     expect(loadMemocho()).toEqual([expect.objectContaining({ id: 1, bookId: 'outing' })])
-    expect(within(card).getByRole('button', { name: /登録済み/ })).toBeTruthy()
+    expect(within(card).getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
   })
 
   it('ごみ箱にある施設を選択した冊子に復元し、元のメモを引き継ぐ', () => {

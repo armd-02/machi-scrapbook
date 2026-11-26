@@ -399,8 +399,8 @@ describe('ピースG2: フィルタ・メモ帳追加', () => {
     // 「メモ帳に追加」ボタンがある（検索結果カードと同じトグル）
     fireEvent.click(await screen.findByRole('button', { name: /メモ帳に追加/ }))
 
-    // ボタンが「登録済み」に切り替わる
-    expect(await screen.findByRole('button', { name: /登録済み/ })).toBeTruthy()
+    // ボタンが「メモ帳から削除」に切り替わる
+    expect(await screen.findByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
 
     // localStorage のメモ帳に、投稿の tags を含むアイテムが保存される
     const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
@@ -417,7 +417,7 @@ describe('ピースG2: フィルタ・メモ帳追加', () => {
     expect(item.rating).toBe(0)
   })
 
-  it('登録済みの施設は「登録済み」表示で、タップで削除される（検索結果と同じ扱い）', async () => {
+  it('登録済みの施設は「メモ帳から削除」表示で、タップで削除される（検索結果と同じ扱い）', async () => {
     // 事前登録: 端末のメモ帳に node/1001 が入っている
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
       {
@@ -436,11 +436,11 @@ describe('ピースG2: フィルタ・メモ帳追加', () => {
     setUrl('/map/?userid=testuser')
     render(<PublicMapPage />)
 
-    // 初回表示が「登録済み」
-    expect(await screen.findByRole('button', { name: /登録済み/ })).toBeTruthy()
+    // 初回表示が「メモ帳から削除」
+    expect(await screen.findByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
 
     // タップするとごみ箱へ移動し、ボタンが「メモ帳に追加」に戻る
-    fireEvent.click(screen.getByRole('button', { name: /登録済み/ }))
+    fireEvent.click(screen.getByRole('button', { name: /メモ帳から削除/ }))
     expect(await screen.findByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
     const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
     const item = stored.find((i) => i.type === 'node' && i.id === 1001)

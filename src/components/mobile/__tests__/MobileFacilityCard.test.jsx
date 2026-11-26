@@ -386,16 +386,27 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     resetMemochoStore()
   })
 
-  it('ボタンで追加でき、表示が「登録済み」に変わる（aria-pressed も更新）', () => {
+  it('ボタンで追加でき、表示が「メモ帳から削除」に変わる（aria-pressed も更新）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     const btn = screen.getByRole('button', { name: /メモ帳に追加/ })
     expect(btn.getAttribute('aria-pressed')).toBe('false')
+    // 未登録: 緑背景の円形「＋」ボタン
+    expect(btn.className).toContain('bg-green-600')
+    expect(btn.className).toContain('rounded-full')
+    expect(btn.className).toContain('w-8')
+    expect(btn.className).toContain('h-8')
+    expect(btn.textContent).toBe('＋')
 
     fireEvent.click(btn)
 
-    expect(screen.getByRole('button', { name: /登録済み/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /メモ帳から削除/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /メモ帳に追加/ })).toBeNull()
     expect(btn.getAttribute('aria-pressed')).toBe('true')
+    // 登録済み: メモ帳カードの✕と同一の円形ボタン
+    expect(btn.className).toContain('bg-white/90')
+    expect(btn.className).toContain('border-slate-200')
+    expect(btn.className).toContain('text-slate-500')
+    expect(btn.textContent).toBe('✕')
     // localStorage にスナップショットが保存される
     const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
     expect(stored).toHaveLength(1)
@@ -405,7 +416,7 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
   it('もう一度押すとごみ箱へ移動され、表示が「メモ帳に追加」に戻る（toggle・論理削除）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /メモ帳に追加/ }))
-    fireEvent.click(screen.getByRole('button', { name: /登録済み/ }))
+    fireEvent.click(screen.getByRole('button', { name: /メモ帳から削除/ }))
     // 論理削除: has() が false になり表示は「メモ帳に追加」に戻る
     expect(screen.getByRole('button', { name: /メモ帳に追加/ })).toBeTruthy()
     // アイテムはごみ箱としてストアに残る（deletedAt が付く）
@@ -421,12 +432,12 @@ describe('まちメモ帳ボタン（第2ピース）', () => {
     expect(onOpen).not.toHaveBeenCalled()
   })
 
-  it('localStorage に保存済みの施設では初回表示が「登録済み」', () => {
+  it('localStorage に保存済みの施設では初回表示が「メモ帳から削除」ボタン', () => {
     localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([
       { type: 'node', id: 1001, name: 'テスト珈琲店', lat: 34.85, lon: 135.5, tags: null, memo: '', addedAt: null },
     ]))
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
-    const btn = screen.getByRole('button', { name: /登録済み/ })
+    const btn = screen.getByRole('button', { name: /メモ帳から削除/ })
     expect(btn.getAttribute('aria-pressed')).toBe('true')
   })
 })

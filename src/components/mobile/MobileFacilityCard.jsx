@@ -181,10 +181,15 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
     <button
       type="button"
       onClick={onToggleMemo}
+      aria-label={registered ? 'メモ帳から削除' : 'メモ帳に追加'}
       aria-pressed={registered}
-      className={`shrink-0 whitespace-nowrap text-[11px] leading-tight px-2 py-1 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 active:bg-primary-200${compact && hasThumbnail ? ' absolute right-1 top-1 z-20' : ''}`}
+      className={`shrink-0 w-8 h-8 grid place-items-center rounded-full ${
+        registered
+          ? 'bg-white/90 shadow border border-slate-200 text-slate-500 hover:text-slate-600'
+          : 'bg-green-600 hover:bg-green-700 text-white'
+      }${compact && hasThumbnail ? ' absolute right-1 top-1 z-20' : ''}`}
     >
-      {registered ? '📝 登録済み' : '📝 メモ帳に追加'}
+      {registered ? '✕' : '＋'}
     </button>
   )
   const titleRow = (
