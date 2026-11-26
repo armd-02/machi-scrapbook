@@ -55,7 +55,7 @@ describe('keyInfoFor (A3)', () => {
   it('公共設備: wheelchairをハイライト属性として含む', () => {
     const ki = keyInfoFor({
       type: 'node', id: 5,
-      tags: { amenity: 'library', opening_hours: 'Mo-Su 09:00-18:00', wheelchair: 'yes' }
+      tags: { amenity: 'townhall', opening_hours: 'Mo-Su 09:00-18:00', wheelchair: 'yes' }
     })
     expect(ki.categoryId).toBe('public_facility')
     const wc = ki.items.find((i) => i.key === 'wheelchair')

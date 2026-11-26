@@ -14,7 +14,6 @@ import SimpleSearch from '../SimpleSearch'
 import MunicipalitySearch from '../MunicipalitySearch'
 import AdvancedSearch from '../AdvancedSearch'
 import SearchActionButton from '../SearchActionButton'
-import ShareButton from '../ShareButton'
 import MapView from '../MapView'
 import GeocodeCandidateList from '../GeocodeCandidateList'
 import PlaceNameInput from '../PlaceNameInput'
@@ -920,8 +919,6 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         ) : (
           formBody
         )}
-
-        <ShareButton />
       </div>
 
       {/* 検索実行（スロールームの外に固定 — P0 再発防止）。フォーム表示時のみ */}

@@ -63,7 +63,11 @@ function SectionHarness(props) {
 }
 
 function renderSection(overrides = {}) {
-  return render(<SectionHarness {...overrides} />)
+  const utils = render(<SectionHarness {...overrides} />)
+  // 公開系ボタンは公開カテゴリ選択中のみ有効（2026-11-26 拡張）。
+  // このファイルは同期フローが目的なので、公開のデフォルトを選んでから操作する
+  fireEvent.change(screen.getByRole('combobox', { name: 'スクラップブック' }), { target: { value: 'default' } })
+  return utils
 }
 
 function returnFromLogin() {
@@ -73,7 +77,7 @@ function returnFromLogin() {
 
 const syncButton = () => screen.getByRole('button', { name: '公開地図へ反映' })
 const syncingButton = () => screen.getByRole('button', { name: '公開地図へ反映中' })
-const copyButton = () => screen.getByRole('button', { name: '公開マップのURLをコピー' })
+const copyButton = () => screen.getByRole('button', { name: 'URLをコピー' })
 
 function mockClipboard() {
   const writeText = vi.fn().mockResolvedValue(undefined)

@@ -59,6 +59,51 @@ body {
 }
 
 /*
+ * (ピースP) カード一覧の共通グリッド: 公開マップ / 検索結果 / メモ帳の3画面で
+ * 同じ列数仕様を共用する。列数は最近のコンテナの幅（コンテナクエリ）で決める:
+ *   620px未満: 1列 / 620px以上: 2列 / 980px以上: 3列 / 1340px以上: 4列 /
+ *   1700px以上: 5列 / 2060px以上: 6列
+ * gap は 0.75rem（gap-3 相当）。
+ * 使用箇所は、このクラスの親要素に container-type: inline-size（または size）を
+ * 付けている必要がある。
+ */
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@container (min-width: 620px) {
+  .card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@container (min-width: 980px) {
+  .card-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@container (min-width: 1340px) {
+  .card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@container (min-width: 1700px) {
+  .card-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@container (min-width: 2060px) {
+  .card-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/*
  * MapLibre map container.
  *
  * このルールは @layer components に入れる必要がある（バグ修正: 検索結果マップの

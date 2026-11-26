@@ -50,7 +50,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
       '食べる': ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'],
       '買う': ['retail', 'convenience'],
       '遊ぶ・公園': ['park', 'sports', 'museum', 'worship', 'accommodation'],
-      '学ぶ': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'],
+      '学ぶ': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library'],
       '病院・薬局': ['hospital', 'pharmacy'],
       '役所・手続き': ['public_facility', 'bank'],
       '公共設備': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'],
@@ -250,7 +250,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
 
   it('getPurposeUnionFilters: 役所・手続き = 役所・公共機関 + 銀行・ATM のunion', () => {
     expect(getPurposeUnionFilters('役所・手続き')).toEqual([
-      'amenity~"^(townhall|post_office|police|fire_station|library|community_centre|recycling|shelter)$"',
+      'amenity~"^(townhall|post_office|police|fire_station|community_centre|recycling|shelter)$"',
       'office~"^(government|municipality)$"',
       'amenity~"^(bank|atm)$"'
     ])

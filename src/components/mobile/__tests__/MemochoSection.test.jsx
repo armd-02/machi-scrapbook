@@ -1294,3 +1294,235 @@ describe('MemochoSection: レイアウト（メモマップを画面一番上に
     expect(screen.queryByRole('button', { name: /メモマップ/ })).toBeNull()
   })
 })
+
+
+describe('MemochoSection: コンテキストメニューと最大化（ピースO）', () => {
+  const cardId = 'memocho-card-node/1001'
+
+  // 各テストは独立して1回だけ render（beforeEach で二重描画しない。
+  // useMemocho はモジュールキャッシュ経由で読み込むため、localStorage 変更後に
+  // 再描画するには resetMemochoStore() が必要）
+  const renderWith = (items, overrides = {}) => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify(items))
+    resetMemochoStore()
+    renderSection(overrides)
+  }
+
+  const openMenu = () => {
+    const card = document.getElementById(cardId)
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 100 })
+    return screen.getByRole('menu')
+  }
+
+  it('カードの右クリックでメニューが開き、「最大化」「登録削除」の2項目が出る', () => {
+    renderWith([makeItem()])
+    const menu = openMenu()
+    expect(menu).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '最大化' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '登録削除' })).toBeTruthy()
+  })
+
+  it('カード内の対話要素（星ボタン）の右クリックではメニューが開かない', () => {
+    renderWith([makeItem()])
+    const starBtn = screen.getByRole('button', { name: /を1つ星で評価する/ })
+    fireEvent.contextMenu(starBtn, { clientX: 100, clientY: 100 })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('メニューの外をタップすると閉じる', () => {
+    renderWith([makeItem()])
+    openMenu()
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('Escキーでメニューを閉じる', () => {
+    renderWith([makeItem()])
+    openMenu()
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('スクロールでメニューを閉じる', () => {
+    renderWith([makeItem()])
+    openMenu()
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.scroll(window)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('画面端でクリックしてもメニューはビューポート内に収まる', () => {
+    renderWith([makeItem()])
+    const card = document.getElementById(cardId)
+    fireEvent.contextMenu(card, { clientX: 5000, clientY: 5000 })
+    const menu = screen.getByRole('menu')
+    const left = parseInt(menu.style.left, 10)
+    const top = parseInt(menu.style.top, 10)
+    expect(left).toBeLessThanOrEqual(window.innerWidth - 8)
+    expect(top).toBeLessThanOrEqual(window.innerHeight - 8)
+  })
+
+  it('「登録削除」を選ぶとメニューが閉じ、カードの2段階確認帯が出る', () => {
+    renderWith([makeItem()])
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '登録削除' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.getByText(/削除しますか？/)).toBeTruthy()
+    expect(screen.getByText(/ごみ箱へ移動します/)).toBeTruthy()
+    expect(storedItems()).toHaveLength(1)
+    expect(storedItems()[0].deletedAt).toBeUndefined()
+  })
+
+  it('「最大化」を選ぶとメニューが閉じ、オーバーレイにカードが表示される', () => {
+    renderWith([makeItem()])
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '最大化' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    // オーバーレイに「閉じる」ボタンが出る
+    expect(screen.getByRole('button', { name: '閉じる' })).toBeTruthy()
+    // 一覧からは除外される（単一アイテムなのでリストにはカードが無い）
+    const scrollArea = screen.getByRole('heading', { name: 'まちメモ帳' }).closest('.flex-1')
+    expect(scrollArea.contains(document.getElementById(cardId))).toBe(false)
+    // オーバーレイ内にカードが表示される
+    const overlay = screen.getByRole('button', { name: '閉じる' }).closest('.fixed')
+    expect(overlay).toBeTruthy()
+    expect(overlay.contains(document.getElementById(cardId))).toBe(true)
+  })
+
+  it('最大化表示ではメモ欄のtextareaは行数12・文字サイズが大きく、通常は行数3', () => {
+    renderWith([makeItem()])
+    // 通常: rows=3
+    fireEvent.click(screen.getByLabelText('テスト珈琲店のメモ'))
+    expect(screen.getByLabelText('テスト珈琲店のメモ').rows).toBe(3)
+    // フォーカスを外して確定（編集モードを抜ける）
+    fireEvent.blur(screen.getByLabelText('テスト珈琲店のメモ'))
+
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '最大化' }))
+    // 最大化: rows=12
+    fireEvent.click(screen.getByLabelText('テスト珈琲店のメモ'))
+    const textarea = screen.getByLabelText('テスト珈琲店のメモ')
+    expect(textarea.rows).toBe(12)
+    expect(textarea.className).toContain('text-sm')
+  })
+
+  it('「閉じる」ボタンでオーバーレイを閉じ、カードが一覧に戻る', () => {
+    renderWith([makeItem()])
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '最大化' }))
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }))
+    expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull()
+    const scrollArea = screen.getByRole('heading', { name: 'まちメモ帳' }).closest('.flex-1')
+    expect(scrollArea.contains(document.getElementById(cardId))).toBe(true)
+  })
+
+  it('Escキーでオーバーレイを閉じる', () => {
+    renderWith([makeItem()])
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '最大化' }))
+    expect(screen.getByRole('button', { name: '閉じる' })).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull()
+  })
+
+  it('最大化中にメモを削除するとオーバーレイが閉じる', () => {
+    renderWith([makeItem()])
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: '最大化' }))
+    expect(screen.getByRole('button', { name: '閉じる' })).toBeTruthy()
+    // カードの✕（2段階確認）で削除
+    fireEvent.click(screen.getByRole('button', { name: 'テスト珈琲店をメモ帳から削除' }))
+    fireEvent.click(screen.getByRole('button', { name: '削除' }))
+    expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull()
+    expect(screen.getByText(/まだ登録がありません/)).toBeTruthy()
+    expect(storedItems()[0].deletedAt).toBeTruthy()
+  })
+
+  it('ごみ箱ビューではコンテキストメニューが出ない', () => {
+    renderWith([makeItem({ deletedAt: '2026-06-15T10:30:00.000Z' })], { view: 'trash' })
+    const el = screen.getByText('テスト珈琲店')
+    fireEvent.contextMenu(el, { clientX: 100, clientY: 100 })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  describe('長押し（約550ms）', () => {
+    it('550msの長押しでメニューが開く', () => {
+      vi.useFakeTimers()
+      renderWith([makeItem()])
+      const card = document.getElementById(cardId)
+      fireEvent.pointerDown(card, { clientX: 100, clientY: 100, button: 0 })
+      expect(screen.queryByRole('menu')).toBeNull()
+      act(() => { vi.advanceTimersByTime(550) })
+      expect(screen.getByRole('menu')).toBeTruthy()
+      vi.useRealTimers()
+    })
+
+    it('長押し中にポインタが10px以上動いた場合はキャンセルされる', () => {
+      vi.useFakeTimers()
+      renderWith([makeItem()])
+      const card = document.getElementById(cardId)
+      fireEvent.pointerDown(card, { clientX: 100, clientY: 100, button: 0 })
+      fireEvent.pointerMove(card, { clientX: 160, clientY: 100 })
+      act(() => { vi.advanceTimersByTime(550) })
+      expect(screen.queryByRole('menu')).toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('550ms未満で離れた場合はキャンセルされる', () => {
+      vi.useFakeTimers()
+      renderWith([makeItem()])
+      const card = document.getElementById(cardId)
+      fireEvent.pointerDown(card, { clientX: 100, clientY: 100, button: 0 })
+      fireEvent.pointerUp(card)
+      act(() => { vi.advanceTimersByTime(550) })
+      expect(screen.queryByRole('menu')).toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('カード内の対話要素（星ボタン）の長押しではメニューが開かない', () => {
+      vi.useFakeTimers()
+      renderWith([makeItem()])
+      const starBtn = screen.getByRole('button', { name: /を1つ星で評価する/ })
+      fireEvent.pointerDown(starBtn, { clientX: 100, clientY: 100, button: 0 })
+      act(() => { vi.advanceTimersByTime(550) })
+      expect(screen.queryByRole('menu')).toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('長押しで開いた直後のクリックはカードの選択処理を走らせない（抑止）', () => {
+      vi.useFakeTimers()
+      renderWith([makeItem()])
+      const card = document.getElementById(cardId)
+      fireEvent.pointerDown(card, { clientX: 100, clientY: 100, button: 0 })
+      act(() => { vi.advanceTimersByTime(550) })
+      expect(screen.getByRole('menu')).toBeTruthy()
+      // メニューを外側タップで閉じてからカードをクリック（通常なら選択される）
+      fireEvent.pointerDown(document.body)
+      fireEvent.click(screen.getByText('テスト珈琲店'))
+      expect(card.className).not.toContain('border-primary-400')
+      vi.useRealTimers()
+    })
+
+    it('通常クリック（長押しなし）は従来どおりカードを選択する', () => {
+      renderWith([makeItem()])
+      const card = document.getElementById(cardId)
+      fireEvent.click(screen.getByText('テスト珈琲店'))
+      expect(card.className).toContain('border-primary-400')
+    })
+  })
+})
+
+describe('MemochoSection: カード列数の仕様を3画面で統一しCSSを共通化（ピースP）', () => {
+  it('カード一覧は共通の .card-grid を使い、従来のコンテナクエリ指定は削除されている', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([makeItem()]))
+    resetMemochoStore()
+    renderSection()
+    const card = document.getElementById('memocho-card-node/1001')
+    const list = card.closest('.card-grid')
+    expect(list).toBeTruthy()
+    expect(list.className).not.toContain('grid-cols-2')
+    expect(list.className).not.toContain('@min-[620px]')
+  })
+})

@@ -91,11 +91,11 @@ export const CATEGORIES = [
     id: 'public_facility',
     label: '役所・公共機関',
     tags: [
-      { key: 'amenity', values: ['townhall', 'post_office', 'police', 'fire_station', 'library', 'community_centre', 'recycling', 'shelter'] },
+      { key: 'amenity', values: ['townhall', 'post_office', 'police', 'fire_station', 'community_centre', 'recycling', 'shelter'] },
       { key: 'office', values: ['government', 'municipality'] }
     ],
     logic: 'or',
-    description: '役所・郵便局・警察・消防・図書館など'
+    description: '役所・郵便局・警察・消防など'
   },
   {
     // 会社・事務所: 民間の会社・専門事務所・団体のオフィス。
@@ -193,6 +193,15 @@ export const CATEGORIES = [
     ],
     logic: 'or',
     description: '中学校・高校・その他学校（幼稚園・大学等は個別カテゴリ参照）'
+  },
+  {
+    // 図書館は運営主体（公立・民間）を問わず「学ぶ」に分類する
+    // （ユーザー決定 2026-11-26、以前は役所・公共機関に含まれていた）
+    id: 'library',
+    label: '図書館',
+    tags: [{ key: 'amenity', values: ['library'] }],
+    logic: 'or',
+    description: '図書館'
   },
   {
     id: 'transport',
@@ -332,7 +341,7 @@ export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
   { name: '買う', icon: '🛍️', ids: ['retail', 'convenience'] },
   { name: '遊ぶ・公園', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
-  { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school'] },
+  { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library'] },
   { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
   { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },
   { name: '公共設備', icon: '🚻', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'] },

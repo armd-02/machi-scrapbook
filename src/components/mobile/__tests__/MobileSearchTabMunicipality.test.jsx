@@ -113,7 +113,7 @@ function navButtons() {
 const IT_TIMEOUT = 15000
 
 describe('(top) 「都道府県から探す」折りたたみセクション（モバイル検索タブトップ表示）', () => {
-  it('並び順: 説明・場所入力 → 「都道府県から探す」セクション → 地図 → 目的タイル → 共有ボタン', () => {
+  it('並び順: 説明・場所入力 → 「都道府県から探す」セクション → 地図 → 目的タイル', () => {
     const { container } = renderApp()
 
     // a が b より文書順で先である（DOCUMENT_POSITION_FOLLOWING ビット）
@@ -126,12 +126,12 @@ describe('(top) 「都道府県から探す」折りたたみセクション（�
     expect(handle).toBeTruthy()
     const mapBlock = handle.parentElement
     const tilesSec = screen.getByRole('region', { name: '目的から探す' })
-    const shareBtn = screen.getByRole('button', { name: /共有URL/ })
 
     expect(precedes(placeSec, muniSec)).toBe(true) // 場所入力 → 都道府県セクション
     expect(precedes(muniSec, mapBlock)).toBe(true) // 都道府県セクション → 地図
     expect(precedes(mapBlock, tilesSec)).toBe(true) // 地図 → 目的タイル
-    expect(precedes(tilesSec, shareBtn)).toBe(true) // 目的タイル → 共有ボタン
+    // (ピースN) 共有ボタンは検索タブには置かれない（一覧タブの件数行へ移動）
+    expect(screen.queryByRole('button', { name: /検索を共有/ })).toBeNull()
   })
 
 

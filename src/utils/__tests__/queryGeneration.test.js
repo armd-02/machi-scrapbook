@@ -294,15 +294,16 @@ describe('categoryToQueryFilter — 教育施設サブカテゴリ (#44)', () =>
     }
   })
 
-  it('学ぶ目的のunionに全5カテゴリの条件が重複除去されて含まれる', () => {
+  it('学ぶ目的のunionに全6カテゴリの条件が重複除去されて含まれる', () => {
     const cats = getCategoriesForPurpose('学ぶ')
-    expect(cats).toHaveLength(5)
+    expect(cats).toHaveLength(6)
     const filters = getPurposeUnionFilters('学ぶ')
     expect(filters).toContain('amenity=kindergarten')
     expect(filters).toContain('school=primary')
     expect(filters).toContain('amenity~"^(university|college)$"')
     expect(filters).toContain('amenity~"^(prep_school|language_school)$"')
     expect(filters).toContain('amenity=school')
+    expect(filters).toContain('amenity=library')
     // 重複除去: amenity=school は1回のみ
     expect(filters.filter((f) => f === 'amenity=school')).toHaveLength(1)
   })

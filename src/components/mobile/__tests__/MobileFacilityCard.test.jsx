@@ -96,12 +96,25 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.getByText(/大阪市 梅田 1-1 12/)).toBeTruthy()
   })
 
-  it('OSM生データ（要素種別・生タグ値・OSM ID）はカードに出さない', () => {
+  it('OSMの生タグ値はカードに出さない（OSM IDは詳細情報にリンクとして表示する）', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
-    expect(screen.queryByText('node/1001')).toBeNull()
     expect(screen.queryByText(/^cafe$/)).toBeNull()
     expect(screen.queryByText(/^coffee$/)).toBeNull()
-    expect(screen.queryByText('node')).toBeNull()
+    const osmLink = screen.getByRole('link', { name: 'node/1001' })
+    expect(osmLink.getAttribute('href')).toBe('https://www.openstreetmap.org/node/1001')
+    expect(osmLink.getAttribute('target')).toBe('_blank')
+  })
+
+  it('折りたたまれた施設情報を開くと OSM ID が表示され、リンクでカードは選択されない', () => {
+    const onSelect = vi.fn()
+    render(<MobileFacilityCard result={{ ...COFFEE, type: 'way' }} onSelect={onSelect} showMapThumb />)
+    expect(screen.queryByRole('link', { name: 'way/1001' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '施設情報' }))
+    const osmLink = screen.getByRole('link', { name: 'way/1001' })
+    expect(osmLink.getAttribute('href')).toBe('https://www.openstreetmap.org/way/1001')
+    fireEvent.click(osmLink)
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('電話・公式サイト・営業時間が登録されていれば表示される', () => {

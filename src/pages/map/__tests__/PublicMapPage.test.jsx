@@ -153,7 +153,7 @@ describe('userid 指定', () => {
     render(<PublicMapPage />)
 
     await screen.findByText('テスト珈琲店')
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('testuser さんのまちのスクラップブック')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('testuserさんの公開マップ')
   })
 
   it('ピンタップで対応カードが選択される', async () => {
@@ -417,5 +417,20 @@ describe('ピースG2: フィルタ・メモ帳追加', () => {
     const stored = JSON.parse(localStorage.getItem(MEMOCHO_STORAGE_KEY))
     const item = stored.find((i) => i.type === 'node' && i.id === 1001)
     expect(item.deletedAt).toBeTruthy()
+  })
+})
+
+describe('公開マップ: カード列数の仕様を3画面で統一しCSSを共通化（ピースP）', () => {
+  it('カード一覧は共通の .card-grid を使い、スクロールコンテナに container-type: inline-size がある', async () => {
+    mockFetch([makeActivity()])
+    setUrl('/map/?userid=testuser')
+    render(<PublicMapPage />)
+
+    await screen.findByText('テスト珈琲店')
+    const cardList = screen.getByText('テスト珈琲店').closest('ul')
+    expect(cardList).toBeTruthy()
+    expect(cardList.className).toContain('card-grid')
+    // コンテナクエリのため、一覧のスクロールコンテナが container になっている
+    expect(cardList.parentElement.className).toContain('[container-type:inline-size]')
   })
 })

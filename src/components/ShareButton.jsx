@@ -30,14 +30,14 @@ function ShareButton() {
         }`}
         title="検索条件をURLで共有"
       >
-        {copied ? '✓ コピーしました' : '📎 共有URL'}
+        {copied ? '✓ コピーしました' : '📎 検索を共有'}
       </button>
       
       {/* トゥールチップ */}
       {!copied && (
         <div className="absolute top-full left-0 mt-1 w-56 bg-slate-800 text-white text-[10px] rounded px-2 py-1.5 opacity-0 pointer-events-none transition-opacity hover:opacity-100 group-hover:opacity-100">
           現在の画面と検索条件・一覧フィルタをURLにエンコードします。
-          <br/>※ 共有URLを開くと同じ画面・条件・絞り込みで開けますが、
+          <br/>※ 共有したURLを開くと同じ画面・条件・絞り込みで開けますが、
           <br/>OSMデータは常時更新されるため結果は異なる場合があります。
         </div>
       )}

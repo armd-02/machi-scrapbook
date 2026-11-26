@@ -751,21 +751,22 @@ describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', 
     selectBook('sb_cafe')
 
     const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
-    const copyBtn = screen.getByRole('button', { name: '公開マップのURLをコピー' })
+    const copyBtn = screen.getByRole('button', { name: 'URLをコピー' })
     expect(syncBtn.disabled).toBe(true)
     expect(copyBtn.disabled).toBe(true)
     expect(screen.getByText('選択中のカテゴリは非公開です')).toBeTruthy()
   })
 
-  it('「すべて」選択中は両ボタンとも有効で、注記は出ない', () => {
+  it('「すべて」選択中は両ボタンとも無効化され、案内の注記が出る', () => {
     seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
 
     const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
-    const copyBtn = screen.getByRole('button', { name: '公開マップのURLをコピー' })
-    expect(syncBtn.disabled).toBe(false)
-    expect(copyBtn.disabled).toBe(false)
+    const copyBtn = screen.getByRole('button', { name: 'URLをコピー' })
+    expect(syncBtn.disabled).toBe(true)
+    expect(copyBtn.disabled).toBe(true)
+    expect(screen.getByText('反映するには公開カテゴリを選んでください')).toBeTruthy()
     expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
   })
 
@@ -777,7 +778,7 @@ describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', 
     selectBook('sb_cafe')
 
     expect(screen.getByRole('button', { name: '公開地図へ反映' }).disabled).toBe(false)
-    expect(screen.getByRole('button', { name: '公開マップのURLをコピー' }).disabled).toBe(false)
+    expect(screen.getByRole('button', { name: 'URLをコピー' }).disabled).toBe(false)
     expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
   })
 

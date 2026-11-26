@@ -7,6 +7,7 @@ import MobileFacilityCard from './MobileFacilityCard'
 import CollapsibleResultsMap from './CollapsibleResultsMap'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import BarrierFreeSummary from './BarrierFreeSummary'
+import ShareButton from '../ShareButton'
 import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
   KEYWORD_LABEL, WHEELCHAIR_OPTIONS
@@ -125,10 +126,14 @@ function PoiMobileList() {
 
         {hasResults && (
           <>
-            <p className="text-xs text-slate-600">
-              {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
-              {narrowing ? '（フィルタ適用中）' : ''}
-            </p>
+            {/* (ピースN) 検索条件の共有ボタン: 件数表示の右側に横並びで配置 */}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-slate-600">
+                {(results || []).length.toLocaleString()}件中、{filtered.length.toLocaleString()}件を表示
+                {narrowing ? '（フィルタ適用中）' : ''}
+              </p>
+              <ShareButton />
+            </div>
 
             {/* (B1) 属性の充足率: 表示中結果を追従 */}
             <AttributeCompleteness results={filtered} className="my-1" />
@@ -212,7 +217,7 @@ function PoiMobileList() {
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="card-grid">
           {visible.map((r) => (
             <MobileFacilityCard
               key={`${r.type}/${r.id}`}
@@ -390,7 +395,7 @@ function BarrierFreeMobileList() {
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="card-grid">
           {visible.map((r) => (
             <BarrierFreeCard
               key={`${r.type}/${r.id}`}

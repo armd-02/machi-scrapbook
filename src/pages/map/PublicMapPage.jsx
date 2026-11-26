@@ -113,14 +113,18 @@ export default function PublicMapPage() {
   // (ピースG2) フィルタで除外されたアイテムはピンにも出ない
   const mapItems = filtered.filter((i) => i.lat != null && i.lon != null)
 
+  // タブタイトルもページタイトルに合わせる
+  useEffect(() => {
+    if (userid) document.title = `${userid}さんの公開マップ`
+  }, [userid])
+
   return (
     <AppContext.Provider value={{ state, dispatch }}>
       <div className="h-dvh flex flex-col overflow-hidden bg-slate-100">
         <header className="shrink-0 px-3 pt-3 pb-2">
           <h1 className="text-base font-bold text-slate-800 break-words">
-            {userid ? `${userid} さんのまちのスクラップブック` : 'まちのスクラップブック 公開マップ'}
+            {userid ? `${userid}さんの公開マップ` : 'まちのスクラップブック 公開マップ'}
           </h1>
-          <p className="text-xs text-slate-500">共有されている公開スクラップブック</p>
         </header>
 
         {!userid ? (
@@ -164,7 +168,7 @@ export default function PublicMapPage() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 min-w-0 px-3 py-3 space-y-3">
+            <div className="flex-1 overflow-y-auto overscroll-y-contain min-h-0 min-w-0 px-3 py-3 space-y-3 [container-type:inline-size]">
               {/* (ピースG2) フィルタバー（メモ帳画面と同じ構成・部品を再利用） */}
               <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
                 <FilterInput
@@ -226,7 +230,7 @@ export default function PublicMapPage() {
                   </button>
                 </div>
               ) : (
-                <ul className="space-y-3">
+                <ul className="card-grid">
                   {filtered.map((item) => (
                     <li key={memochoKeyOf(item)}>
                       <PublicMapCard

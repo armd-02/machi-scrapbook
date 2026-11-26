@@ -86,6 +86,20 @@ import CmmSyncResultPanel from '../CmmSyncResultPanel'
  *   通常のタップ動作（詳細を開く）と干渉しない位置（施設カードのクリック領域の
  *   外）にある。特定のブック表示中に別のブックへ移すとその場で一覧から消え、
  *   「すべて」表示中は消えず所属表示だけが変わる。モード OFF のときは出さない
+ *
+ * - コンテキストメニュー＋最大化表示（(ピースO)）: カードを右クリック（PC）または
+ *   長押し（モバイル、約550ms。iOS Safari は contextmenu が発火しないため）すると、
+ *   その地点（画面端ではビューポート内に収まるようクランプ）に fixed ポップアップ
+ *   が出る。項目は「最大化」と「登録削除」の2つ。カード内の対話要素（a, button,
+ *   textarea, input, select, [role="button"]）から始まった操作では開かない。
+ *   長押しで開いた直後のクリックはカードの選択処理に伝播しない。メニューの外を
+ *   タップ・Escキー・スクロールで閉じる。「最大化」を選ぶとリスト画面内の
+ *   オーバーレイ（fixed inset-0、背景はリスト画面と同じ slate-100、内容はスクロール
+ *   可）でそのカードを大きく表示する（メモ欄の textarea は rows=12・文字サイズは
+ *   大きめ。評価の星・削除の2段階確認はそのまま使える）。Escキーでも閉じる。
+ *   「登録削除」を選ぶとカードの既存の2段階確認帯（ごみ箱へ移動）を表示する。
+ *   最大化中にそのメモが削除されるとオーバーレイは閉じる。ごみ箱ビューでは
+ *   メニューは出さない（通常の一覧のみ有効）
  */
 
 // メモのリンクを押してもメモの編集モードに切り替えない。
@@ -241,6 +255,70 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   const resetMemoFilters = () => {
     setMemoFilters(DEFAULT_MEMO_FILTERS)
     selectBook('all')
+  }
+
+  // (ピースO) コンテキストメニュー: カードの右クリック/長押しでポップアップ
+  // （fixed 表示）。状態は { key, left, top }、null なら閉じている
+  const [contextMenu, setContextMenu] = useState(null)
+  const contextMenuRef = useRef(null)
+
+  // (ピースO) 最大化表示: 最大化中のカードのキー（null なら非表示）
+  const [maximizedKey, setMaximizedKey] = useState(null)
+
+  // (ピースO) 削除の2段階確認: 確認帯を表示中のカードのキー（null なら表示なし）
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState(null)
+
+  const closeContextMenu = () => setContextMenu(null)
+
+  // (ピースO) メニューをクリック位置に開く。画面端ではビューポート内に収まるよう
+  // クランプする（メニューサイズは概算 152×88）。長押しで開いた直後に contextmenu
+  // が再発した場合は同じキーなので再表示しない（二重表示防止）
+  const handleOpenContextMenu = (key, x, y) => {
+    setContextMenu((m) => {
+      if (m && m.key === key) return m
+      const vw = window.innerWidth || document.documentElement.clientWidth
+      const vh = window.innerHeight || document.documentElement.clientHeight
+      const left = Math.max(8, Math.min(x, vw - 152 - 8))
+      const top = Math.max(8, Math.min(y, vh - 88 - 8))
+      return { key, left, top }
+    })
+  }
+
+  // (ピースO) メニューを閉じる: メニュー外のタップ、Escキー、スクロール
+  useEffect(() => {
+    if (!contextMenu) return
+    const onPointerDown = (e) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) closeContextMenu()
+    }
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') closeContextMenu()
+    }
+    const onScroll = () => closeContextMenu()
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('scroll', onScroll, { capture: true })
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('scroll', onScroll)
+    }
+  }, [contextMenu])
+
+  // (ピースO) 最大化オーバーレイは Esc キーでも閉じる
+  useEffect(() => {
+    if (!maximizedKey) return
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setMaximizedKey(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [maximizedKey])
+
+  // (ピースO) 削除実行時: 確認帯を閉じ、そのメモが最大化中ならオーバーレイも閉じる
+  const handleRemove = (key) => {
+    setDeleteConfirmKey(null)
+    if (maximizedKey === key) setMaximizedKey(null)
+    return trashItem(key)
   }
 
   // (メモマップ) ピンになるのは座標を持つアイテムのみ（無いものはカードだけ表示）
@@ -452,25 +530,37 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 @min-[620px]:grid-cols-2 @min-[980px]:grid-cols-3 @min-[1340px]:grid-cols-4">
-            {filtered.map((item) => (
-              <MemochoCard
-                key={memochoKeyOf(item)}
-                item={item}
-                onSelect={selectFacility}
-                draft={memoDrafts[memochoKeyOf(item)]}
-                onDraftChange={onDraftChange}
-                onDraftCommit={onDraftCommit}
-                onSetRating={setRating}
-                // 論理削除: deletedAt を付けてごみ箱へ移動する
-                onRemove={trashItem}
-                selected={selectedKey === memochoKeyOf(item)}
-                // (カテゴリ編集モード) ON のときだけカードに所属ブックの変更 UI を出す
-                books={books}
-                editMode={categoryEdit}
-                onSetBook={setBook}
-              />
-            ))}
+          <div className="card-grid">
+            {filtered.map((item) => {
+              const key = memochoKeyOf(item)
+              // (ピースO) 最大化中のカードはオーバーレイに表示するため、一覧からは除外する
+              if (key === maximizedKey) return null
+              return (
+                <MemochoCard
+                  key={key}
+                  item={item}
+                  onSelect={selectFacility}
+                  draft={memoDrafts[key]}
+                  onDraftChange={onDraftChange}
+                  onDraftCommit={onDraftCommit}
+                  onSetRating={setRating}
+                  // 論理削除: deletedAt を付けてごみ箱へ移動する
+                  onRemove={handleRemove}
+                  selected={selectedKey === key}
+                  // (カテゴリ編集モード) ON のときだけカードに所属ブックの変更 UI を出す
+                  books={books}
+                  editMode={categoryEdit}
+                  onSetBook={setBook}
+                  // (ピースO) 削除の確認帯はセクション側で状態を管理（コンテキストメニューの
+                  // 「登録削除」からも表示できるため）
+                  confirmDelete={deleteConfirmKey === key}
+                  onConfirmDeleteShow={() => setDeleteConfirmKey(key)}
+                  onConfirmDeleteHide={() => setDeleteConfirmKey(null)}
+                  // (ピースO) 右クリック/長押しでコンテキストメニューを開く
+                  onOpenContextMenu={handleOpenContextMenu}
+                />
+              )
+            })}
           </div>
         )}
       </div>
@@ -480,6 +570,83 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
         callbackError={callbackError}
         onClose={() => setLoginOpen(false)}
       />
+
+      {/* (ピースO) コンテキストメニュー: カードの右クリック/長押しで fixed ポップアップ。
+          「最大化」でカードを最大化表示、「登録削除」でカードの2段階確認帯を出す。
+          メニュー外のタップ・Esc・スクロールで閉じる */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          role="menu"
+          aria-label="メモカードの操作"
+          className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-lg px-1.5 py-1.5"
+          style={{ left: contextMenu.left, top: contextMenu.top }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              if (contextMenu.key) setMaximizedKey(contextMenu.key)
+              closeContextMenu()
+            }}
+            className="block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded"
+          >
+            最大化
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeContextMenu()
+              if (contextMenu.key) setDeleteConfirmKey(contextMenu.key)
+            }}
+            className="block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded"
+          >
+            登録削除
+          </button>
+        </div>
+      )}
+
+      {/* (ピースO) 最大化表示: リスト画面内のオーバーレイ（fixed inset-0、背景は
+          リスト画面と同じ slate-100、内容はスクロール可）。上部に「閉じる」ボタン
+          （Esc キーでも閉じる）。中身は MemochoCard の再利用（maximized でメモ欄を
+          大きくする）。そのメモが削除されるとオーバーレイも閉じる */}
+      {maximizedKey && (
+        <div className="fixed inset-0 z-50 bg-slate-100 overflow-y-auto">
+          <div className="sticky top-0 z-10 flex items-center justify-end bg-slate-100 px-3 py-2 border-b border-slate-200">
+            <button
+              type="button"
+              onClick={() => setMaximizedKey(null)}
+              className="min-h-[44px] px-4 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg"
+            >
+              閉じる
+            </button>
+          </div>
+          <div className="px-3 py-3">
+            {active.some((it) => memochoKeyOf(it) === maximizedKey) && (
+              <MemochoCard
+                key={maximizedKey}
+                item={active.find((it) => memochoKeyOf(it) === maximizedKey)}
+                onSelect={selectFacility}
+                draft={memoDrafts[maximizedKey]}
+                onDraftChange={onDraftChange}
+                onDraftCommit={onDraftCommit}
+                onSetRating={setRating}
+                onRemove={handleRemove}
+                selected={selectedKey === maximizedKey}
+                books={books}
+                editMode={categoryEdit}
+                onSetBook={setBook}
+                maximized
+                confirmDelete={deleteConfirmKey === maximizedKey}
+                onConfirmDeleteShow={() => setDeleteConfirmKey(maximizedKey)}
+                onConfirmDeleteHide={() => setDeleteConfirmKey(null)}
+                onOpenContextMenu={handleOpenContextMenu}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -505,6 +672,8 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
 function MemochoCard({
   item, onSelect, draft, onDraftChange, onDraftCommit, onSetRating, onRemove,
   selected = false, books = [], editMode = false, onSetBook = null,
+  maximized = false, confirmDelete = false, onConfirmDeleteShow, onConfirmDeleteHide,
+  onOpenContextMenu,
 }) {
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
@@ -514,8 +683,70 @@ function MemochoCard({
   const bookValue = books.some((b) => b.id === item.bookId) ? item.bookId : 'default'
   const isEditing = draft != null
   const editRef = useRef(null)
-  // 削除の2段階確認状態（1回目の✕タップで true、実行/キャンセルで false）
-  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // (ピースO) コンテキストメニュー: 右クリック（contextmenu）または長押し（約550ms）で開く。
+  // 長押し中: ポインタが10px以上動いたり、離れたり、カードを離れるとキャンセルする。
+  // カード内の対話要素（a, button, textarea, input, select, [role="button"]）から
+  // 始まった操作では開かない（メモ編集の textarea の長押しなどで開いてはならない）。
+  // 長押しで開いた直後のクリックはカードの選択処理に伝播しないよう抑止する
+  const LONG_PRESS_MS = 550
+  const LONG_PRESS_MOVE_PX = 10
+  const longPressRef = useRef(null)
+  const suppressClickRef = useRef(false)
+
+  const cancelLongPress = () => {
+    const lp = longPressRef.current
+    if (lp) {
+      clearTimeout(lp.timer)
+      longPressRef.current = null
+    }
+  }
+
+  const isInteractiveTarget = (target) =>
+    target != null && typeof target.closest === 'function' &&
+    target.closest('a, button, textarea, input, select, [role="button"]') != null
+
+  const handlePointerDown = (e) => {
+    if (e.button != null && e.button !== 0) return // 左ボタンの長押しのみ
+    if (isInteractiveTarget(e.target)) return
+    cancelLongPress()
+    longPressRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      timer: setTimeout(() => {
+        longPressRef.current = null
+        suppressClickRef.current = true
+        if (onOpenContextMenu) onOpenContextMenu(key, e.clientX, e.clientY)
+      }, LONG_PRESS_MS)
+    }
+  }
+
+  const handlePointerMove = (e) => {
+    const lp = longPressRef.current
+    if (!lp) return
+    if (Math.abs(e.clientX - lp.x) > LONG_PRESS_MOVE_PX || Math.abs(e.clientY - lp.y) > LONG_PRESS_MOVE_PX) {
+      cancelLongPress()
+    }
+  }
+
+  const handlePointerUp = () => cancelLongPress()
+
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    if (isInteractiveTarget(e.target)) return
+    if (onOpenContextMenu) onOpenContextMenu(key, e.clientX, e.clientY)
+  }
+
+  const handleClickCapture = (e) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      e.stopPropagation()
+      e.preventDefault()
+    }
+  }
+
+  // (ピースO) アンマウント時に未解消の長押しタイマーを消す
+  useEffect(() => () => cancelLongPress(), [])
 
   // 編集モードへ切替たら textarea を自動フォーカス（従来の input がタップで
   // フォーカスされてキーボードが出るのと同じ体験にする）
@@ -530,8 +761,17 @@ function MemochoCard({
       className={`relative bg-white border rounded-xl shadow-sm overflow-hidden ${
         selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'
       }`}
+      // (ピースO) コンテキストメニュー: 右クリック・長押し（詳細は各ハンドラ参照）
+      onContextMenu={handleContextMenu}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      onClickCapture={handleClickCapture}
     >
-      {/* 2段階確認中: 上部に確認帯を表示（カード内容を押下して配置） */}
+      {/* 2段階確認中: 上部に確認帯を表示（カード内容を押下して配置）。
+          (ピースO) 状態はセクション側で管理（confirmDelete prop）: カードの✕ボタン
+          でなくても、コンテキストメニューの「登録削除」からも表示できる */}
       {confirmDelete && (
         <div className="flex items-center gap-1.5 bg-red-50 border-b border-red-200 px-2 py-1.5">
           <span className="flex-1 min-w-0 text-[11px] leading-tight text-red-700">
@@ -540,7 +780,7 @@ function MemochoCard({
           <button
             type="button"
             onClick={() => {
-              setConfirmDelete(false)
+              onConfirmDeleteHide && onConfirmDeleteHide()
               onRemove && onRemove(key)
             }}
             className="shrink-0 min-h-[28px] px-2 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-700 rounded"
@@ -549,7 +789,7 @@ function MemochoCard({
           </button>
           <button
             type="button"
-            onClick={() => setConfirmDelete(false)}
+            onClick={() => onConfirmDeleteHide && onConfirmDeleteHide()}
             className="shrink-0 min-h-[28px] px-2 text-[11px] text-slate-600 hover:bg-red-100 rounded"
           >
             キャンセル
@@ -568,7 +808,7 @@ function MemochoCard({
         <button
           type="button"
           aria-label={`${item.name}をメモ帳から削除`}
-          onClick={() => setConfirmDelete(true)}
+          onClick={() => onConfirmDeleteShow && onConfirmDeleteShow()}
           className={`absolute top-2 right-2 z-10 w-7 h-7 grid place-items-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 ${
             item.mapImage ? 'bg-white/90 shadow' : ''
           }`}
@@ -627,10 +867,12 @@ function MemochoCard({
             value={draft}
             placeholder="メモを追加"
             aria-label={`${item.name}のメモ`}
-            rows={3}
+            rows={maximized ? 12 : 3}
             onChange={(e) => onDraftChange(key, e.target.value)}
             onBlur={(e) => onDraftCommit(key, e.currentTarget.value)}
-            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-slate-600 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              maximized ? 'text-sm' : 'text-xs'
+            }`}
           />
         ) : (
           <div
@@ -716,8 +958,11 @@ function ScrapbookBar({
   const canRename = selected != null
   const canPublish = selected != null
   const canDelete = selected != null && selected.id !== DEFAULT_BOOK_ID
-  // (ピースM) 非公開のカテゴリが選択中のとき、公開系ボタンを無効化する
+  // (ピースM・拡張) 公開系ボタンは公開カテゴリを選択中のみ有効。
+  // 非公開カテゴリ選択中と「すべて」選択中は無効化する（ユーザー判断 2026-11-26）
   const isPrivateSelected = selected != null && !selected.public
+  const isAllSelected = selected == null
+  const publishDisabled = isPrivateSelected || isAllSelected
   // (ピースH) ブック数の上限（デフォルト含む 100 冊）に達しているか
   const atBookLimit = (Array.isArray(books) ? books : []).length >= MAX_BOOKS
 
@@ -853,7 +1098,7 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={onSyncClick}
-            disabled={syncing || isPrivateSelected}
+            disabled={syncing || publishDisabled}
             aria-label={syncing ? '公開地図へ反映中' : '公開地図へ反映'}
             className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -881,15 +1126,34 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={handleCopyClick}
-            disabled={isPrivateSelected}
-            className="min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={publishDisabled}
+            className="shrink-0 flex items-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            公開マップのURLをコピー
+            <svg
+              viewBox="0 0 24 24"
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            URLをコピー
           </button>
           {/* (ピースM) 非公開カテゴリ選択中の無効化理由 */}
           {isPrivateSelected && (
             <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
               選択中のカテゴリは非公開です
+            </span>
+          )}
+          {/* (拡張) 「すべて」選択中の無効化理由 */}
+          {isAllSelected && (
+            <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
+              反映するには公開カテゴリを選んでください
             </span>
           )}
           {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (

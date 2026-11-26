@@ -14,6 +14,7 @@ import { useMemocho } from '../../hooks/useMemocho'
 import { powerWifiStatus, isWorkspaceFacility } from '../../utils/powerWifi'
 import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
 import { getCachedThumb, queueThumb } from '../../utils/resultThumbs'
+import { buildOsmElementUrl } from '../../utils/editLinks'
 
 // テスト・他コンポーネントの互換のために再エクスポート
 export { facilityName, formatAddress, safeWebsite }
@@ -64,8 +65,7 @@ function PowerWifiValue({ state, icon }) {
  *   - 車椅子バッジ・欠落フィルタ時の「未登録」表示は従来どおり。
  *
  * onSelect があればカード全体で施設を選択する。詳細モードでは施設名行と地図サムネイルから onOpen を呼ぶ。
- * OSM生データ（node/way、amenity=cafe、OSM ID）はカードの主表示にしない
- * （#44 方針維持）。詳細（OSM ID・全タグ）は MobileFacilityDetail に退ける。
+ * OSM ID は施設情報の末尾に表示し、OpenStreetMap の地物ページへリンクする。
  *
  * showMapThumb: 固定サイズの地図サムネイルを右上に表示。
  *   mapImage が渡された場合は保存済み画像を使い、それ以外は遅延生成する。
@@ -97,7 +97,8 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
 
   // まちメモ帳（第2ピース）: この施設が登録済みかどうか
   const { has, toggle } = useMemocho()
-  const registered = has(memochoKeyOf(result))
+  const osmId = memochoKeyOf(result)
+  const registered = has(osmId)
 
   // リンクはカードの選択と独立して動作する。
   const stopOpen = (e) => e.stopPropagation()
@@ -256,6 +257,20 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
       <span>-</span>
     </p>
   )
+  const osmIdRow = /^(node|way|relation)\/[1-9]\d*$/.test(osmId) ? (
+    <p className="text-xs text-slate-600">
+      <span className="text-slate-400">OSM ID</span>
+      <a
+        href={buildOsmElementUrl(result)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stopOpen}
+        className="ml-1 text-primary-600 break-all"
+      >
+        {osmId}
+      </a>
+    </p>
+  ) : null
   const additionalRows = (
     <>
       {/* (作業スペース系) 電源・Wi-Fi の状態。基本4項目のあと・カテゴリ追加項目の前。
@@ -311,6 +326,7 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
           {locationRows}
           {openingHoursRow}
           {additionalRows}
+          {osmIdRow}
         </div>
       )}
     </>
@@ -322,6 +338,7 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
       {openingHoursRow}
       {contactRow}
       {additionalRows}
+      {osmIdRow}
       {memoToggle}
     </>
   )

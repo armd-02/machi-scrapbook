@@ -1419,3 +1419,68 @@ describe('MobileListTab: キーワード行のフィルタクリアシンボル�
     expect(clearBtn.parentElement).toBe(kwRow.lastElementChild)
   })
 })
+
+describe('MobileListTab: 検索の共有ボタン（ピースN）', () => {
+  const poiActions = [
+    { type: 'SET_SEARCH_SOURCE', payload: 'map' },
+    { type: 'SET_RESULTS', payload: [cafeWithWeb, park] },
+    { type: 'SET_STATUS', payload: 'success' },
+  ]
+
+  it('結果があるときは件数表示の右側に「📎 検索を共有」ボタンが横並びで表示される', () => {
+    render(<Harness preActions={poiActions} />)
+
+    const countText = screen.getByText('2件中、2件を表示')
+    const shareBtn = screen.getByRole('button', { name: /検索を共有/ })
+    expect(shareBtn).toBeTruthy()
+
+    // 同じ行（flexコンテナ）内にあり、件数テキストの後に配置される
+    const row = countText.parentElement
+    expect(row.classList.contains('flex')).toBe(true)
+    expect(row.contains(shareBtn)).toBe(true)
+    expect((countText.compareDocumentPosition(shareBtn) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+  })
+
+  it('tooltip の文言は「共有したURLを開くと…」になっている', () => {
+    render(<Harness preActions={poiActions} />)
+
+    expect(screen.getByText(/共有したURLを開くと同じ画面・条件・絞り込みで開けますが/)).toBeTruthy()
+    expect(screen.queryByText(/共有URLを開くと/)).toBeNull()
+  })
+
+  it('結果が0件のときは共有ボタンは表示されない', () => {
+    render(<Harness preActions={[
+      { type: 'SET_SEARCH_SOURCE', payload: 'map' },
+      { type: 'SET_RESULTS', payload: [] },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+
+    expect(screen.queryByRole('button', { name: /検索を共有/ })).toBeNull()
+  })
+
+  it('バリアフリー一覧には共有ボタンが出ない（共有URLは検索条件のエンコードのみ）', () => {
+    render(<Harness preActions={bfMobileActions()} />)
+
+    expect(screen.queryByRole('button', { name: /検索を共有/ })).toBeNull()
+  })
+})
+
+describe('MobileListTab: カード列数の仕様を3画面で統一しCSSを共通化（ピースP）', () => {
+  it('POI一覧とバリアフリー一覧のカード一覧は共通の .card-grid を使う', () => {
+    render(<Harness preActions={[
+      { type: 'SET_RESULTS', payload: [cafeWithWeb] },
+      { type: 'SET_STATUS', payload: 'success' },
+    ]} />)
+    // POI一覧: カードの親が共通グリッド
+    const poiCard = document.getElementById('facility-card-node/1')
+    expect(poiCard).toBeTruthy()
+    expect(poiCard.closest('.card-grid')).toBeTruthy()
+
+    cleanup()
+    render(<Harness preActions={bfMobileActions()} />)
+    // バリアフリー一覧: 同じ共通グリッド
+    const bfCard = document.getElementById('barrier-free-card-node/200')
+    expect(bfCard).toBeTruthy()
+    expect(bfCard.closest('.card-grid')).toBeTruthy()
+  })
+})
