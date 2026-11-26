@@ -9,6 +9,12 @@ const SYNC_SCOPES = ['batch:create', 'batch:update', 'batch:delete']
 const AUTH_EXPIRED = '認証を確認できませんでした。OpenStreetMap で再度ログインしてください。'
 
 let returnedSession = null
+let activeSession = null
+
+export function getCmmOsmSession() {
+  if (activeSession && Date.now() >= activeSession.expiresAt) activeSession = null
+  return activeSession?.session ?? null
+}
 
 function randomHex(length) {
   return Array.from(crypto.getRandomValues(new Uint8Array(length)), (byte) =>
@@ -20,7 +26,7 @@ function authError(message = AUTH_EXPIRED) {
   return new CmmError({ kind: 'auth', message })
 }
 
-export async function startCmmOsmLogin(signal) {
+export async function startCmmOsmLogin() {
   if (window.location.origin !== APP_ORIGIN) {
     throw authError('現在のURLでは同期できません。公開サイトからお試しください。')
   }
@@ -29,7 +35,6 @@ export async function startCmmOsmLogin(signal) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
   const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
     .replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
-  if (signal?.aborted) return
 
   const authorize = new URL('/external-authorize.php', CMM_BASE_URL)
   authorize.search = new URLSearchParams({
@@ -90,6 +95,7 @@ async function finishLogin(callback, pending) {
   const code = callback.get('code')
   if (!code || callback.getAll('code').length !== 1) throw authError()
 
+  const requestedAt = Date.now()
   const token = await apiRequest('/api/external-token.php', {
     method: 'POST',
     body: new URLSearchParams({
@@ -109,13 +115,16 @@ async function finishLogin(callback, pending) {
     throw new CmmError({ kind: 'permission', message: '一括同期に必要な操作が許可されていません。連携設定を確認してください。' })
   }
 
-  return {
+  const session = {
     userid: profile.userid,
     async writeBatch(changes) {
       const result = await apiRequest('/api/activities-batch.php', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...changes, app: CMM_APP_KEY }),
+      }).catch((error) => {
+        if (error.kind === 'auth' && activeSession?.session === session) activeSession = null
+        throw error
       })
       if (result?.status !== 'ok' || !Array.isArray(result.created) || !Array.isArray(result.updated)
         || !Array.isArray(result.deleted)) {
@@ -124,6 +133,9 @@ async function finishLogin(callback, pending) {
       return result
     },
   }
+  const ttl = Number.isFinite(token.expires_in) ? token.expires_in * 1000 : 0
+  activeSession = { session, expiresAt: requestedAt + ttl }
+  return session
 }
 
 /** Start exchanging the callback before React mounts, and immediately remove its parameters. */

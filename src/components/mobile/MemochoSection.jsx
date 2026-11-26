@@ -17,9 +17,8 @@ import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
 import { useCmmSync } from '../../hooks/useCmmSync'
 import { cmmToMs } from '../../utils/cmmSync'
-import { takeCmmOsmReturn } from '../../utils/cmmOsmSession'
+import { getCmmOsmSession, startCmmOsmLogin, takeCmmOsmReturn } from '../../utils/cmmOsmSession'
 import { publicMapUrl } from '../../utils/publicMapUrl'
-import CmmLoginDialog from '../CmmLoginDialog'
 import CmmSyncResultPanel from '../CmmSyncResultPanel'
 
 /**
@@ -162,8 +161,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   const { books, create: createBook, rename: renameBook, remove: removeBook, setPublic: setBookPublic } = useScrapbooks()
 
   const cmmSync = useCmmSync()
-  const [loginOpen, setLoginOpen] = useState(false)
-  const [callbackError, setCallbackError] = useState(null)
+  const [loginError, setLoginError] = useState(null)
   const [completingLogin, setCompletingLogin] = useState(false)
 
   useEffect(() => {
@@ -172,13 +170,29 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
     setCompletingLogin(true)
     returned.then(async ({ session, error }) => {
       if (error) {
-        setCallbackError(error.message)
-        setLoginOpen(true)
+        setLoginError(error.message)
       } else {
         await cmmSync.runSync(session)
       }
     }).finally(() => setCompletingLogin(false))
   }, [cmmSync.runSync])
+
+  async function handleSyncClick() {
+    setLoginError(null)
+    const session = getCmmOsmSession()
+    if (session) {
+      await cmmSync.runSync(session)
+      return
+    }
+    setCompletingLogin(true)
+    try {
+      await startCmmOsmLogin()
+    } catch (error) {
+      setLoginError(error.message)
+    } finally {
+      setCompletingLogin(false)
+    }
+  }
 
   // (スクラップブックバー) 選択中のブック（'all' ＝ すべて）。localStorage に保存され、
   // 次回開いたときも維持される
@@ -410,10 +424,8 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           onSetPublic={setBookPublic}
           onDelete={handleDeleteBook}
           bookCount={selectedBookCount}
-          onSyncClick={() => {
-            setCallbackError(null)
-            setLoginOpen(true)
-          }}
+          onSyncClick={handleSyncClick}
+          loginError={loginError}
           syncing={completingLogin || cmmSync.syncing}
           lastSyncAt={cmmSync.lastSyncAt}
           syncResult={cmmSync.result}
@@ -573,12 +585,6 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           </div>
         )}
       </div>
-
-      <CmmLoginDialog
-        open={loginOpen}
-        callbackError={callbackError}
-        onClose={() => setLoginOpen(false)}
-      />
 
       {/* (ピースO) コンテキストメニュー: カードの右クリック/長押しで fixed ポップアップ。
           「最大化」でカードを最大化表示、「登録削除」でカードの2段階確認帯を出す。
@@ -920,8 +926,7 @@ function MemochoCard({
  *   - 削除: 選択中のブックを削除し、そのブックのメモはすべて「デフォルト」へ
  *     移す（2段階確認）。「デフォルト」は削除できない（名前変更は可）
  * - 公開ブックはセレクトのラベルに「（公開）」が付く
- * - 「CMM 同期」ボタン（(CMM同期、ピースC)）: 押すとログインダイアログ
- *   （CmmLoginDialog）が表示され、OpenStreetMap ログイン後に同期を開始する。
+ * - 「公開地図へ反映」ボタン: 認証が有効ならすぐに同期し、必要なときは認証画面へ進む。
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
  *   ボタンの右に「最終: YYYY/MM/DD HH:MM」を表示する。同期完了後はバーの下に
  *   結果パネル（CmmSyncResultPanel）が表示され、✕ で閉じられる
@@ -937,7 +942,8 @@ function MemochoCard({
  * @param {(id: string, isPublic: boolean) => boolean} onSetPublic 公開設定の切替
  * @param {(id: string) => boolean} onDelete 削除（メモは「デフォルト」へ移動済みであること）
  * @param {number} bookCount 選択中ブックのメモ件数（削除確認の案内に使う）
- * @param {() => void} onSyncClick 同期ボタンの押下（ログインダイアログを開く）
+ * @param {() => void} onSyncClick 同期ボタンの押下
+ * @param {string|null} loginError 認証の開始・完了に失敗したときのメッセージ
  * @param {boolean} syncing 同期実行中か
  * @param {string|null} lastSyncAt 最終同期時刻（RFC3339 文字列）
  * @param {string|null} lastUserId 同期で使ったユーザー名（localStorage 保存）
@@ -947,7 +953,7 @@ function MemochoCard({
 function ScrapbookBar({
   books, bookFilter, onSelectBook, onCreate, onRename, onSetPublic, onDelete,
   bookCount,
-  onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose, lastUserId
+  onSyncClick, loginError, syncing, lastSyncAt, syncResult, onSyncClose, lastUserId
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -1164,6 +1170,7 @@ function ScrapbookBar({
             <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">未同期</span>
           )}
         </div>
+        {loginError && <p role="alert" className="text-xs text-red-700">{loginError}</p>}
         {copyFeedback && <p role="status" className="text-xs text-slate-600">{copyFeedback}</p>}
       </div>
 

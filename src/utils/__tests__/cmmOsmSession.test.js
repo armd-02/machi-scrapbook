@@ -2,7 +2,7 @@
 // @vitest-environment-options {"url":"https://machi-scrapbook.openacrossbase.net/"}
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { resumeCmmOsmSync, startCmmOsmLogin, takeCmmOsmReturn } from '../cmmOsmSession.js'
+import { getCmmOsmSession, resumeCmmOsmSync, startCmmOsmLogin, takeCmmOsmReturn } from '../cmmOsmSession.js'
 import { CMM_BASE_URL } from '../cmmSync.js'
 
 const origin = 'https://machi-scrapbook.openacrossbase.net'
@@ -20,7 +20,10 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/')
 })
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 function setCallback(params, saved = { verifier, state, startedAt: Date.now(), search: '?keyword=park' }) {
   if (saved) sessionStorage.setItem(storageKey, JSON.stringify(saved))
@@ -55,7 +58,7 @@ it('PKCE と state を作ってから登録済みの認可開始ページへ遷�
 it('認可コードを一度だけ交換し、取得と一括保存に Bearer トークンを使う', async () => {
   const batch = { status: 'ok', created: [{ id: 'machi-scrapbook/test' }], updated: [], deleted: [] }
   const fetch = vi.fn()
-    .mockResolvedValueOnce(Response.json({ access_token: token, token_type: 'Bearer' }))
+    .mockResolvedValueOnce(Response.json({ access_token: token, token_type: 'Bearer', expires_in: 900 }))
     .mockResolvedValueOnce(Response.json({ userid: 'public-id', app_key: 'machi-scrapbook', scopes }))
     .mockResolvedValueOnce(Response.json(batch))
   vi.stubGlobal('fetch', fetch)
@@ -67,6 +70,7 @@ it('認可コードを一度だけ交換し、取得と一括保存に Bearer �
 
   const { session } = await pending
   expect(session.userid).toBe('public-id')
+  expect(getCmmOsmSession()).toBe(session)
   const changes = { creates: [{ name: 'テスト施設' }], updates: [], deletes: [] }
   await expect(session.writeBatch(changes)).resolves.toEqual(batch)
 
@@ -88,6 +92,30 @@ it('認可コードを一度だけ交換し、取得と一括保存に Bearer �
   expect(JSON.parse(writeOptions.body)).toEqual({ ...changes, app: 'machi-scrapbook' })
   expect(localStorage.length).toBe(0)
   expect(sessionStorage.length).toBe(0)
+})
+
+it('アクセストークンの期限後はセッションを再利用しない', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(Response.json({ access_token: token, token_type: 'Bearer', expires_in: 900 }))
+    .mockResolvedValueOnce(Response.json({ userid: 'public-id', app_key: 'machi-scrapbook', scopes })))
+  const { session } = await setCallback({ code: 'valid-code', state })
+
+  now.mockReturnValue(900999)
+  expect(getCmmOsmSession()).toBe(session)
+  now.mockReturnValue(901000)
+  expect(getCmmOsmSession()).toBeNull()
+})
+
+it('書き込みAPIが認証を拒否したセッションを再利用しない', async () => {
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(Response.json({ access_token: token, token_type: 'Bearer', expires_in: 900 }))
+    .mockResolvedValueOnce(Response.json({ userid: 'public-id', app_key: 'machi-scrapbook', scopes }))
+    .mockResolvedValueOnce(Response.json({ code: 'invalid_token' }, { status: 401 })))
+  const { session } = await setCallback({ code: 'valid-code', state })
+
+  await expect(session.writeBatch({ creates: [], updates: [], deletes: [] })).rejects.toMatchObject({ kind: 'auth' })
+  expect(getCmmOsmSession()).toBeNull()
 })
 
 it.each([

@@ -9,7 +9,7 @@ import { MEMOCHO_STORAGE_KEY, loadMemocho } from '../../../utils/memocho'
 import { SCRAPBOOKS_STORAGE_KEY } from '../../../utils/scrapbooks'
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
-import { startCmmOsmLogin, takeCmmOsmReturn } from '../../../utils/cmmOsmSession'
+import { getCmmOsmSession, startCmmOsmLogin, takeCmmOsmReturn } from '../../../utils/cmmOsmSession'
 import { syncMemos, CmmError } from '../../../utils/cmmSync'
 import { CMM_LAST_SYNC_KEY, CMM_LAST_USERID_KEY } from '../../../hooks/useCmmSync'
 
@@ -18,7 +18,7 @@ vi.mock('../../../utils/cmmSync', async (importOriginal) => {
   return { ...actual, syncMemos: vi.fn() }
 })
 
-vi.mock('../../../utils/cmmOsmSession', () => ({ startCmmOsmLogin: vi.fn(), takeCmmOsmReturn: vi.fn() }))
+vi.mock('../../../utils/cmmOsmSession', () => ({ getCmmOsmSession: vi.fn(), startCmmOsmLogin: vi.fn(), takeCmmOsmReturn: vi.fn() }))
 
 vi.mock('../../../utils/mapCapture', () => ({
   captureMapImage: vi.fn(async () => 'data:image/jpeg;base64,QUJD'),
@@ -107,7 +107,8 @@ beforeEach(() => {
   }
   seedMemos([makeItem()])
   seedBooks([{ id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: true }])
-  startCmmOsmLogin.mockResolvedValue(undefined)
+  getCmmOsmSession.mockReturnValue(null)
+  startCmmOsmLogin.mockReset().mockResolvedValue(undefined)
   takeCmmOsmReturn.mockReset()
   syncMemos.mockResolvedValue(okResult())
 })
@@ -193,27 +194,43 @@ describe('公開マップのURLをコピー', () => {
   })
 })
 
-describe('ログインダイアログ', () => {
-  it('ログインボタンで認証を開始し、戻ってから同期する', () => {
+describe('公開地図へ反映の認証', () => {
+  it('認証が必要ならダイアログを挟まずに認証を開始する', async () => {
     renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.click(screen.getByRole('button', { name: 'OpenStreetMap でログイン' }))
+    await act(async () => fireEvent.click(syncButton()))
+
     expect(startCmmOsmLogin).toHaveBeenCalledOnce()
-    expect(syncMemos).not.toHaveBeenCalled()
-  })
-
-  it('同期ボタンを押すとログインダイアログが開く', () => {
-    renderSection()
-    fireEvent.click(syncButton())
-    expect(screen.getByRole('dialog', { name: '公開地図への反映ログイン' })).toBeTruthy()
-  })
-
-  it('キャンセルでダイアログが閉じられ、syncMemos は呼ばれない', async () => {
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(syncMemos).not.toHaveBeenCalled()
+  })
+
+  it('有効な認証があればログインを開始せず同期する', async () => {
+    const session = { userid: 'user1' }
+    getCmmOsmSession.mockReturnValue(session)
+    renderSection()
+    fireEvent.click(syncButton())
+
+    await waitFor(() => expect(syncMemos).toHaveBeenCalledWith(expect.objectContaining({ session })))
+    expect(startCmmOsmLogin).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('認証を開始できない場合に同期ボタンの近くにエラーを表示する', async () => {
+    startCmmOsmLogin.mockRejectedValueOnce(new Error('認証を開始できませんでした。'))
+    renderSection()
+    fireEvent.click(syncButton())
+
+    expect((await screen.findByRole('alert')).textContent).toBe('認証を開始できませんでした。')
+    expect(syncButton().disabled).toBe(false)
+  })
+
+  it('認証をキャンセルして戻った場合にエラーを表示して同期しない', async () => {
+    takeCmmOsmReturn.mockReturnValueOnce(Promise.resolve({ error: new Error('認証がキャンセルされました。') }))
+    renderSection()
+
+    expect((await screen.findByRole('alert')).textContent).toBe('認証がキャンセルされました。')
+    expect(syncMemos).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 
