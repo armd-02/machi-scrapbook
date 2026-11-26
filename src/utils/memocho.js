@@ -16,7 +16,7 @@
  *     操作を行うまでストアに残る
  *   - bookId?: スクラップブック（分類）の ID（scrapbooks.js）。欠落・不正な場合は
  *     'default'（デフォルトブック）に属するものとして扱う（読み取り時に正規化）。
- *     addMemocho が作るスナップショットには bookId を付けない（＝デフォルト扱い）
+ *     登録先の指定がない新規スナップショットはデフォルト扱い
  *   - cmmId? / cmmUpdatedAt?: CMM 同期用のフィールド（任意）。
  *     cmmId: 同期済み投稿の ID（文字列）。cmmUpdatedAt: 最終同期時刻（文字列）。
  *     値が無いメモは従来どおり（同期未対象）。正規化・書き出し・読み込みで
@@ -112,14 +112,16 @@ export function hasMemocho(items, key) {
  * - 同じキーのアクティブアイテムが存在するなら配列をそのまま返す（重複追加しない）
  * - アクティブは無理でも同じキーのごみ箱アイテムが存在するなら、それを
  *   復元（deletedAt を除去）して返す。重複キーの新規作成を避ける
+ * - bookId が指定されていれば、追加・復元したアイテムをその冊子に入れる
  */
-export function addMemocho(items, result) {
+export function addMemocho(items, result, bookId) {
   if (!isValidSource(result)) return items
 
   const key = memochoKeyOf(result)
   if (hasMemocho(items, key)) return items
   if (items.some((item) => memochoKeyOf(item) === key && isDeletedItem(item))) {
-    return restoreMemocho(items, key)
+    const restored = restoreMemocho(items, key)
+    return bookId == null ? restored : updateBook(restored, key, normalizeBookId(bookId))
   }
 
   const tags = result.tags && typeof result.tags === 'object' ? { ...result.tags } : null
@@ -137,6 +139,7 @@ export function addMemocho(items, result) {
     rating: 0,
     addedAt: new Date().toISOString(),
   }
+  if (bookId != null) snapshot.bookId = normalizeBookId(bookId)
   return [...items, snapshot]
 }
 

@@ -70,7 +70,7 @@ function PowerWifiValue({ state, icon }) {
  * showMapThumb: 固定サイズの地図サムネイルを右上に表示。
  *   mapImage が渡された場合は保存済み画像を使い、それ以外は遅延生成する。
  */
-export default function MobileFacilityCard({ result, onOpen, onSelect, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false, mapImage }) {
+export default function MobileFacilityCard({ result, onOpen, onSelect, bare = false, hideMemoToggle = false, cardId = null, selected = false, showMapThumb = false, mapImage, registrationBookId }) {
   const tags = result.tags || {}
   const name = facilityName(result, '（名称無し）')
   const typeLabel = facilityTypeLabel(result)
@@ -106,7 +106,7 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
   // メモ帳ボタンのタップ: 追加/削除を切り替える（toggle）。
   const onToggleMemo = (e) => {
     e.stopPropagation()
-    toggle(result)
+    toggle(result, registrationBookId)
   }
 
   // (地図サムネイル) 検索結果カード用: カード右側に地図サムネイルを表示する

@@ -12,6 +12,10 @@ import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
 import MobileListTab from '../MobileListTab'
 import { facilityIconUrl } from '../../../utils/facilityIcon'
+import { resetMemochoStore } from '../../../hooks/useMemocho'
+import { resetScrapbooksStore } from '../../../hooks/useScrapbooks'
+import { MEMOCHO_STORAGE_KEY, loadMemocho } from '../../../utils/memocho'
+import { SCRAPBOOKS_STORAGE_KEY } from '../../../utils/scrapbooks'
 
 // 実際のOverpass正規化と同様に tags.name → 顶层name にコピーする
 // MapLibre GLはWebGLが必要でjsdomでは初期化できないためモジュール全体をモックする。
@@ -1462,6 +1466,61 @@ describe('MobileListTab: 検索の共有ボタン（ピースN）', () => {
     render(<Harness preActions={bfMobileActions()} />)
 
     expect(screen.queryByRole('button', { name: /検索を共有/ })).toBeNull()
+  })
+})
+
+describe('MobileListTab: メモ帳の登録先', () => {
+  const preActions = [
+    { type: 'SET_RESULTS', payload: [cafeWithWeb, park] },
+    { type: 'SET_STATUS', payload: 'success' },
+  ]
+
+  beforeEach(() => {
+    localStorage.removeItem(MEMOCHO_STORAGE_KEY)
+    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify([{ id: 'outing', name: 'お出かけ' }]))
+    resetMemochoStore()
+    resetScrapbooksStore()
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(MEMOCHO_STORAGE_KEY)
+    localStorage.removeItem(SCRAPBOOKS_STORAGE_KEY)
+    resetMemochoStore()
+    resetScrapbooksStore()
+  })
+
+  it('カードの直前で登録先を選び、選択した冊子に追加する', () => {
+    render(<Harness preActions={preActions} />)
+
+    const destination = screen.getByRole('combobox', { name: /メモ帳の登録先/ })
+    const card = document.getElementById('facility-card-node/1')
+    expect(card.parentElement.previousElementSibling.contains(destination)).toBe(true)
+    expect(destination.value).toBe('default')
+    fireEvent.change(destination, { target: { value: 'outing' } })
+    fireEvent.click(within(card).getByRole('button', { name: /メモ帳に追加/ }))
+    expect(loadMemocho()).toEqual([expect.objectContaining({ id: 1, bookId: 'outing' })])
+    expect(within(card).getByRole('button', { name: /登録済み/ })).toBeTruthy()
+  })
+
+  it('ごみ箱にある施設を選択した冊子に復元し、元のメモを引き継ぐ', () => {
+    localStorage.setItem(MEMOCHO_STORAGE_KEY, JSON.stringify([{
+      ...cafeWithWeb,
+      bookId: 'default',
+      memo: '保存したメモ',
+      deletedAt: new Date().toISOString(),
+    }]))
+    render(<Harness preActions={preActions} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: /メモ帳の登録先/ }), {
+      target: { value: 'outing' },
+    })
+    const card = document.getElementById('facility-card-node/1')
+    fireEvent.click(within(card).getByRole('button', { name: /メモ帳に追加/ }))
+
+    const [item] = loadMemocho()
+    expect(loadMemocho()).toHaveLength(1)
+    expect(item).toMatchObject({ id: 1, bookId: 'outing', memo: '保存したメモ' })
+    expect(item.deletedAt).toBeUndefined()
   })
 })
 

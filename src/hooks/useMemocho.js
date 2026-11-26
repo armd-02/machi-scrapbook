@@ -78,8 +78,8 @@ export function resetMemochoStore() {
  *                  削除したアイテムに cmmId がある場合、墓碑リスト（cmmTombstones.js）に記録する
  *   trash(key)     論理削除（deletedAt を付けてごみ箱へ）。できたら true（墓碑は記録しない）
  *   restore(key)   ごみ箱から復元（deletedAt を除去）。できたら true
- *   toggle(result) 未登録なら追加（'added'）、登録済みならごみ箱へ（'removed'）、
- *                  ごみ箱なら復元（'added'）
+ *   toggle(result, bookId?) 未登録なら追加、ごみ箱なら復元して指定冊子に入れる（'added'）。
+ *                           登録済みならごみ箱へ（'removed'）。
  *   setMemo(key, text)  そのキーのメモ文字列を差し替える
  *   importItems(items)  読み込み用アイテム配列を合流。{ added, skipped }（件数）を返す
  *   wipeAll()      アクティブ＋ごみ箱の全件を完全に削除。消去した件数を返す。
@@ -150,14 +150,14 @@ export function useMemocho() {
 
     // 「メモ帳に追加」トグル。登録済みならごみ箱へ（論理削除）、
     // ごみ箱にあるなら復元、無ければ追加。addMemocho はごみ箱の復元を内包している
-    toggle: (result) => {
+    toggle: (result, bookId) => {
       const current = getStore()
       const key = memochoKeyOf(result)
       if (hasMemocho(current, key)) {
         setStore(trashMemocho(current, key))
         return 'removed'
       }
-      const next = addMemocho(current, result)
+      const next = addMemocho(current, result, bookId)
       if (next === current) return null // 不正な source（type/id 不足）は何もしない
       setStore(next)
       return 'added'

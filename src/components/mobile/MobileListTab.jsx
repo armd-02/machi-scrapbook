@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../context/AppContext'
 import { applyResultFilters, hasActiveFilters, cuisineFacetValues } from '../../utils/resultFilters'
 import { activeSearchOf } from '../../state/appReducer'
@@ -19,6 +19,8 @@ import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '
 import { kerbDetailLabel } from '../../utils/barrierFree'
 import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
 import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
+import { useScrapbooks } from '../../hooks/useScrapbooks'
+import { DEFAULT_BOOK_ID } from '../../utils/scrapbooks'
 
 /**
  * (#59) モバイル「一覧」タブ
@@ -51,6 +53,11 @@ function PoiMobileList() {
   const { state, dispatch } = useApp()
   const { results, status, resultFilters, searchSource } = state
   const { nameFilter, sortDir } = resultFilters
+  const { books } = useScrapbooks()
+  const [registrationBookId, setRegistrationBookId] = useState(DEFAULT_BOOK_ID)
+  const targetBookId = books.some((book) => book.id === registrationBookId)
+    ? registrationBookId
+    : DEFAULT_BOOK_ID
 
   // 縁石の高さ絞り込み（kerbHeight）はバリアフリー一覧専用なので、
   // 施設一覧では 'any' に固定して適用しない（旧BF検索の残値で全件が消えるのを防ぐ）
@@ -216,12 +223,25 @@ function PoiMobileList() {
           </div>
         )}
 
+        {visible.length > 0 && (
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <span className="shrink-0">メモ帳の登録先：</span>
+            <select
+              value={targetBookId}
+              onChange={(event) => setRegistrationBookId(event.target.value)}
+              className="min-h-[44px] min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              {books.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}
+            </select>
+          </label>
+        )}
         <div className="card-grid">
           {visible.map((r) => (
             <MobileFacilityCard
               key={`${r.type}/${r.id}`}
               result={r}
               cardId={`facility-card-${r.type}/${r.id}`}
+              registrationBookId={targetBookId}
               selected={selectedKey === `${r.type}/${r.id}`}
               showMapThumb
               onSelect={selectFacility}
