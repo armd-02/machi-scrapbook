@@ -161,7 +161,8 @@ function errorMessage(error) {
   if (error == null) return '不明なエラーが発生しました。'
   switch (error.kind) {
     case 'auth':
-      return '認証に失敗しました。ユーザー名とパスワードを確認してください。'
+      if (error.code === 'osm_account_changed') return '前回同期した OpenStreetMap アカウントでログインしてください。'
+      return 'OpenStreetMap での認証を確認できませんでした。再度ログインしてください。'
     case 'permission':
       return 'この操作には権限がありません。アカウントの確認をお願いしています。'
     case 'validation':

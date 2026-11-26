@@ -7,7 +7,7 @@
  * - 成功（errors 空）: role="status" で
  *   「同期完了: N件新規 M件更新 K件削除 I件取り込み」を表示
  * - エラー: role="alert" で kind 別のメッセージを表示
- *   - auth → ユーザー名・パスワードの確認を促す文言
+ *   - auth → OpenStreetMap への再ログインを促す文言
  *   - permission → 権限不足の旨
  *   - validation → リクエスト内容の問題
  *   - network（その他） → 通信エラーの旨
@@ -90,7 +90,7 @@ describe('エラー', () => {
     )
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toContain('同期に失敗しました')
-    expect(alert.textContent).toContain('ユーザー名とパスワードを確認してください')
+    expect(alert.textContent).toContain('再度ログインしてください')
   })
 
   it('permission → 権限不足の案内が表示される', () => {
@@ -136,7 +136,7 @@ describe('エラー', () => {
       />
     )
     const alert = screen.getByRole('alert')
-    expect(alert.textContent).toContain('ユーザー名とパスワードを確認してください')
+    expect(alert.textContent).toContain('再度ログインしてください')
     expect(alert.textContent).toContain('通信エラーが発生しました')
   })
 

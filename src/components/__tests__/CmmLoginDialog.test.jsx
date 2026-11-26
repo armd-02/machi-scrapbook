@@ -1,143 +1,48 @@
 // @vitest-environment jsdom
-/**
- * (CMM同期、ピースC) CmmLoginDialog のテスト
- *
- * 検証内容:
- * - open=false のときは何もレンダリングしない
- * - open=true のときは dialog（aria-label「公開地図への反映ログイン」）が表示される
- * - 入力値が空のときは「同期する」が無効
- * - ユーザー名（trim 済み）＋パスワードを入力して「同期する」で
- *   onSync({ username, password }) が呼ばれる
- * - 「キャンセル」で onClose が呼ばれる
- * - バックグラウンドタップで onClose が呼ばれる
- * - Escape キーで onClose が呼ばれる
- * - 閉じて再オープンすると入力値がリセットされる（認証情報の再利用・保存はしない）
- * - （ピースF）初回案内（アカウント登録・プロジェクト参加の2リンク）が表示される
- */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import React from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import CmmLoginDialog from '../CmmLoginDialog'
+import { startCmmOsmLogin } from '../../utils/cmmOsmSession'
 
-beforeEach(() => {
-  localStorage.clear()
-})
-
+vi.mock('../../utils/cmmOsmSession', () => ({ startCmmOsmLogin: vi.fn() }))
 afterEach(() => {
   cleanup()
-  vi.restoreAllMocks()
+  vi.resetAllMocks()
 })
 
-describe('表示', () => {
-  it('open=false のときは何もレンダリングしない', () => {
-    const { container } = render(
-      <CmmLoginDialog open={false} onSync={vi.fn()} onClose={vi.fn()} />
-    )
-    expect(container.innerHTML).toBe('')
+const loginButton = () => screen.getByRole('button', { name: 'OpenStreetMap でログイン' })
+
+describe('CmmLoginDialog', () => {
+  it('閉じていると表示せず、認証を開始しない', () => {
+    render(<CmmLoginDialog open={false} onClose={vi.fn()} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(startCmmOsmLogin).not.toHaveBeenCalled()
   })
 
-  it('open=true のときは「公開地図への反映ログイン」の dialog が表示される', () => {
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    expect(screen.getByRole('dialog', { name: '公開地図への反映ログイン' })).toBeTruthy()
-    expect(screen.getByLabelText('ユーザー名')).toBeTruthy()
-    expect(screen.getByLabelText('パスワード')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '同期する' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeTruthy()
-  })
-
-  it('パスワード欄は type="password" である', () => {
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    expect(screen.getByLabelText('パスワード').type).toBe('password')
-  })
-})
-
-describe('初回案内（ピースF）', () => {
-  it('案内文と2つのリンク（アカウント登録・プロジェクト参加）が表示される', () => {
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    const dialog = screen.getByRole('dialog', { name: '公開地図への反映ログイン' })
-    expect(dialog.textContent).toContain('初めての同期には、コミュニティマップメーカーのアカウント')
-    const register = screen.getByRole('link', { name: 'アカウント登録' })
-    const join = screen.getByRole('link', { name: 'プロジェクト参加' })
-    expect(register.href).toBe('https://cmapmaker.openacrossbase.net/register.html')
-    expect(join.href).toBe('https://cmapmaker.openacrossbase.net/#projects')
-    for (const link of [register, join]) {
-      expect(link.target).toBe('_blank')
-      expect(link.rel).toBe('noopener')
-    }
-  })
-
-  it('既存の入力欄・ボタンはそのまま表示される', () => {
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    expect(screen.getByLabelText('ユーザー名')).toBeTruthy()
-    expect(screen.getByLabelText('パスワード')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '同期する' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeTruthy()
-  })
-})
-
-describe('送信', () => {
-  it('入力値が空のときは「同期する」が無効で onSync は呼ばれない', () => {
-    const onSync = vi.fn()
-    render(<CmmLoginDialog open onSync={onSync} onClose={vi.fn()} />)
-    const submit = screen.getByRole('button', { name: '同期する' })
-    expect(submit.disabled).toBe(true)
-    fireEvent.submit(submit.closest('form'))
-    expect(onSync).not.toHaveBeenCalled()
-  })
-
-  it('両方入力すると有効になり、onSync は trim 済みユーザー名とパスワードで呼ばれる', () => {
-    const onSync = vi.fn()
-    render(<CmmLoginDialog open onSync={onSync} onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: '  user1  ' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
-
-    const submit = screen.getByRole('button', { name: '同期する' })
-    expect(submit.disabled).toBe(false)
-    fireEvent.click(submit)
-
-    expect(onSync).toHaveBeenCalledWith({ username: 'user1', password: 'pass1' })
-  })
-
-  it('ユーザー名のみの入力は不十分（パスワード空では無効のまま）', () => {
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    expect(screen.getByRole('button', { name: '同期する' }).disabled).toBe(true)
-  })
-})
-
-describe('閉じる', () => {
-  it('「キャンセル」で onClose が呼ばれる', () => {
+  it('開始中は再クリックを防ぎ、ダイアログを閉じたら遷移を中止する', () => {
+    startCmmOsmLogin.mockImplementationOnce(() => new Promise(() => {}))
     const onClose = vi.fn()
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={onClose} />)
-    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  it('バックグラウンドタップで onClose が呼ばれる', () => {
-    const onClose = vi.fn()
-    const { container } = render(<CmmLoginDialog open onSync={vi.fn()} onClose={onClose} />)
-    const backdrop = container.querySelector('.bg-slate-900\\/40')
-    expect(backdrop).toBeTruthy()
-    fireEvent.click(backdrop)
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  it('Escape キーで onClose が呼ばれる', () => {
-    const onClose = vi.fn()
-    render(<CmmLoginDialog open onSync={vi.fn()} onClose={onClose} />)
+    const { rerender } = render(<CmmLoginDialog open onClose={onClose} />)
+    fireEvent.click(loginButton())
+    const [[signal]] = startCmmOsmLogin.mock.calls
+    expect(loginButton().disabled).toBe(true)
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledOnce()
+    rerender(<CmmLoginDialog open={false} onClose={onClose} />)
+    expect(signal.aborted).toBe(true)
   })
 
-  it('閉じて再オープンすると入力値がリセットされる', () => {
-    const onClose = vi.fn()
-    const { rerender } = render(<CmmLoginDialog open onSync={vi.fn()} onClose={onClose} />)
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
+  it('認証開始に失敗した場合は再試行できる', async () => {
+    startCmmOsmLogin.mockRejectedValueOnce(new Error('現在のURLでは同期できません。'))
+    render(<CmmLoginDialog open onClose={vi.fn()} />)
+    fireEvent.click(loginButton())
+    expect((await screen.findByRole('alert')).textContent).toBe('現在のURLでは同期できません。')
+    expect(loginButton().disabled).toBe(false)
+  })
 
-    rerender(<CmmLoginDialog open={false} onSync={vi.fn()} onClose={onClose} />)
-    rerender(<CmmLoginDialog open onSync={vi.fn()} onClose={onClose} />)
-
-    expect(screen.getByLabelText('ユーザー名').value).toBe('')
-    expect(screen.getByLabelText('パスワード').value).toBe('')
+  it('認証から戻ったときのエラーを表示する', () => {
+    render(<CmmLoginDialog open callbackError="連携がキャンセルされました。" onClose={vi.fn()} />)
+    expect(screen.getByRole('alert').textContent).toBe('連携がキャンセルされました。')
   })
 })

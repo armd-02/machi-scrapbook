@@ -1,24 +1,4 @@
 // @vitest-environment jsdom
-/**
- * (CMM同期、ピースC) メモ帳画面の CMM 同期 UI の統合テスト
- *
- * cmmSync.js の syncMemos だけをモックし（ネットワークにはアクセスしない）、
- * スクラップブックバーの同期ボタン → ログインダイアログ → 同期実行 →
- * 結果表示・cmmId 保存・最終同期時刻表示 の流れを検証する。
- *
- * 検証内容:
- * - バーに「公開地図へ反映」ボタンと「未同期」表示が出る
- * - 同期ボタンでログインダイアログが開き、キャンセルで閉じて同期は実行されない
- * - 認証情報を入力して「同期する」で syncMemos が呼ばれ、反映中は
- *   ボタンが無効化され「反映中…」表示になる
- * - 成功 → 結果パネル（role="status"）で件数サマリー、最終同期時刻が
- *   「最終: ...」で表示され、localStorage に保存される
- * - 成功 → 作成された Activity の cmmId が該当メモに保存される
- * - 失敗（auth） → role="alert" で「ユーザー名・パスワードを確認」の案内
- * - localStorage に最終同期時刻があると「最終: ...」が表示される
- * - 同期を実行したら使ったユーザー名（username）を localStorage に保存し、
- *   「公開マップのURLをコピー」がそのユーザーIDから URL をコピーする（入力欄なし）
- */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
@@ -29,6 +9,7 @@ import { MEMOCHO_STORAGE_KEY, loadMemocho } from '../../../utils/memocho'
 import { SCRAPBOOKS_STORAGE_KEY } from '../../../utils/scrapbooks'
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
+import { startCmmOsmLogin, takeCmmOsmReturn } from '../../../utils/cmmOsmSession'
 import { syncMemos, CmmError } from '../../../utils/cmmSync'
 import { CMM_LAST_SYNC_KEY, CMM_LAST_USERID_KEY } from '../../../hooks/useCmmSync'
 
@@ -36,6 +17,8 @@ vi.mock('../../../utils/cmmSync', async (importOriginal) => {
   const actual = await importOriginal()
   return { ...actual, syncMemos: vi.fn() }
 })
+
+vi.mock('../../../utils/cmmOsmSession', () => ({ startCmmOsmLogin: vi.fn(), takeCmmOsmReturn: vi.fn() }))
 
 vi.mock('../../../utils/mapCapture', () => ({
   captureMapImage: vi.fn(async () => 'data:image/jpeg;base64,QUJD'),
@@ -83,6 +66,11 @@ function renderSection(overrides = {}) {
   return render(<SectionHarness {...overrides} />)
 }
 
+function returnFromLogin() {
+  takeCmmOsmReturn.mockReturnValueOnce(Promise.resolve({ session: { userid: 'user1' } }))
+  renderSection()
+}
+
 const syncButton = () => screen.getByRole('button', { name: '公開地図へ反映' })
 const syncingButton = () => screen.getByRole('button', { name: '公開地図へ反映中' })
 const copyButton = () => screen.getByRole('button', { name: '公開マップのURLをコピー' })
@@ -114,7 +102,9 @@ beforeEach(() => {
     disconnect() {}
   }
   seedMemos([makeItem()])
-  seedBooks([{ id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: false }])
+  seedBooks([{ id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: true }])
+  startCmmOsmLogin.mockResolvedValue(undefined)
+  takeCmmOsmReturn.mockReset()
   syncMemos.mockResolvedValue(okResult())
 })
 
@@ -157,14 +147,9 @@ describe('公開マップのURLをコピー', () => {
 
   it('同期を実行したら使ったユーザーIDが保存され、URLがコピーできる', async () => {
     const writeText = mockClipboard()
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
-    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+    returnFromLogin()
 
-    // 同期実行で user1 が localStorage に保存される
-    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1'))
 
     fireEvent.click(copyButton())
     expect(writeText).toHaveBeenCalledWith(
@@ -185,6 +170,14 @@ describe('公開マップのURLをコピー', () => {
 })
 
 describe('ログインダイアログ', () => {
+  it('ログインボタンで認証を開始し、戻ってから同期する', () => {
+    renderSection()
+    fireEvent.click(syncButton())
+    fireEvent.click(screen.getByRole('button', { name: 'OpenStreetMap でログイン' }))
+    expect(startCmmOsmLogin).toHaveBeenCalledOnce()
+    expect(syncMemos).not.toHaveBeenCalled()
+  })
+
   it('同期ボタンを押すとログインダイアログが開く', () => {
     renderSection()
     fireEvent.click(syncButton())
@@ -201,12 +194,7 @@ describe('ログインダイアログ', () => {
 })
 
 describe('同期実行', () => {
-  it('認証情報を入力して「同期する」で syncMemos が呼ばれ、反映中は「反映中…」＋無効化', async () => {
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
-
+  it('OpenStreetMap ログインの完了で syncMemos が呼ばれ、反映中は「反映中…」＋無効化', async () => {
     let resolveSync
     syncMemos.mockImplementation(
       () =>
@@ -215,8 +203,9 @@ describe('同期実行', () => {
         })
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+    returnFromLogin()
 
+    await waitFor(() => expect(syncMemos).toHaveBeenCalledTimes(1))
     // ダイアログは閉じられ、ボタンが無効化された「反映中…」表示になる
     expect(screen.queryByRole('dialog')).toBeNull()
     const btn = syncingButton()
@@ -227,7 +216,7 @@ describe('同期実行', () => {
     // 引数検証: 認証情報・メモ・ブックが渡る
     expect(syncMemos).toHaveBeenCalledWith(
       expect.objectContaining({
-        credentials: { username: 'user1', password: 'pass1' },
+        session: expect.objectContaining({ userid: 'user1' }),
         memos: expect.arrayContaining([expect.objectContaining({ type: 'node', id: 1001 })]),
       })
     )
@@ -245,11 +234,7 @@ describe('同期実行', () => {
     syncMemos.mockResolvedValue(
       okResult({ created: [{ id: 'act/11', osmid: 'node/1001', updated_at: '2026-01-18T14:32:00Z' }] })
     )
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
-    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+    returnFromLogin()
 
     await waitFor(() => {
       expect(screen.getByRole('status').textContent).toContain('同期完了: 1件新規 0件更新 0件削除 0件取り込み')
@@ -273,11 +258,7 @@ describe('同期実行', () => {
 
   it('同期結果を閉じても、公開マップのURLを直接コピーできる', async () => {
     const writeText = mockClipboard()
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'pass1' } })
-    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+    returnFromLogin()
 
     const link = await screen.findByRole('link', {
       name: 'https://machi-scrapbook.openacrossbase.net/map/?userid=user1',
@@ -292,23 +273,18 @@ describe('同期実行', () => {
     expect(await screen.findByText('公開マップのURLをコピーしました')).toBeTruthy()
   })
 
-  it('失敗（auth） → role="alert" で「ユーザー名とパスワードを確認」の案内が出る', async () => {
+  it('失敗（auth） → role="alert" で再ログインの案内が出る', async () => {
     syncMemos.mockRejectedValue(new CmmError({ kind: 'auth', message: '認証に失敗しました' }))
-    renderSection()
-    fireEvent.click(syncButton())
-    fireEvent.change(screen.getByLabelText('ユーザー名'), { target: { value: 'user1' } })
-    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'wrong' } })
-    fireEvent.click(screen.getByRole('button', { name: '同期する' }))
+    returnFromLogin()
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('同期に失敗しました')
-    expect(alert.textContent).toContain('ユーザー名とパスワードを確認してください')
+    expect(alert.textContent).toContain('再度ログインしてください')
 
     // 最終同期時刻は更新されない
     expect(localStorage.getItem(CMM_LAST_SYNC_KEY)).toBeNull()
     expect(screen.getByText('未同期')).toBeTruthy()
 
-    // ユーザー名は同期実行時点で保存される（失敗でも保存される）
-    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
+    expect(localStorage.getItem(CMM_LAST_USERID_KEY)).toBeNull()
   })
 })

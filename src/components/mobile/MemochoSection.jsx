@@ -17,6 +17,7 @@ import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
 import { useCmmSync } from '../../hooks/useCmmSync'
 import { cmmToMs } from '../../utils/cmmSync'
+import { takeCmmOsmReturn } from '../../utils/cmmOsmSession'
 import { publicMapUrl } from '../../utils/publicMapUrl'
 import CmmLoginDialog from '../CmmLoginDialog'
 import CmmSyncResultPanel from '../CmmSyncResultPanel'
@@ -148,16 +149,24 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
   // (スクラップブック) ブック管理（モジュールレベルストア・他コンポーネントと共有）
   const { books, create: createBook, rename: renameBook, remove: removeBook, setPublic: setBookPublic } = useScrapbooks()
 
-  // (CMM同期) 同期の状態は useCmmSync フックで管理（実行・結果・最終同期時刻）。
-  // ログインダイアログは同期のたびに毎回表示され、入力した認証情報は
-  // 呼び出し引数として一度だけ渡され、保存されない
   const cmmSync = useCmmSync()
   const [loginOpen, setLoginOpen] = useState(false)
+  const [callbackError, setCallbackError] = useState(null)
+  const [completingLogin, setCompletingLogin] = useState(false)
 
-  const handleCmmSync = async (credentials) => {
-    setLoginOpen(false)
-    await cmmSync.runSync(credentials)
-  }
+  useEffect(() => {
+    const returned = takeCmmOsmReturn()
+    if (!returned) return
+    setCompletingLogin(true)
+    returned.then(async ({ session, error }) => {
+      if (error) {
+        setCallbackError(error.message)
+        setLoginOpen(true)
+      } else {
+        await cmmSync.runSync(session)
+      }
+    }).finally(() => setCompletingLogin(false))
+  }, [cmmSync.runSync])
 
   // (スクラップブックバー) 選択中のブック（'all' ＝ すべて）。localStorage に保存され、
   // 次回開いたときも維持される
@@ -328,8 +337,11 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           bookCount={selectedBookCount}
           editMode={categoryEdit}
           onToggleEditMode={() => setCategoryEdit((v) => !v)}
-          onSyncClick={() => setLoginOpen(true)}
-          syncing={cmmSync.syncing}
+          onSyncClick={() => {
+            setCallbackError(null)
+            setLoginOpen(true)
+          }}
+          syncing={completingLogin || cmmSync.syncing}
           lastSyncAt={cmmSync.lastSyncAt}
           syncResult={cmmSync.result}
           onSyncClose={cmmSync.dismissResult}
@@ -463,11 +475,9 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
         )}
       </div>
 
-      {/* (CMM同期) ログインダイアログ: 同期ボタンを押すと表示される。
-          認証情報は今回の同期呼び出しでのみ使用され、保存されない */}
       <CmmLoginDialog
         open={loginOpen}
-        onSync={handleCmmSync}
+        callbackError={callbackError}
         onClose={() => setLoginOpen(false)}
       />
     </section>
@@ -665,7 +675,7 @@ function MemochoCard({
  *   になり、ボタンを押すと編集モードを終了する（メニューは開かない）。モード ON の
  *   とき、各カードに所属ブックの変更 UI（セレクト）が出る（ピース3）
  * - 「CMM 同期」ボタン（(CMM同期、ピースC)）: 押すとログインダイアログ
- *   （CmmLoginDialog）が表示され、認証情報を入力して同期が実行される。
+ *   （CmmLoginDialog）が表示され、OpenStreetMap ログイン後に同期を開始する。
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
  *   ボタンの右に「最終: YYYY/MM/DD HH:MM」を表示する。同期完了後はバーの下に
  *   結果パネル（CmmSyncResultPanel）が表示され、✕ で閉じられる

@@ -7,6 +7,7 @@ import './styles/index.css'
 import './utils/maplibreSetup'
 import { installPullToRefreshGuard } from './utils/pullToRefreshGuard'
 import { installPageZoomGuard } from './utils/pageZoomGuard'
+import { resumeCmmOsmSync } from './utils/cmmOsmSession'
 
 // (#61) モバイルブラウザのプル・トゥ・リフレッシュ防止:
 // 画面を下に引っ張り過ぎるとページがリロードされ、検索結果や入力内容が
@@ -18,6 +19,8 @@ installPullToRefreshGuard()
 // CSS（html/body の touch-action: pan-x pan-y）＋ JS ガードの2層で止める。
 // 地図のピンチズームは MapLibre が canvas 側で処理するため影響しない。
 installPageZoomGuard()
+
+resumeCmmOsmSync()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -11,7 +11,7 @@
  *
  * 構成:
  *  - API クライアント: fetchActivities（一覧取得・認証不要）/
- *    saveBatch（一括書き込み・HTTP Basic 認証）
+ *    saveBatch（一括書き込み・OSM 認証済みセッション）
  *  - 変換: memoToActivity（メモ → Activity 値）/
  *    activityToMemoPatch（Activity → メモ更新パッチ）
  *  - syncMemos: ①取得 → ②取り込み → ③作成/更新 → ④削除 → ⑤書き込み → ⑥結果返却
@@ -21,16 +21,7 @@
  *  - 対応付けは cmmId が優先。cmmId が無いメモは osmid（= メモの key）で
  *    取得した Activity と対応付ける。
  *  - （マルチユーザー対応・所有の基準は「作成者」）
- *    ・通常経路（ログインIDがユーザーID形式＝'@' を含まない）:
- *      取得時に userid=<ログインID> を付けて、自分が作成した投稿だけ
- *      をサーバ側で絞り込む。取得できた投稿は最終更新者（updated_by_userid）
- *      が別人でも自分のものとして取り込み・更新の対象にする（サーバ側の
- *      フィルタを信頼し、手元の updated_by_userid 除外は行わない）。
- *    ・フォールバック経路（ログインIDがメールアドレス形式＝'@' を含む）:
- *      userid はユーザーID専用なので使わず、全件取得して手元で
- *      updated_by_userid の完全一致＋cmmId 結び付きで判定する。
- *      あいまいな所有権推測は行わない（他人の投稿は取り込まない・
- *      上書きしない・削除候補にしない）。cmmId 連結による判定は有効。
+ *    認証済みの公開ユーザーIDを userid に指定し、作成者で絞り込む。
  *  - 削除候補はローカル由来のみ（トンブストーン＋公開ブックから外れた
  *    cmmId 付きメモ）。取得できなかった他人の投稿は削除対象にしない。
  *  - 取り込み（imported）: リモート側の updated_at が新しい場合、または
@@ -222,21 +213,9 @@ export function toErrorObject(err) {
   return { kind: 'network', status: null, code: null, message: String(err && err.message ? err.message : err), details: null }
 }
 
-function basicAuthHeader(credentials) {
-  const raw = `${credentials.username}:${credentials.password}`
-  const bytes = new TextEncoder().encode(raw)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
-  return `Basic ${btoa(bin)}`
-}
-
-function hasCredentials(credentials) {
-  return (
-    credentials != null &&
-    typeof credentials.username === 'string' &&
-    credentials.username !== '' &&
-    typeof credentials.password === 'string'
-  )
+function hasSession(session) {
+  return typeof session?.userid === 'string' && session.userid !== '' && !session.userid.includes('@')
+    && typeof session.writeBatch === 'function'
 }
 
 function asArray(value) {
@@ -244,17 +223,10 @@ function asArray(value) {
 }
 
 /** CMM 後端への HTTP リクエスト。非 2xx とネットワーク失敗で CmmError を投げる。 */
-async function cmmRequest(path, { method = 'GET', body, credentials } = {}) {
-  const headers = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  if (credentials && method !== 'GET') headers.Authorization = basicAuthHeader(credentials)
+async function cmmRequest(path) {
   let res
   try {
-    res = await fetch(`${CMM_BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    })
+    res = await fetch(`${CMM_BASE_URL}${path}`, { headers: { Accept: 'application/json' } })
   } catch (err) {
     throw new CmmError({ kind: 'network', message: `ネットワークエラー: ${err && err.message ? err.message : err}` })
   }
@@ -311,24 +283,20 @@ export async function fetchActivities({ since = null, userid = null } = {}) {
  *（バッチ成功=全て適用）を返す。
  * @returns {Promise<{created: Array, updated: Array, deleted: Array, errors: Array}>}
  */
-export async function saveBatch({ creates = [], updates = [], deletes = [] } = {}, credentials = null) {
+export async function saveBatch({ creates = [], updates = [], deletes = [] } = {}, session = null) {
   const createsList = asArray(creates)
   const updatesList = asArray(updates)
   const deletesList = asArray(deletes)
   const result = { created: [], updated: [], deleted: [], errors: [] }
   const total = createsList.length + updatesList.length + deletesList.length
   if (total === 0) return result
-  if (!hasCredentials(credentials)) {
-    result.errors.push(toErrorObject(new CmmError({ kind: 'auth', message: 'CMM 認証情報がありません' })))
+  if (!hasSession(session)) {
+    result.errors.push(toErrorObject(new CmmError({ kind: 'auth', message: 'OpenStreetMap ログインが必要です' })))
     return result
   }
   for (const chunk of chunkBatch(createsList, updatesList, deletesList)) {
     try {
-      const payload = await cmmRequest('/api/activities-batch.php', {
-        method: 'POST',
-        body: { app: CMM_APP_KEY, creates: chunk.creates, updates: chunk.updates, deletes: chunk.deletes },
-        credentials,
-      })
+      const payload = await session.writeBatch(chunk)
       result.created.push(...asArray(payload && payload.created))
       result.updated.push(...asArray(payload && payload.updated))
       // バッチは全か無かのトランザクションなので、成功すれば要求した削除 ID が
@@ -429,21 +397,6 @@ function withId(activity, id) {
   return { ...activity, id }
 }
 
-/**
- * （マルチユーザー対応）Activity が「自分の投稿」かを判定する。
- * updated_by_userid がログインIDと完全一致する場合のみ「自分の」。
- * あいまいな一致（メールアドレスのローカルパート等）で所有権を推測しない。
- * ログインIDが分からない（credentials 無し）場合は常に false。
- */
-function isOwn(activity, myUserId) {
-  if (myUserId == null) return false
-  return (
-    activity != null &&
-    typeof activity.updated_by_userid === 'string' &&
-    activity.updated_by_userid === myUserId
-  )
-}
-
 function cmmUpdatedAtOf(activity, fallbackMs) {
   const ms = cmmToMs(activity.updated_at)
   return cmmToRfc3339Z(ms !== null ? ms : fallbackMs)
@@ -503,31 +456,23 @@ function newMemoEntry(activity, books) {
  * @param {Array}  options.memos        メモ帳アイテム配列（ごみ箱分を含む）
  * @param {Array}  options.books        スクラップブック配列（public フィールド付き）
  * @param {Array}  options.tombstones   トンブストーンの cmmId 配列
- * @param {{username:string,password:string}|null} options.credentials
+ * @param {{userid:string,writeBatch:Function}|null} options.session
  * @param {string|null} options.lastSyncAt  前回の同期境界（RFC3339）。null で全件取得。
  * @returns {Promise<{created:Array,updated:Array,deleted:Array,imported:Array,errors:Array,lastSyncAt:(string|null)}>}
  *   lastSyncAt が null のときは「変更しない」意味（取得失敗など）。
  */
-export async function syncMemos({ memos = [], books = [], tombstones = [], credentials = null, lastSyncAt = null } = {}) {
+export async function syncMemos({ memos = [], books = [], tombstones = [], session = null, lastSyncAt = null } = {}) {
   const result = { created: [], updated: [], deleted: [], imported: [], errors: [], lastSyncAt: null }
 
-  // （マルチユーザー対応）ログインIDを「自分のユーザーID」として使う。
-  // ユーザーID形式（'@' を含まない）ならサーバ側の userid フィルタを使う
-  // 通常経路、メールアドレス形式なら手元フィルタのフォールバック経路。
-  const myUserId =
-    credentials != null && typeof credentials.username === 'string' && credentials.username !== ''
-      ? credentials.username
-      : null
-  const serverSideFilter = myUserId != null && !myUserId.includes('@')
-  // 所有権判定: 通常経路は常に true（サーバ側フィルタを信頼・最終更新者が
-  // 別人でも自分の投稿）。フォールバック経路は updated_by_userid の完全一致。
-  const isMine = serverSideFilter ? () => true : (activity) => isOwn(activity, myUserId)
+  if (!hasSession(session)) {
+    result.errors.push(toErrorObject(new CmmError({ kind: 'auth', message: 'OpenStreetMap ログインが必要です' })))
+    return result
+  }
 
-  // ① 取得（初回は全件、その後は lastSyncAt 以降の増分。
-  //   通常経路は userid で作成者を絞り込む）
+  // 作成者の公開ユーザーIDで絞り込む。最終編集者が別人でも対象に含める。
   let remote
   try {
-    remote = await fetchActivities({ since: lastSyncAt, userid: serverSideFilter ? myUserId : null })
+    remote = await fetchActivities({ since: lastSyncAt, userid: session.userid })
   } catch (err) {
     result.errors.push(toErrorObject(err))
     return result
@@ -541,14 +486,7 @@ export async function syncMemos({ memos = [], books = [], tombstones = [], crede
     if (activity == null || typeof activity !== 'object') continue
     if (typeof activity.id === 'string' && activity.id !== '') remoteById.set(activity.id, activity)
     const osmid = typeof activity.osmid === 'string' ? activity.osmid : ''
-    if (osmid !== '') {
-      const existing = remoteByOsmid.get(osmid)
-      if (!existing) remoteByOsmid.set(osmid, activity)
-      else if (!isMine(existing) && isMine(activity)) {
-        // 同一 osmid に複数 Activity がある場合、自分の投稿を対応付けに優先する
-        remoteByOsmid.set(osmid, activity)
-      }
-    }
+    if (osmid !== '' && !remoteByOsmid.has(osmid)) remoteByOsmid.set(osmid, activity)
     const ms = cmmToMs(activity.updated_at)
     if (ms !== null && (maxRemoteMs === null || ms > maxRemoteMs)) maxRemoteMs = ms
   }
@@ -599,10 +537,7 @@ export async function syncMemos({ memos = [], books = [], tombstones = [], crede
     } else {
       const byOsmid = remoteByOsmid.get(memochoKeyOf(memo))
       // 削除セット（トンブストーン等）に入っている Activity には対応付けない。
-      // （マルチユーザー対応）フォールバック経路では他人の投稿
-      // （updated_by_userid が自分と一致しない）には対応付けない →
-      // 対応付けられなければ新規作成として送る。通常経路は isMine が常に true。
-      if (byOsmid && !deleteSet.has(byOsmid.id) && !matchedActivityIds.has(byOsmid.id) && isMine(byOsmid)) paired = byOsmid
+      if (byOsmid && !deleteSet.has(byOsmid.id) && !matchedActivityIds.has(byOsmid.id)) paired = byOsmid
     }
 
     if (paired) {
@@ -632,9 +567,6 @@ export async function syncMemos({ memos = [], books = [], tombstones = [], crede
     if (typeof activity.id !== 'string' || activity.id === '') continue
     if (matchedActivityIds.has(activity.id)) continue
     if (deleteSet.has(activity.id)) continue
-    // （マルチユーザー対応）フォールバック経路では他人の投稿は取り込まない。
-    // 通常経路は isMine が常に true（サーバ側フィルタ済み）
-    if (!isMine(activity)) continue
     const osmid = typeof activity.osmid === 'string' ? activity.osmid : ''
     // ローカルに同じ osmid のメモ（非公開/ごみ箱含む）が在る場合は対応済み・
     // 非同期対象なので、取り込まない
@@ -644,7 +576,7 @@ export async function syncMemos({ memos = [], books = [], tombstones = [], crede
 
   // ③④⑤ リモートへ書き込む
   if (creates.length > 0 || updates.length > 0 || deleteSet.size > 0) {
-    const batch = await saveBatch({ creates, updates, deletes: [...deleteSet] }, credentials)
+    const batch = await saveBatch({ creates, updates, deletes: [...deleteSet] }, session)
     result.created.push(...batch.created)
     result.updated.push(...batch.updated)
     result.deleted.push(...batch.deleted)
@@ -652,6 +584,8 @@ export async function syncMemos({ memos = [], books = [], tombstones = [], crede
   }
 
   // ⑥ 次の同期境界（取得済み Activity の最新 updated_at、無ければ現在時刻）
-  result.lastSyncAt = maxRemoteMs !== null ? cmmToRfc3339Z(maxRemoteMs) : cmmToRfc3339Z(Date.now())
+  if (result.errors.length === 0) {
+    result.lastSyncAt = cmmToRfc3339Z(maxRemoteMs ?? Date.now())
+  }
   return result
 }

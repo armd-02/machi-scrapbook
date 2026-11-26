@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMemocho } from './useMemocho'
 import { useScrapbooks } from './useScrapbooks'
-import { syncMemos, cmmToMs, cmmToRfc3339Z, toErrorObject } from '../utils/cmmSync'
+import { syncMemos, cmmToMs, cmmToRfc3339Z, toErrorObject, CmmError } from '../utils/cmmSync'
 import { loadCmmTombstones, saveCmmTombstones, isValidCmmId } from '../utils/cmmTombstones'
 import { loadMemocho, memochoKeyOf } from '../utils/memocho'
 import { DEFAULT_BOOK_ID, loadScrapbooks } from '../utils/scrapbooks'
@@ -9,7 +9,7 @@ import { DEFAULT_BOOK_ID, loadScrapbooks } from '../utils/scrapbooks'
 /** 最終同期時刻（RFC3339 文字列）の保存キー */
 export const CMM_LAST_SYNC_KEY = 'machi-cmm-last-sync-v1'
 
-/** 同期で使ったユーザー名（username）の保存キー */
+/** 同期で使った公開ユーザーIDの保存キー */
 export const CMM_LAST_USERID_KEY = 'machi-cmm-last-userid-v1'
 
 /** localStorage から最終同期時刻（RFC3339 文字列）を読み出す。未保存・不正なら null */
@@ -30,7 +30,7 @@ export function saveLastSyncAt(value) {
   localStorage.setItem(CMM_LAST_SYNC_KEY, JSON.stringify(value))
 }
 
-/** localStorage から同期で使ったユーザー名を読み出す。未保存・不正なら null */
+/** localStorage から同期で使った公開ユーザーIDを読み出す。未保存・不正なら null */
 export function loadLastUserId() {
   try {
     const raw = localStorage.getItem(CMM_LAST_USERID_KEY)
@@ -42,7 +42,7 @@ export function loadLastUserId() {
   }
 }
 
-/** 同期で使ったユーザー名を localStorage に保存する。空文字・非文字列は保存しない */
+/** 同期で使った公開ユーザーIDを localStorage に保存する。空文字・非文字列は保存しない */
 export function saveLastUserId(value) {
   if (typeof value !== 'string' || value === '') return
   localStorage.setItem(CMM_LAST_USERID_KEY, JSON.stringify(value))
@@ -57,15 +57,10 @@ export function saveLastUserId(value) {
  * 戻り値:
  *   status      'idle' | 'syncing' | 'done'
  *   syncing     status === 'syncing'（ボタンの無効化・ラベル切替に使う）
- *   result      直近の同期結果（syncMemos の戻り値に userId を追加したもの）。未同期なら null
- *   （ピースJ） result.userId はこの同期で使った username。メモリ上の state のみで
- *   localStorage には保存せず、パスワードは含めない（公開URL表示に使う）
- *   lastSyncAt  最終同期時刻（RFC3339 文字列、localStorage 保存）。未同期なら null
- *   lastUserId  同期で使ったユーザー名（username、localStorage 保存）。未実行なら null
- *   runSync(credentials)  同期を実行する。credentials = { username, password }。
- *                  認証情報は syncMemos の呼び出し引数として渡すだけ。ユーザー名は
- *                  公開マップのURLコピーに使い回すため localStorage に保存する（
- *                  パスワードは保存しない）。結果を返す（投げない）
+ *   result      直近の同期結果と公開ユーザーID。未同期なら null
+ *   lastSyncAt  最終同期時刻。未同期なら null
+ *   lastUserId  公開ユーザーID。未同期なら null
+ *   runSync(session)  OSM ログイン済みセッションで同期し、結果を返す
  *   dismissResult()  結果表示を消す（status → 'idle'、result → null）
  *
  * 結果反映（applySyncResult）:
@@ -88,28 +83,22 @@ export function useCmmSync() {
   const [lastUserId, setLastUserId] = useState(loadLastUserId)
 
   /** 同期を実行し、結果をローカル状態へ反映する。エラーを投げずに result を返す */
-  async function runSync(credentials) {
+  async function runSync(session) {
     setStatus('syncing')
-    // (ピースJ) この同期で使った username を結果 state に userId として載せる。
-    // メモリ上の state のみ（localStorage には書かない）。パスワードは含めない
-    const userId =
-      credentials != null && typeof credentials.username === 'string' && credentials.username !== ''
-        ? credentials.username
-        : null
-    // (ピースL) 同期を実行したら使ったユーザー名を保存する（公開マップのURLコピーに
-    // 使い回す）。パスワードは保存しない。空・無視の場合は保存しない
-    if (userId != null) {
-      saveLastUserId(userId)
-      setLastUserId(userId)
-    }
+    const userId = session?.userid || null
     let syncResult
     try {
+      const previousUserId = loadLastUserId()
+      const sameAccount = userId != null && userId.toLowerCase() === previousUserId?.toLowerCase()
+      if (previousUserId && !previousUserId.includes('@') && loadLastSyncAt() && !sameAccount) {
+        throw new CmmError({ kind: 'auth', code: 'osm_account_changed' })
+      }
       syncResult = await syncMemos({
         memos: memocho.items,
         books: scrapbooks.books,
         tombstones: loadCmmTombstones(),
-        credentials,
-        lastSyncAt,
+        session,
+        lastSyncAt: sameAccount ? loadLastSyncAt() : null,
       })
     } catch (error) {
       // 取得失敗・書き込み失敗などで syncMemos が CmmError を投げた場合:
@@ -122,6 +111,10 @@ export function useCmmSync() {
         errors: [toErrorObject(error)],
         lastSyncAt: null,
       }
+    }
+    if (userId != null && !syncResult.errors.some(({ kind }) => kind === 'auth' || kind === 'permission')) {
+      saveLastUserId(userId)
+      setLastUserId(userId)
     }
     applySyncResult(syncResult, { memocho, scrapbooks })
     if (syncResult.lastSyncAt != null) {

@@ -1,42 +1,22 @@
 import React from 'react'
+import { startCmmOsmLogin } from '../utils/cmmOsmSession'
 
-/**
- * CMM 同期のログインダイアログ（ピースC）
- *
- * 同期のたびに毎回表示される。ユーザー名・パスワードを入力して「同期する」
- * を押すと onSync({ username, password }) が呼ばれる。
- *
- * 認証情報はこのダイアログのローカル state にのみ存在し、
- * localStorage・アプリの状態には一切保存しない（閉じたら破棄）。
- *
- * （ピースF）初めての人向けの案内（アカウント登録・プロジェクト参加の
- * リンク）をタイトルの下に表示する。
- * props:
- *   open       ダイアログを表示するか
- *   onSync     「同期する」が押されたときのコールバック（{ username, password }）
- *   onClose    閉じる（キャンセル・バックグラウンドタップ・Escape）
- */
-const INPUT_CLASS =
-  'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm ' +
-  'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+export default function CmmLoginDialog({ open, callbackError, onClose }) {
+  const login = React.useRef(null)
+  const [waiting, setWaiting] = React.useState(false)
+  const [error, setError] = React.useState(null)
 
-export default function CmmLoginDialog({ open, onSync, onClose }) {
-  const [username, setUsername] = React.useState('')
-  const [password, setPassword] = React.useState('')
-
-  // 開くたびに初期状態（前回入力値の再利用はしない）
-  React.useEffect(() => {
-    if (open) {
-      setUsername('')
-      setPassword('')
-    }
-  }, [open])
-
-  // Escape キーで閉じる
   React.useEffect(() => {
     if (!open) return undefined
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose()
+    setWaiting(false)
+    setError(null)
+    return () => login.current?.abort()
+  }, [open])
+
+  React.useEffect(() => {
+    if (!open) return undefined
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -44,12 +24,20 @@ export default function CmmLoginDialog({ open, onSync, onClose }) {
 
   if (!open) return null
 
-  const canSubmit = username.trim() !== '' && password !== ''
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!canSubmit) return
-    onSync({ username: username.trim(), password })
+  async function handleLogin() {
+    if (login.current) return
+    const controller = new AbortController()
+    login.current = controller
+    setWaiting(true)
+    setError('')
+    try {
+      await startCmmOsmLogin(controller.signal)
+    } catch (error) {
+      if (!controller.signal.aborted) setError(error.message)
+    } finally {
+      login.current = null
+      if (!controller.signal.aborted) setWaiting(false)
+    }
   }
 
   return (
@@ -63,76 +51,36 @@ export default function CmmLoginDialog({ open, onSync, onClose }) {
       >
         <h2 className="text-base font-bold text-slate-800">公開地図への反映ログイン</h2>
         <p className="mt-1 text-xs text-slate-500">
-          community map maker のアカウントを入力してください。
-          認証情報は今回の同期でのみ使用され、保存されません。
+          コミュニティマップメーカーに連携した OpenStreetMap アカウントで同期します。
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          初めての同期には、コミュニティマップメーカーのアカウントと、プロジェクトへの参加が必要です。
-          <a
-            href="https://cmapmaker.openacrossbase.net/register.html"
-            target="_blank"
-            rel="noopener"
-            className="text-primary-600 underline underline-offset-2"
-          >
-            アカウント登録
-          </a>
-          ／
-          <a
-            href="https://cmapmaker.openacrossbase.net/#projects"
-            target="_blank"
-            rel="noopener"
-            className="text-primary-600 underline underline-offset-2"
-          >
-            プロジェクト参加
-          </a>
+          初めての同期には、
+          <a href="https://cmapmaker.openacrossbase.net/register.html?app_key=machi-scrapbook" target="_blank" rel="noopener" className="text-primary-600 underline">アカウント登録</a>
+          と
+          <a href="https://cmapmaker.openacrossbase.net/#projects" target="_blank" rel="noopener" className="text-primary-600 underline">プロジェクト参加</a>
+          が必要です。既存のアカウントは
+          <a href="https://cmapmaker.openacrossbase.net/mypage.html" target="_blank" rel="noopener" className="text-primary-600 underline">マイページ</a>
+          から OSM と連携できます。
         </p>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-          <div>
-            <label htmlFor="cmm-username" className="block text-sm font-medium text-slate-700">
-              ユーザー名
-            </label>
-            <input
-              id="cmm-username"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className={`mt-1 ${INPUT_CLASS}`}
-              autoFocus
-            />
-          </div>
-          <div>
-            <label htmlFor="cmm-password" className="block text-sm font-medium text-slate-700">
-              パスワード
-            </label>
-            <input
-              id="cmm-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={`mt-1 ${INPUT_CLASS}`}
-            />
-          </div>
-          <div className="flex gap-2 pt-1">
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="flex-1 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium
-                hover:bg-primary-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
-            >
-              同期する
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm
-                hover:bg-slate-50"
-            >
-              キャンセル
-            </button>
-          </div>
-        </form>
+        {waiting && <p role="status" className="mt-3 text-sm text-slate-600">OpenStreetMap のログイン画面を開いています…</p>}
+        {!waiting && (error ?? callbackError) && <p role="alert" className="mt-3 text-sm text-red-700">{error ?? callbackError}</p>}
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={waiting}
+            className="flex-1 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:bg-slate-300"
+          >
+            OpenStreetMap でログイン
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm hover:bg-slate-50"
+          >
+            キャンセル
+          </button>
+        </div>
       </div>
     </div>
   )

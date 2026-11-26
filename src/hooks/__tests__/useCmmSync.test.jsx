@@ -16,9 +16,9 @@
  * - lastSyncAt → localStorage（machi-cmm-last-sync-v1）に保存され state へ反映
  * - syncMemos が例外を投げたら → 空の結果＋errors にエラー、lastSyncAt は更新されない
  * - 認証情報は localStorage に保存されない（呼び出し引数として一度だけ渡される）
- * - （ピースJ）result に userId（username）が含まれ、パスワードは含まず、
+ * - （ピースJ）result に userId（公開ユーザーID）が含まれ、パスワードは含まず、
  *   localStorage には書かれない
- * - （ピースL）同期を実行したら使った username が localStorage
+ * - （ピースL）同期を実行したら使った 公開ユーザーID が localStorage
  *   （machi-cmm-last-userid-v1）に保存され state に反映される
  * - syncing フラグが同期実行中に true、完了後に false
  * - dismissResult で結果がクリアされる
@@ -98,7 +98,7 @@ describe('runSync の引数', () => {
 
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'user', password: 'pass' })
+      await result.current.runSync({ userid: 'user' })
     })
 
     expect(syncMemos).toHaveBeenCalledTimes(1)
@@ -106,16 +106,17 @@ describe('runSync の引数', () => {
       memos: expect.arrayContaining([expect.objectContaining({ type: 'node', id: 1001 })]),
       books: expect.arrayContaining([expect.objectContaining({ id: 'default', public: true })]),
       tombstones: ['act/9'],
-      credentials: { username: 'user', password: 'pass' },
+      session: { userid: 'user' },
       lastSyncAt: null,
     })
   })
 
   it('localStorage に保存済みの最終同期時刻を lastSyncAt として渡す', async () => {
+    saveLastUserId('u')
     localStorage.setItem(CMM_LAST_SYNC_KEY, JSON.stringify('2026-01-01T00:00:00Z'))
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
     expect(syncMemos).toHaveBeenCalledWith(
       expect.objectContaining({ lastSyncAt: '2026-01-01T00:00:00Z' })
@@ -132,7 +133,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
@@ -148,7 +149,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
@@ -163,7 +164,7 @@ describe('同期結果の適用', () => {
     syncMemos.mockResolvedValue(okResult({ deleted: ['act/5'] }))
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     expect(loadCmmTombstones()).toEqual(['act/9'])
@@ -194,7 +195,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
@@ -229,7 +230,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const items = loadMemocho()
@@ -271,7 +272,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 3003)
@@ -303,7 +304,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 3004)
@@ -334,7 +335,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
@@ -364,7 +365,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const item = loadMemocho().find((it) => it.type === 'node' && it.id === 1001)
@@ -397,7 +398,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const books = loadScrapbooks()
@@ -440,7 +441,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     // ブックは100冊のまま（「ハイキング」は作られない）
@@ -479,7 +480,7 @@ describe('同期結果の適用', () => {
     )
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     const items = loadMemocho()
@@ -492,7 +493,7 @@ describe('最終同期時刻', () => {
   it('成功したら localStorage（machi-cmm-last-sync-v1）に保存され state へ反映される', async () => {
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     expect(loadLastSyncAt()).toBe('2026-01-18T14:32:00Z')
@@ -513,20 +514,20 @@ describe('最終同期時刻', () => {
 })
 
 describe('最後のユーザーID', () => {
-  it('同期を実行したら username が localStorage（machi-cmm-last-userid-v1）に保存され state へ反映される', async () => {
+  it('同期を実行したら 公開ユーザーID が localStorage（machi-cmm-last-userid-v1）に保存され state へ反映される', async () => {
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'user1', password: 'p' })
+      await result.current.runSync({ userid: 'user1' })
     })
 
     expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
     expect(result.current.lastUserId).toBe('user1')
   })
 
-  it('username が空なら保存されず lastUserId は null', async () => {
+  it('公開ユーザーID が空なら保存されず lastUserId は null', async () => {
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: '', password: 'p' })
+      await result.current.runSync({ userid: '' })
     })
 
     expect(localStorage.getItem(CMM_LAST_USERID_KEY)).toBeNull()
@@ -551,7 +552,7 @@ describe('エラー時の挙動', () => {
     syncMemos.mockRejectedValue(new CmmError({ kind: 'auth', message: '認証に失敗しました' }))
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'wrong' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     expect(result.current.status).toBe('done')
@@ -567,7 +568,7 @@ describe('エラー時の挙動', () => {
     syncMemos.mockRejectedValue(new CmmError({ kind: 'network', message: '通信エラー' }))
 
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
 
     expect(result.current.result.errors).toEqual([expect.objectContaining({ kind: 'network' })])
@@ -587,7 +588,7 @@ describe('状態管理', () => {
 
     let pending
     act(() => {
-      pending = result.current.runSync({ username: 'u', password: 'p' })
+      pending = result.current.runSync({ userid: 'u' })
     })
     await waitFor(() => expect(result.current.syncing).toBe(true))
 
@@ -602,7 +603,7 @@ describe('状態管理', () => {
   it('dismissResult で結果がクリアされ idle に戻る', async () => {
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'u', password: 'p' })
+      await result.current.runSync({ userid: 'u' })
     })
     expect(result.current.result).not.toBeNull()
 
@@ -613,34 +614,25 @@ describe('状態管理', () => {
     expect(result.current.status).toBe('idle')
   })
 
-  it('認証情報は localStorage に保存されない', async () => {
+  it('前回と別のアカウントでは同期せず、公開ユーザーIDを維持する', async () => {
     const { result } = renderHook(() => useCmmSync())
     await act(async () => {
-      await result.current.runSync({ username: 'someuser', password: 'super-secret-pass' })
+      await result.current.runSync({ userid: 'user1' })
+      await result.current.runSync({ userid: 'other' })
     })
 
-    for (const [key, value] of Object.entries(localStorage)) {
-      expect(value).not.toContain('super-secret-pass')
-    }
-    expect(localStorage.getItem('machi-cmm-credentials')).toBeNull()
+    expect(syncMemos).toHaveBeenCalledTimes(1)
+    expect(result.current.result.errors).toEqual([
+      expect.objectContaining({ kind: 'auth', code: 'osm_account_changed' }),
+    ])
+    expect(loadLastUserId()).toBe('user1')
   })
 
-  it('(ピースJ) result に userId（username）が含まれ、パスワードは含まず localStorage には書かれない', async () => {
+  it('同期結果と公開マップのURLにコミュニティマップメーカーの公開ユーザーIDを使う', async () => {
     const { result } = renderHook(() => useCmmSync())
-    const returned = await act(async () => {
-      return result.current.runSync({ username: 'user1', password: 'secret-pass' })
-    })
-
+    const returned = await act(async () => result.current.runSync({ userid: 'user1' }))
     expect(result.current.result.userId).toBe('user1')
     expect(returned.userId).toBe('user1')
-    // 結果にパスワードは含まれない
-    expect(JSON.stringify(result.current.result)).not.toContain('secret-pass')
-    // localStorage にはパスワードは書かれない
-    for (const [key, value] of Object.entries(localStorage)) {
-      expect(value).not.toContain('secret-pass')
-    }
-    // (ピースL) username は localStorage（machi-cmm-last-userid-v1）に保存される
-    expect(JSON.parse(localStorage.getItem(CMM_LAST_USERID_KEY))).toBe('user1')
-    expect(result.current.lastUserId).toBe('user1')
+    expect(loadLastUserId()).toBe('user1')
   })
 })

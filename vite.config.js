@@ -47,11 +47,11 @@ export default defineConfig(({ mode }) => ({
     // 単一チャンクにすると主バンドルが肥大し chunkSize 警告が出る。
     // vendor として分割し、主バンドルを軽く・maplibre をキャッシュ可能にする。
     rollupOptions: {
-      // (ピースG1) マルチページビルド: メインアプリ（index.html）＋
-      // 公開マップページ（map/index.html → dist/map/index.html）
+      // メインアプリ、公開マップ、OSM 認証の戻り先をそれぞれ静的配信する。
       input: {
         main: 'index.html',
-        map: 'map/index.html'
+        map: 'map/index.html',
+        oauthCallback: 'oauth/callback/index.html'
       },
       output: {
         manualChunks: {

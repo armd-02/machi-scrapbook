@@ -17,7 +17,21 @@ import {
  * テスト補助
  * ------------------------------------------------------------------------- */
 
-const CREDENTIALS = { username: 'user1', password: 'pass1' }
+const SESSION = {
+  userid: 'user1',
+  async writeBatch(changes) {
+    const response = await fetch('https://cmapmaker.openacrossbase.net/api/scrapbook-sync.php', {
+      method: 'POST',
+      body: JSON.stringify(changes),
+    })
+    const body = JSON.parse(await response.text())
+    if (!response.ok) {
+      const kind = { 401: 'auth', 403: 'permission', 422: 'validation' }[response.status] ?? 'network'
+      throw new CmmError({ kind, status: response.status, code: body.code, message: body.message ?? body.code, details: body.errors })
+    }
+    return body
+  },
+}
 
 const BOOKS = [
   { id: 'default', name: 'デフォルト', createdAt: '2026-01-01T00:00:00Z', public: false },
@@ -49,7 +63,7 @@ function makeActivity(overrides = {}) {
     longitude: 139.0,
     created_at: '2026-11-01 00:00:00',
     updated_at: '2026-11-01 00:00:00',
-    // （マルチユーザー対応）デフォルトは自分の投稿（CREDENTIALS.username と一致）。
+    // （マルチユーザー対応）デフォルトは自分の投稿（SESSION.userid と一致）。
     // 他人の投稿を模擬したい場合は updated_by_userid を上書きする。
     updated_by_userid: 'user1',
     name: 'テスト施設',
@@ -66,7 +80,7 @@ function makeResponse(status, body) {
 
 /**
  * CMM 後端の fetch をモックする。
- * activities.php → 一覧、activities-batch.php → バッチ書き込み。
+ * activities.php → 一覧、scrapbook-sync.php → バッチ書き込み。
  */
 function mockCmm({
   activities = [],
@@ -84,7 +98,7 @@ function mockCmm({
     calls.push({ url: String(url), options })
     if (networkError) throw networkError
     const u = String(url)
-    if (u.includes('/api/activities-batch.php')) {
+    if (u.includes('/api/scrapbook-sync.php')) {
       const status = batchStatuses ? batchStatuses[Math.min(batchCallIndex, batchStatuses.length - 1)] : batchStatus
       const body =
         batchBodies && batchBodies[batchCallIndex] !== undefined
@@ -109,10 +123,10 @@ function urlsOf(calls) {
   return calls.map((c) => c.url)
 }
 
-/** activities-batch.php への POST ボディ配列 */
+/** scrapbook-sync.php への POST ボディ配列 */
 function batchBodiesOf(calls) {
   return calls
-    .filter((c) => c.url.includes('/api/activities-batch.php'))
+    .filter((c) => c.url.includes('/api/scrapbook-sync.php'))
     .map((c) => JSON.parse(c.options.body))
 }
 
@@ -373,7 +387,7 @@ describe('fetchActivities', () => {
 describe('saveBatch', () => {
   it('変更が空なら通信せず空の結果を返す', async () => {
     const { calls } = mockCmm()
-    const result = await saveBatch({ creates: [], updates: [], deletes: [] }, CREDENTIALS)
+    const result = await saveBatch({ creates: [], updates: [], deletes: [] }, SESSION)
     expect(result).toEqual({ created: [], updated: [], deleted: [], errors: [] })
     expect(calls).toHaveLength(0)
   })
@@ -386,15 +400,13 @@ describe('saveBatch', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('Basic 認証ヘッダと app を付けて POST する', async () => {
+  it('OSM セッションの書き込み処理に変更を渡す', async () => {
     const { calls } = mockCmm()
-    await saveBatch({ creates: [makeActivity()] }, CREDENTIALS)
+    await saveBatch({ creates: [makeActivity()] }, SESSION)
     const post = calls[0]
-    expect(post.url).toBe('https://cmapmaker.openacrossbase.net/api/activities-batch.php')
+    expect(post.url).toBe('https://cmapmaker.openacrossbase.net/api/scrapbook-sync.php')
     expect(post.options.method).toBe('POST')
-    expect(post.options.headers.Authorization).toBe(`Basic ${btoa('user1:pass1')}`)
     expect(JSON.parse(post.options.body)).toEqual({
-      app: CMM_APP_KEY,
       creates: [makeActivity()],
       updates: [],
       deletes: [],
@@ -405,7 +417,7 @@ describe('saveBatch', () => {
     const created = makeActivity({ id: 'NEW-1' })
     const updated = makeActivity({ id: 'UPD-1', osmid: 'way/5' })
     mockCmm({ batchBody: { status: 'ok', created: [created], updated: [updated], deleted: ['DEL-1'] } })
-    const result = await saveBatch({ creates: [created], updates: [updated], deletes: ['DEL-1'] }, CREDENTIALS)
+    const result = await saveBatch({ creates: [created], updates: [updated], deletes: ['DEL-1'] }, SESSION)
     expect(result.created).toEqual([created])
     expect(result.updated).toEqual([updated])
     expect(result.deleted).toEqual(['DEL-1'])
@@ -415,7 +427,7 @@ describe('saveBatch', () => {
   it('1000 件を超える場合は分割して順次送信する', async () => {
     const creates = Array.from({ length: 1001 }, (_, i) => makeActivity({ osmid: `node/${i}` }))
     const { calls } = mockCmm()
-    await saveBatch({ creates }, CREDENTIALS)
+    await saveBatch({ creates }, SESSION)
     const posts = batchBodiesOf(calls)
     expect(posts).toHaveLength(2)
     expect(posts[0].creates).toHaveLength(1000)
@@ -427,7 +439,7 @@ describe('saveBatch', () => {
     const updates = Array.from({ length: 500 }, (_, i) => ({ ...makeActivity({ osmid: `way/${i}` }), id: `ID-${i}` }))
     const deletes = Array.from({ length: 50 }, (_, i) => `DEL-${i}`)
     const { calls } = mockCmm()
-    await saveBatch({ creates, updates, deletes }, CREDENTIALS)
+    await saveBatch({ creates, updates, deletes }, SESSION)
     const posts = batchBodiesOf(calls)
     expect(posts).toHaveLength(2)
     const count = (p) => p.creates.length + p.updates.length + p.deletes.length
@@ -449,7 +461,7 @@ describe('saveBatch', () => {
         { status: 'ok', created: [okCreated], updated: [], deleted: [] },
       ],
     })
-    const result = await saveBatch({ creates }, CREDENTIALS)
+    const result = await saveBatch({ creates }, SESSION)
     expect(result.errors).toHaveLength(1)
     expect(result.errors[0]).toMatchObject({ kind: 'validation', status: 422, code: 'validation_failed' })
     expect(result.created).toEqual([okCreated])
@@ -464,14 +476,14 @@ describe('saveBatch', () => {
         { status: 'ok', created: [], updated: [], deleted: [] },
       ],
     })
-    const result = await saveBatch({ creates }, CREDENTIALS)
+    const result = await saveBatch({ creates }, SESSION)
     expect(result.errors[0].kind).toBe('auth')
     expect(batchBodiesOf(calls)).toHaveLength(1)
   })
 
   it('403 は permission 種', async () => {
     mockCmm({ batchStatus: 403, batchBody: { status: 'error', code: 'project_access_denied' } })
-    const result = await saveBatch({ deletes: ['X'] }, CREDENTIALS)
+    const result = await saveBatch({ deletes: ['X'] }, SESSION)
     expect(result.errors[0]).toMatchObject({ kind: 'permission', status: 403, code: 'project_access_denied' })
   })
 })
@@ -480,10 +492,10 @@ describe('saveBatch', () => {
  * syncMemos
  * ------------------------------------------------------------------------- */
 
-const SYNC_DEFAULTS = { books: BOOKS, tombstones: [], credentials: CREDENTIALS, lastSyncAt: null }
+const SYNC_DEFAULTS = { books: BOOKS, tombstones: [], session: SESSION, lastSyncAt: null }
 
 function batchCall(calls) {
-  return calls.find((c) => c.url.includes('/api/activities-batch.php'))
+  return calls.find((c) => c.url.includes('/api/scrapbook-sync.php'))
 }
 
 describe('syncMemos', () => {
@@ -494,7 +506,6 @@ describe('syncMemos', () => {
     const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
 
     const body = JSON.parse(batchCall(calls).options.body)
-    expect(body.app).toBe(CMM_APP_KEY)
     expect(body.creates).toEqual([memoToActivity(memo, BOOKS)])
     expect(body.updates).toEqual([])
     expect(body.deletes).toEqual([])
@@ -592,7 +603,7 @@ describe('syncMemos', () => {
   it('cmmId が取得セットに無い場合はローカル内容を送る（比較不能・冪等）', async () => {
     const memo = makeMemo({ cmmId: 'ACT-1', cmmUpdatedAt: '2026-11-01T00:00:00Z' })
     const { calls } = mockCmm({ activities: [], lastSyncAt: '2026-11-01T00:00:00Z' })
-    await syncMemos({ memos: [memo], books: BOOKS, tombstones: [], credentials: CREDENTIALS, lastSyncAt: '2026-11-01T00:00:00Z' })
+    await syncMemos({ memos: [memo], books: BOOKS, tombstones: [], session: SESSION, lastSyncAt: '2026-11-01T00:00:00Z' })
     const body = JSON.parse(batchCall(calls).options.body)
     expect(body.updates).toEqual([{ ...memoToActivity(memo, BOOKS), id: 'ACT-1' }])
   })
@@ -715,7 +726,7 @@ describe('syncMemos', () => {
 
   it('トンブストーンは削除される', async () => {
     const { calls } = mockCmm({ activities: [] })
-    const result = await syncMemos({ memos: [], books: BOOKS, tombstones: ['TOMB-1'], credentials: CREDENTIALS, lastSyncAt: null })
+    const result = await syncMemos({ memos: [], books: BOOKS, tombstones: ['TOMB-1'], session: SESSION, lastSyncAt: null })
     const body = JSON.parse(batchCall(calls).options.body)
     expect(body.deletes).toEqual(['TOMB-1'])
     expect(result.deleted).toEqual(['TOMB-1'])
@@ -725,7 +736,7 @@ describe('syncMemos', () => {
     const memo = makeMemo({ cmmId: 'ACT-5' })
     const created = makeActivity({ id: 'NEW-5' })
     const { calls } = mockCmm({ activities: [], batchBody: { status: 'ok', created: [created], updated: [], deleted: [] } })
-    const result = await syncMemos({ memos: [memo], books: BOOKS, tombstones: ['ACT-5'], credentials: CREDENTIALS, lastSyncAt: null })
+    const result = await syncMemos({ memos: [memo], books: BOOKS, tombstones: ['ACT-5'], session: SESSION, lastSyncAt: null })
     const body = JSON.parse(batchCall(calls).options.body)
     expect(body.deletes).toEqual(['ACT-5'])
     expect(body.creates).toEqual([memoToActivity(memo, BOOKS)])
@@ -771,7 +782,7 @@ describe('syncMemos', () => {
     const activity = makeActivity({ id: 'ACT-7' })
     const created = makeActivity({ id: 'NEW-7' })
     const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [created], updated: [], deleted: [] } })
-    const result = await syncMemos({ memos: [memo], books: BOOKS, tombstones: ['ACT-7'], credentials: CREDENTIALS, lastSyncAt: null })
+    const result = await syncMemos({ memos: [memo], books: BOOKS, tombstones: ['ACT-7'], session: SESSION, lastSyncAt: null })
     const body = JSON.parse(batchCall(calls).options.body)
     expect(body.deletes).toEqual(['ACT-7'])
     expect(body.creates).toEqual([memoToActivity(memo, BOOKS)])
@@ -809,8 +820,7 @@ describe('syncMemos', () => {
     const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS })
     expect(result.errors[0]).toMatchObject({ kind: 'auth', status: 401, code: 'authentication_required' })
     expect(result.created).toEqual([])
-    // 取得は成功しているので lastSyncAt は設定される
-    expect(result.lastSyncAt).toMatch(/Z$/)
+    expect(result.lastSyncAt).toBeNull()
   })
 
   it('バッチの検証エラー（422）は validation 種で返る', async () => {
@@ -834,7 +844,7 @@ describe('syncMemos', () => {
 
   it('増分同期では updated_since と userid を付けて取得する', async () => {
     const { calls } = mockCmm({ activities: [] })
-    await syncMemos({ memos: [], books: BOOKS, tombstones: [], credentials: CREDENTIALS, lastSyncAt: '2026-11-01T00:00:00Z' })
+    await syncMemos({ memos: [], books: BOOKS, tombstones: [], session: SESSION, lastSyncAt: '2026-11-01T00:00:00Z' })
     expect(calls[0].url).toBe(
       'https://cmapmaker.openacrossbase.net/api/activities.php?app=machi-scrapbook&updated_since=2026-11-01T00%3A00%3A00Z&userid=user1'
     )
@@ -888,7 +898,6 @@ describe('syncMemos', () => {
  * ------------------------------------------------------------------------- */
 
 describe('syncMemos（マルチユーザー: 所有判定）', () => {
-  const EMAIL_CREDENTIALS = { username: 'user1@example.com', password: 'pass1' }
 
   /** 一覧取得リクエスト（activities.php）のクエリパラメータを返す。 */
   function listParams(calls) {
@@ -972,86 +981,13 @@ describe('syncMemos（マルチユーザー: 所有判定）', () => {
     })
   })
 
-  describe('フォールバック経路（メールアドレス形式のログインID）', () => {
-    it('userid パラメータを使わず全件取得する', async () => {
-      const { calls } = mockCmm({ activities: [] })
-      await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      expect(listParams(calls).get('userid')).toBeNull()
-    })
-
-    it('他人の投稿は取り込まない（取り込み・作成・更新・削除に影響しない）', async () => {
-      const other = makeActivity({ id: 'OTHER-1', osmid: 'way/999', updated_by_userid: 'other1' })
-      mockCmm({ activities: [other] })
-      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      expect(result.imported).toEqual([])
-      expect(result.created).toEqual([])
-      expect(result.updated).toEqual([])
-      expect(result.deleted).toEqual([])
-    })
-
-    it('メールアドレスのローカルパート一致では所有権を推測しない（完全一致のみ）', async () => {
-      const activity = makeActivity({ id: 'ACT-1', osmid: 'way/999', updated_by_userid: 'user1' })
-      mockCmm({ activities: [activity] })
-      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      // 'user1' != 'user1@example.com' → 他人扱い（取り込まない）
-      expect(result.imported).toEqual([])
-    })
-
-    it('メールアドレス形式のログインIDが updated_by_userid と完全一致すれば自分の投稿として扱う', async () => {
-      const mine = makeActivity({ id: 'MINE-1', osmid: 'way/999', updated_by_userid: 'user1@example.com' })
-      mockCmm({ activities: [mine] })
-      const result = await syncMemos({ memos: [], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      expect(result.imported).toHaveLength(1)
-    })
-
-    it('osmid 対応付けを行わず新規作成とする（推測しない）', async () => {
-      const memo = makeMemo() // cmmId なし、osmid node/100
-      const activity = makeActivity({ id: 'ACT-1', updated_by_userid: 'user1' }) // osmid node/100
-      const created = makeActivity({ id: 'NEW-1' })
-      const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [created], updated: [], deleted: [] } })
-      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      const body = JSON.parse(batchCall(calls).options.body)
-      expect(body.creates).toEqual([memoToActivity(memo, BOOKS)])
-      expect(body.updates).toEqual([])
-      expect(result.imported).toEqual([])
-    })
-
-    it('cmmId 連結による判定は有効（更新）', async () => {
-      const memo = makeMemo({ cmmId: 'ACT-1', cmmUpdatedAt: '2026-11-02T00:00:00Z', memo: 'ローカル新メモ' })
-      const activity = makeActivity({ id: 'ACT-1', updated_at: '2026-11-01 00:00:00', updated_by_userid: 'user1', memo: '古い' })
-      const updated = makeActivity({ id: 'ACT-1' })
-      const { calls } = mockCmm({ activities: [activity], batchBody: { status: 'ok', created: [], updated: [updated], deleted: [] } })
-      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      const body = JSON.parse(batchCall(calls).options.body)
-      expect(body.updates).toHaveLength(1)
-      expect(body.updates[0].id).toBe('ACT-1')
-      expect(result.imported).toEqual([])
-    })
-
-    it('他人の投稿は取り込み・作成・更新・削除の件数に影響しない', async () => {
-      const memo = makeMemo({ cmmId: 'MINE-1', cmmUpdatedAt: '2026-11-01T00:00:00Z' })
-      const mine = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00' }) // 自分の投稿（新しい）→ import
-      const otherNew = makeActivity({ id: 'OTHER-1', osmid: 'way/777', updated_by_userid: 'other1' }) // 他人・新規
-      const otherSame = makeActivity({ id: 'OTHER-2', osmid: 'node/100', updated_by_userid: 'other1' }) // 他人・同一 osmid
-      mockCmm({ activities: [otherNew, otherSame, mine] })
-      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      expect(result.imported).toHaveLength(1)
-      expect(result.imported[0].cmmId).toBe('MINE-1')
-      expect(result.created).toEqual([])
-      expect(result.updated).toEqual([])
-      expect(result.deleted).toEqual([])
-    })
-
-    it('同一 osmid に複数 Activity がある場合、自分の投稿を対応付けに優先する', async () => {
-      const memo = makeMemo() // cmmId なし、osmid node/100
-      const other = makeActivity({ id: 'OTHER-1', updated_by_userid: 'other1' }) // 先に一覧へ
-      // 自分の投稿はログインID（メールアドレス）と完全一致する必要がある
-      const mine = makeActivity({ id: 'MINE-1', updated_at: '2026-11-02 00:00:00', name: 'リモート名', updated_by_userid: 'user1@example.com' }) // 後へ
-      mockCmm({ activities: [other, mine] })
-      const result = await syncMemos({ memos: [memo], ...SYNC_DEFAULTS, credentials: EMAIL_CREDENTIALS })
-      expect(result.imported).toHaveLength(1)
-      expect(result.imported[0].cmmId).toBe('MINE-1')
-      expect(result.created).toEqual([])
-    })
-  })
+  it.each([null, { ...SESSION, userid: 'user1@example.com' }])(
+    '有効な公開ユーザーIDのないセッションでは取得・書き込みを行わない',
+    async (session) => {
+      const { calls } = mockCmm()
+      const result = await syncMemos({ ...SYNC_DEFAULTS, session })
+      expect(result.errors).toEqual([expect.objectContaining({ kind: 'auth' })])
+      expect(calls).toEqual([])
+    },
+  )
 })
