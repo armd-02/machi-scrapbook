@@ -35,7 +35,7 @@ function ShareButton() {
       
       {/* トゥールチップ */}
       {!copied && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-slate-800 text-white text-[10px] rounded px-2 py-1.5 opacity-0 pointer-events-none transition-opacity hover:opacity-100 group-hover:opacity-100">
+        <div className="absolute top-full right-0 mt-1 w-56 max-w-[calc(100vw-1.5rem)] bg-slate-800 text-white text-[10px] rounded px-2 py-1.5 opacity-0 pointer-events-none transition-opacity hover:opacity-100 group-hover:opacity-100">
           現在の画面と検索条件・一覧フィルタをURLにエンコードします。
           <br/>※ 共有したURLを開くと同じ画面・条件・絞り込みで開けますが、
           <br/>OSMデータは常時更新されるため結果は異なる場合があります。
