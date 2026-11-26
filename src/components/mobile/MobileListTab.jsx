@@ -10,7 +10,7 @@ import BarrierFreeSummary from './BarrierFreeSummary'
 import ShareButton from '../ShareButton'
 import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
 import AttributeCompleteness from '../AttributeCompleteness'
 import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
@@ -163,36 +163,35 @@ function PoiMobileList() {
                 powerValue={resultFilters.power}
                 onPowerChange={(v) => setFilters({ power: v })}
               />
-              {/* 車椅子対応: しきい値型の単一選択（すべて / 一部対応以上 / 対応可のみ） */}
-              <FilterSelect
-                label="車椅子対応で絞る"
-                value={resultFilters.wheelchair}
-                onChange={(e) => setFilters({ wheelchair: e.target.value })}
-                filter="wheelchair"
-              >
-                {WHEELCHAIR_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </FilterSelect>
-              <div className="flex gap-2">
-                <CategorySelect
-                  items={results}
-                  value={activeSearch.category || ''}
-                  onChange={(e) => changeCategory(e.target.value)}
-                  className="flex-1 min-w-0"
-                />
+              <PairedFilterRow>
+                <FilterSelect
+                  label="車椅子対応で絞る"
+                  value={resultFilters.wheelchair}
+                  onChange={(e) => setFilters({ wheelchair: e.target.value })}
+                  filter="wheelchair"
+                  className="flex-[1_1_10.5rem] min-w-0"
+                >
+                  {WHEELCHAIR_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </FilterSelect>
                 <FilterSelect
                   label="並び順"
                   value={sortDir}
                   onChange={(e) => setFilters({ sortDir: e.target.value })}
-                  className="w-36 shrink-0"
+                  className="flex-[1_1_9rem] min-w-0"
                   filter="sort"
                 >
                   <option value="none">並び順</option>
                   <option value="asc">名前あ行順</option>
                   <option value="desc">名前逆順</option>
                 </FilterSelect>
-              </div>
+              </PairedFilterRow>
+              <CategorySelect
+                items={results}
+                value={activeSearch.category || ''}
+                onChange={(e) => changeCategory(e.target.value)}
+              />
               {/* 料理ジャンル: 結果にcuisineタグがあるときだけチップ行を表示
                   （単一選択トグル。再クリックで解除） */}
               <CuisineChips

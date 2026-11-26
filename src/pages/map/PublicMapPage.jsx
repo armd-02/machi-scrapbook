@@ -5,7 +5,7 @@ import CollapsibleResultsMap from '../../components/mobile/CollapsibleResultsMap
 import MobileFacilityCard from '../../components/mobile/MobileFacilityCard'
 import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  RatingStarsRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../../components/ResultFilterBar'
 import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 import { fetchActivities, toErrorObject } from '../../utils/cmmSync'
@@ -186,16 +186,23 @@ export default function PublicMapPage() {
                   powerValue={memoFilters.power}
                   onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
                 />
-                <FilterSelect
-                  label="車椅子対応で絞る"
-                  value={memoFilters.wheelchair}
-                  onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
-                  filter="wheelchair"
-                >
-                  {WHEELCHAIR_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </FilterSelect>
+                <PairedFilterRow>
+                  <FilterSelect
+                    label="車椅子対応で絞る"
+                    value={memoFilters.wheelchair}
+                    onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
+                    filter="wheelchair"
+                    className="flex-[1_1_10.5rem] min-w-0"
+                  >
+                    {WHEELCHAIR_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </FilterSelect>
+                  <RatingStarsRow
+                    value={memoFilters.rating}
+                    onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
+                  />
+                </PairedFilterRow>
                 <CategorySelect
                   items={listItems}
                   value={memoFilters.catFilter || ''}
@@ -205,10 +212,6 @@ export default function PublicMapPage() {
                   facets={cuisineFacets}
                   value={memoFilters.cuisine || ''}
                   onChange={(v) => setMemoFilters((prev) => ({ ...prev, cuisine: v }))}
-                />
-                <RatingStarsRow
-                  value={memoFilters.rating}
-                  onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
                 />
               </div>
 

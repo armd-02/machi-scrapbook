@@ -31,11 +31,19 @@ const CHIP_UNSELECTED = 'bg-white text-slate-600 border-slate-200 hover:bg-slate
 
 // ===== 横長コンパクト行レイアウト（スマホで縦長になるのを抑える） =====
 
-/** 1行1コントロールの共通行クラス（見出しとコントロールを横に並べる） */
+/** 見出しとコントロールを横に並べる。 */
 const ROW_CLASS = 'min-h-[44px] flex items-center gap-2'
 /** 行内見出しのクラス（縦積みの HEADING_CLASS と同じ style token を含み、幅・padding を落とす） */
 const INLINE_HEADING_CLASS =
   'shrink-0 flex items-center gap-1.5 min-h-[44px] text-sm font-medium text-slate-700'
+
+export function PairedFilterRow({ children }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 [&_select]:px-1.5 [&_select]:text-xs">
+      {children}
+    </div>
+  )
+}
 
 // ===== 選択肢定義（両画面共通の単一ソース） =====
 

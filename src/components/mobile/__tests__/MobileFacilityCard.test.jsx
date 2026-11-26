@@ -137,6 +137,16 @@ describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
     expect(screen.getByText(/9:00〜17:00/)).toBeTruthy()
   })
 
+  it.each([
+    [undefined, '公衆電話'],
+    ['名称なし', '公衆電話'],
+    ['駅前電話ボックス', '駅前電話ボックス'],
+  ])('公衆電話の名前が %s のときは「%s」と表示する', (name, heading) => {
+    const result = { type: 'node', id: 9, name, tags: { amenity: 'telephone' } }
+    render(<MobileFacilityCard result={result} onOpen={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: heading })).toBeTruthy()
+  })
+
   it('住所・営業時間が未登録なら行ごとに出ない（捏造しない）', () => {
     const bare = { type: 'node', id: 9, lat: 34.8, lon: 135.5, tags: { amenity: 'bench' } }
     render(<MobileFacilityCard result={bare} onOpen={vi.fn()} />)

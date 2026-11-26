@@ -11,7 +11,7 @@ import { cuisineFacetValues } from '../../utils/resultFilters'
 import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
 import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  RatingStarsRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
 } from '../ResultFilterBar'
 import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
@@ -74,12 +74,10 @@ import CmmSyncResultPanel from '../CmmSyncResultPanel'
  *   - 「カテゴリ管理」ボタン: 新規作成（作ったら選択状態にする）・名前を変更
  *     （選択中のブック・「すべて」選択中は不可）・削除（選択中のブック・2段階確認・
  *     そのブックのメモはすべて「デフォルト」へ移動）。「デフォルト」は削除不可。
- *     メニュー末尾の「メモのカテゴリを変更」でカテゴリ編集モードを ON にできる
- *   - カテゴリ編集モード ON のとき、「カテゴリ管理」ボタンのラベルは「カテゴリ編集中」
- *     になり、ボタンを押すと編集モードを終了する（メニューは開かない）
  *   - ごみ箱ビュー（view='trash'）にはバーを出さない
  *
- * - カテゴリ編集モード（ピース3）: モード ON のとき、各メモカードの下部に所属
+ * - カテゴリ編集モード（ピース3）: カード一覧の直前で開始・終了する。
+ *   モード ON のとき、各メモカードの下部に所属
  *   ブックの変更 UI（「カテゴリ」ラベル＋セレクトボックス）が出る。現在の
  *   ブック名がセレクトに表示され、「デフォルト」を含む全ブックから選べる。
  *   変更は即座に保存される（setBook → updateBook → localStorage）。カードの
@@ -207,8 +205,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
     }
   }
 
-  // (カテゴリ編集モード) ON/OFF を切り替える。このピースではボタンとモード状態まで。
-  // モード中に各カードでブックを変更する UI は後続のピースで作る
+  // カード一覧でカテゴリ編集を開始・終了する。
   const [categoryEdit, setCategoryEdit] = useState(false)
 
   // (スクラップブックバー) ブックを削除する: そのブックのメモ（ごみ箱含む）をすべて
@@ -401,7 +398,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
     // 見出し・件数・フィルタ・カードリストが独立スクロールする（地図はスクロールしない）
     <section aria-label="まちメモ帳" className="h-full flex flex-col bg-slate-100 [container-type:size]">
       {/* (スクラップブックバー) メモマップの上（スクロールしない固定領域）に置く。
-          ブックの切り替え＋新規作成・名前変更・削除＋カテゴリ編集トグル。
+          ブックの切り替え＋新規作成・名前変更・削除。
           ごみ箱ビューにはバーを出さない（view='trash' は上の早期 return） */}
       <div className="shrink-0 px-3 pt-3">
         <ScrapbookBar
@@ -413,8 +410,6 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
           onSetPublic={setBookPublic}
           onDelete={handleDeleteBook}
           bookCount={selectedBookCount}
-          editMode={categoryEdit}
-          onToggleEditMode={() => setCategoryEdit((v) => !v)}
           onSyncClick={() => {
             setCallbackError(null)
             setLoginOpen(true)
@@ -480,17 +475,23 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
               powerValue={memoFilters.power}
               onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
             />
-            {/* 車椅子対応: しきい値型の単一選択（すべて / 一部対応以上 / 対応可のみ） */}
-            <FilterSelect
-              label="車椅子対応で絞る"
-              value={memoFilters.wheelchair}
-              onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
-              filter="wheelchair"
-            >
-              {WHEELCHAIR_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </FilterSelect>
+            <PairedFilterRow>
+              <FilterSelect
+                label="車椅子対応で絞る"
+                value={memoFilters.wheelchair}
+                onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
+                filter="wheelchair"
+                className="flex-[1_1_10.5rem] min-w-0"
+              >
+                {WHEELCHAIR_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </FilterSelect>
+              <RatingStarsRow
+                value={memoFilters.rating}
+                onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
+              />
+            </PairedFilterRow>
             <CategorySelect
               items={activeItems(items)}
               value={memoFilters.catFilter || ''}
@@ -503,16 +504,24 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
               value={memoFilters.cuisine || ''}
               onChange={(v) => setMemoFilters((prev) => ({ ...prev, cuisine: v }))}
             />
-            {/* ★ 評価: 星ボタン5つ（カードの★評価行と同じインターフェイス）。
-                星nを押すと「★n以上」で絞り込み（★5は実質★5のみ）、
-                選択中にもう一度同じ星を押すと解除して「すべて」に戻る */}
-            <RatingStarsRow
-              value={memoFilters.rating}
-              onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}
-            />
           </div>
         )}
 
+        {(filtered.length > 0 || categoryEdit) && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setCategoryEdit((editing) => !editing)}
+              className={`min-h-[44px] rounded-lg border px-3 text-sm font-medium ${
+                categoryEdit
+                  ? 'border-primary-600 bg-primary-600 text-white hover:bg-primary-700'
+                  : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
+              }`}
+            >
+              {categoryEdit ? 'カテゴリ変更を終了' : 'メモのカテゴリを変更'}
+            </button>
+          </div>
+        )}
         {/* 一覧（0件のときは案内文、絞り込みで0件のときはリセット案内） */}
         {active.length === 0 ? (
           <p className="text-sm text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-4 text-center">
@@ -910,12 +919,7 @@ function MemochoCard({
  *     「非公開にする」、非公開なら「公開にする」）。タップで即座に保存される
  *   - 削除: 選択中のブックを削除し、そのブックのメモはすべて「デフォルト」へ
  *     移す（2段階確認）。「デフォルト」は削除できない（名前変更は可）
- *   - メニューの末尾: 区切り線＋「メモのカテゴリを変更」。押すとカテゴリ編集モードを
- *     ON にしてメニューを閉じる
  * - 公開ブックはセレクトのラベルに「（公開）」が付く
- * - カテゴリ編集モード ON のとき、「カテゴリ管理」ボタンのラベルは「カテゴリ編集中」
- *   になり、ボタンを押すと編集モードを終了する（メニューは開かない）。モード ON の
- *   とき、各カードに所属ブックの変更 UI（セレクト）が出る（ピース3）
  * - 「CMM 同期」ボタン（(CMM同期、ピースC)）: 押すとログインダイアログ
  *   （CmmLoginDialog）が表示され、OpenStreetMap ログイン後に同期を開始する。
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
@@ -933,8 +937,6 @@ function MemochoCard({
  * @param {(id: string, isPublic: boolean) => boolean} onSetPublic 公開設定の切替
  * @param {(id: string) => boolean} onDelete 削除（メモは「デフォルト」へ移動済みであること）
  * @param {number} bookCount 選択中ブックのメモ件数（削除確認の案内に使う）
- * @param {boolean} editMode カテゴリ編集モードの ON/OFF
- * @param {() => void} onToggleEditMode カテゴリ編集モードの切替
  * @param {() => void} onSyncClick 同期ボタンの押下（ログインダイアログを開く）
  * @param {boolean} syncing 同期実行中か
  * @param {string|null} lastSyncAt 最終同期時刻（RFC3339 文字列）
@@ -944,7 +946,7 @@ function MemochoCard({
  */
 function ScrapbookBar({
   books, bookFilter, onSelectBook, onCreate, onRename, onSetPublic, onDelete,
-  bookCount, editMode, onToggleEditMode,
+  bookCount,
   onSyncClick, syncing, lastSyncAt, syncResult, onSyncClose, lastUserId
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1083,14 +1085,12 @@ function ScrapbookBar({
           </select>
           <button
             type="button"
-            onClick={editMode ? onToggleEditMode : toggleMenu}
-            aria-label={editMode ? 'カテゴリ編集中' : 'カテゴリ管理'}
-            aria-expanded={editMode ? false : menuOpen}
-            className={`shrink-0 min-h-[44px] px-3 text-sm font-semibold rounded-lg border transition-colors ${
-              editMode ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
+            onClick={toggleMenu}
+            aria-label="カテゴリ管理"
+            aria-expanded={menuOpen}
+            className="shrink-0 min-h-[44px] px-3 text-sm font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
           >
-            {editMode ? 'カテゴリ編集中' : 'カテゴリ管理▾'}
+            カテゴリ管理▾
           </button>
         </div>
         {/* 2行目: 公開地図への反映・URLのコピー・最終同期時刻 */}
@@ -1306,21 +1306,6 @@ function ScrapbookBar({
           ) : (
             <p className="text-[10px] text-slate-400">削除するブックを選択してください。</p>
           )}
-
-          <div className="border-t border-slate-200" />
-
-          {/* メニュー末尾: 押すとカテゴリ編集モードを ON にしてメニューを閉じる */}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onToggleEditMode()
-              closeMenu()
-            }}
-            className="w-full min-h-[44px] px-3 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
-          >
-            メモのカテゴリを変更
-          </button>
         </div>
       )}
     </div>

@@ -22,9 +22,7 @@
  *     タップで即座に保存されメニューが閉じる。「デフォルト」ブックも対象
  *   - 公開ブックはセレクトのラベルに「（公開）」が付く
  *   - メニュー外をタップするとメニューが閉じる
- * - カテゴリ編集モード: 「カテゴリ管理」メニュー末尾の「メモのカテゴリを変更」で
- *   モード ON にできる（メニューは閉じる）。モード ON のとき「カテゴリ管理」ボタンの
- *   ラベルは「カテゴリ編集中」になり、ボタンを押すとモードを終了する（メニューは開かない）
+ * - カテゴリ編集モード: カード一覧の直前にあるボタンで開始・終了できる
  * - カテゴリ編集モード（ピース3・カード側）:
  *   - モード OFF のときはカードにカテゴリセレクトは出ない
  *   - モード ON のときは各カードに「カテゴリ」ラベル＋セレクトが出て、
@@ -579,44 +577,38 @@ describe('公開設定（CMM への公開）', () => {
   })
 })
 
-describe('カテゴリ管理（カテゴリ編集モード）', () => {
-  it('メニュー末尾の「メモのカテゴリを変更」でモード ON にでき、メニューは閉じる', () => {
+describe('カード一覧のカテゴリ編集ボタン', () => {
+  it('管理メニュー外のカード一覧直前から編集を開始できる', () => {
     seedMemos([makeItem()])
     renderSection()
+
+    const editButton = screen.getByRole('button', { name: 'メモのカテゴリを変更' })
+    const cardList = document.getElementById('memocho-card-node/1001').parentElement
+    expect(cardList.previousElementSibling.contains(editButton)).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
     expect(screen.getByRole('menu', { name: 'カテゴリ管理' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'メモのカテゴリを変更' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'メモのカテゴリを変更' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'メモのカテゴリを変更' }))
-
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(screen.getByRole('button', { name: 'カテゴリ編集中' })).toBeTruthy()
+    fireEvent.click(editButton)
+    expect(screen.getByRole('combobox', { name: 'テスト珈琲店のカテゴリを変更' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'カテゴリ変更を終了' })).toBeTruthy()
   })
 
-  it('編集モード OFF のときはボタンを押すとメニューが開く', () => {
+  it('編集モード中も管理メニューを開け、カード一覧のボタンから編集を終了できる', () => {
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: 'メモのカテゴリを変更' }))
+    const manageButton = screen.getByRole('button', { name: 'カテゴリ管理' })
+    fireEvent.click(manageButton)
     expect(screen.getByRole('menu', { name: 'カテゴリ管理' })).toBeTruthy()
+    fireEvent.click(manageButton)
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    expect(screen.queryByRole('menu')).toBeNull()
-  })
-
-  it('モード ON のときはボタンを押すとモードを終了し、メニューは開かない', () => {
-    seedMemos([makeItem()])
-    renderSection()
-
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'メモのカテゴリを変更' }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ編集中' }))
-
-    expect(screen.getByRole('button', { name: 'カテゴリ管理' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'カテゴリ編集中' })).toBeNull()
-    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ変更を終了' }))
+    expect(screen.getByRole('button', { name: 'メモのカテゴリを変更' })).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: /のカテゴリを変更/ })).toBeNull()
   })
 })
 
@@ -625,10 +617,8 @@ describe('カテゴリ編集モード（ピース3・カード側のブック変
   const cardSelect = (name) => screen.getByRole('combobox', { name: `${name}のカテゴリを変更` })
   const selectedText = (select) => select.options[select.selectedIndex].text
 
-  // 「カテゴリ管理」メニューから「メモのカテゴリを変更」で編集モード ON
   const enterEditMode = () => {
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'メモのカテゴリを変更' }))
+    fireEvent.click(screen.getByRole('button', { name: 'メモのカテゴリを変更' }))
   }
 
   it('モード OFF のときはカードにカテゴリセレクトは出ない', () => {

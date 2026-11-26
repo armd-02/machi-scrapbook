@@ -287,7 +287,7 @@ const TAG_SOURCES = [
  */
 const CATEGORY_MATCH_ORDER = [
   'cafe', 'restaurant', 'fast_food', 'bar_izakaya', 'convenience',
-  'retail', 'pharmacy', 'hospital', 'school', 'bank', 'toilets',
+  'retail', 'pharmacy', 'hospital', 'school', 'bank', 'toilets', 'telephone',
   'public_facility', 'park', 'sports', 'museum', 'worship',
   'accommodation', 'transport', 'food_drink'
 ]
