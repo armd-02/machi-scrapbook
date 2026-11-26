@@ -564,8 +564,9 @@ const SUSHI_NONE = makeItem({
 })
 const FILTER_ITEMS = [CAFE_WIFI, CAFE_NO_WIFI, RAMEN_PROP, RAMEN_WIRED, SUSHI_NONE, PARK]
 
-const wifiGroup = () => screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
-const wcSelect = () => screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+const wifiGroup = () => screen.getByRole('group', { name: '設備で絞る' })
+// 設備行の車椅子チェックボックス（Wi-Fi・電源と同じグループ内）
+const wcCheck = () => within(wifiGroup()).getByRole('checkbox', { name: '車椅子' })
 const ratingGroup = () => screen.getByRole('group', { name: '評価で絞る' })
 // 評価行の星ボタン（カードの★評価行と同じインターフェイス）。aria-label は
 // フィルタの意味を反映: ★N以上で絞り込む（N=1..4）／★5のみで絞り込む
@@ -600,17 +601,16 @@ describe('MemochoSection: フィルタバー', () => {
     // キーワード入力＋3つのチップ行＋料理ジャンル行（cuisine タグを持つアイテムがあるため出る）
     expect(keywordInput()).toBeTruthy()
     expect(wifiGroup()).toBeTruthy()
-    expect(wcSelect()).toBeTruthy()
+    expect(wcCheck()).toBeTruthy()
     expect(ratingGroup()).toBeTruthy()
     // 料理ジャンル行は折りたたみ式: 初期は見出し行のみ表示・チップ群は非表示
     expect(cuisineHeader()).toBeTruthy()
     expect(cuisineGroup()).toBeNull()
 
-    // Wi-Fi・電源行: 未選択（デフォルトは絞らない）
-    expect(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }).checked).toBe(false)
-    expect(within(wifiGroup()).getByRole('checkbox', { name: '電源あり' }).checked).toBe(false)
-    // 車椅子行: 単一選択セレクトが「すべて」（絞り込みなし）
-    expect(wcSelect().value).toBe('all')
+    // 設備行: 未選択（デフォルトは絞らない）
+    expect(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }).checked).toBe(false)
+    expect(within(wifiGroup()).getByRole('checkbox', { name: '電源' }).checked).toBe(false)
+    expect(within(wifiGroup()).getByRole('checkbox', { name: '車椅子' }).checked).toBe(false)
     // 評価行: 星ボタン5つ・初期はすべて未選択（全部☆）
     expect(within(ratingGroup()).getAllByRole('button')).toHaveLength(5)
     for (let n = 1; n <= 5; n++) {
@@ -632,20 +632,21 @@ describe('MemochoSection: フィルタバー', () => {
     }
   })
 
-  it('全フィルタ行に「アイコン＋見出し」が付く（id 27 統一。車椅子=♿・WiFi=📶・評価=★）', () => {
+  it('全フィルタ行に「アイコン＋見出し」が付く（id 27 統一。設備=📶・評価=★）', () => {
     seedFilterItems()
     renderSection()
 
-    // 車椅子行: 見出しにアイコン(♿)＋文言「車椅子」
-    expect(wcSelect().previousElementSibling.textContent).toContain('車椅子')
-    expect(wcSelect().previousElementSibling.textContent).toContain('♿')
-    // 統一見出しスタイル（text-sm font-medium text-slate-700・min-h-[44px]）
-    expect(wcSelect().previousElementSibling.className).toContain('text-sm font-medium text-slate-700')
-    expect(wcSelect().previousElementSibling.className).toContain('min-h-[44px]')
-
-    // WiFi 行にも見出し（📶 Wi-Fi）が出る
-    expect(wifiGroup().previousElementSibling.textContent).toContain('Wi-Fi')
+    // 設備行（Wi-Fi・電源・車椅子）: 見出しは「📶 設備」
+    expect(wifiGroup().previousElementSibling.textContent).toContain('設備')
     expect(wifiGroup().previousElementSibling.textContent).toContain('📶')
+    // 統一見出しスタイル（text-sm font-medium text-slate-700・min-h-[44px]）
+    expect(wifiGroup().previousElementSibling.className).toContain('text-sm font-medium text-slate-700')
+    expect(wifiGroup().previousElementSibling.className).toContain('min-h-[44px]')
+    // 3つのチェックボックス（Wi-Fi・電源・車椅子）が同じグループ内・ラベルに「あり」は付かない
+    expect(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' })).toBeTruthy()
+    expect(within(wifiGroup()).getByRole('checkbox', { name: '電源' })).toBeTruthy()
+    expect(within(wifiGroup()).getByRole('checkbox', { name: '車椅子' })).toBeTruthy()
+
     // 評価行にも見出し（★ 評価）が出る
     expect(ratingGroup().previousElementSibling.textContent).toContain('評価')
     expect(ratingGroup().previousElementSibling.textContent).toContain('★')
@@ -676,7 +677,7 @@ describe('MemochoSection: フィルタバー', () => {
     seedFilterItems()
     renderSection()
 
-    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
+    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }))
 
     for (const name of ['カフェA', 'ラーメンC', 'ラーメンE']) {
       expect(screen.getByRole('heading', { name })).toBeTruthy()
@@ -688,27 +689,19 @@ describe('MemochoSection: フィルタバー', () => {
     expect(screen.getByText('全6件中、3件を表示')).toBeTruthy()
   })
 
-  it('車椅子対応: しきい値型の単一選択（対応可のみ / 一部対応以上）', () => {
+  it('車椅子: チェックで「一部対応以上」（gte_partial）、外すと「すべて」（all）', () => {
     seedFilterItems()
     renderSection()
 
-    // 対応可のみ → yes/designated だけ（1件: カフェA）
-    fireEvent.change(wcSelect(), { target: { value: 'gte_yes' } })
-    expect(screen.getByRole('heading', { name: 'カフェA' })).toBeTruthy()
-    for (const name of ['カフェB', 'ラーメンC', 'ラーメンE', '寿司D', 'みらい公園']) {
-      expect(screen.queryByRole('heading', { name })).toBeNull()
-    }
-    expect(screen.getByText('全6件中、1件を表示')).toBeTruthy()
-
     // 一部対応以上 → yes + limited が残る（2件: カフェA + ラーメンC）
-    fireEvent.change(wcSelect(), { target: { value: 'gte_partial' } })
+    fireEvent.click(wcCheck())
     expect(screen.getByRole('heading', { name: 'カフェA' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'ラーメンC' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: '寿司D' })).toBeNull() // no は含めない
     expect(screen.getByText('全6件中、2件を表示')).toBeTruthy()
 
-    // すべてに戻す → 全件（6件）
-    fireEvent.change(wcSelect(), { target: { value: 'all' } })
+    // 解除 → 全件（6件）
+    fireEvent.click(wcCheck())
     expect(screen.getByRole('heading', { name: '寿司D' })).toBeTruthy()
     expect(screen.getByText('6件')).toBeTruthy()
   })
@@ -891,7 +884,7 @@ describe('MemochoSection: フィルタバー', () => {
     seedFilterItems()
     renderSection()
 
-    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
+    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }))
     fireEvent.click(cuisineHeader())
     expect(within(cuisineGroup()).queryByRole('button', { name: '寿司（1件）' })).toBeNull()
     fireEvent.click(within(cuisineGroup()).getByRole('button', { name: 'ラーメン（2件）' }))
@@ -924,8 +917,8 @@ describe('MemochoSection: フィルタバー', () => {
     seedFilterItems()
     renderSection()
 
-    // 車椅子対応可のみ {カフェA} × ★5のみ {寿司D} ＝ 0件（両方を満たすアイテムが無い）
-    fireEvent.change(wcSelect(), { target: { value: 'gte_yes' } })
+    // 車椅子一部対応以上 {カフェA, ラーメンC} × ★5のみ {寿司D} ＝ 0件（両方を満たすアイテムが無い）
+    fireEvent.click(wcCheck())
     fireEvent.click(ratingStar(5))
 
     expect(screen.getByText('現在の絞り込み条件に一致するアイテムはありません。')).toBeTruthy()
@@ -935,7 +928,7 @@ describe('MemochoSection: フィルタバー', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'フィルタをリセット' }))
     expect(screen.getByText('6件')).toBeTruthy()
-    expect(wcSelect().value).toBe('all')
+    expect(wcCheck().checked).toBe(false)
     // 星ボタンは全て解除（「すべて」に戻る）
     for (let n = 1; n <= 5; n++) {
       expect(ratingStar(n).getAttribute('aria-pressed')).toBe('false')
@@ -952,8 +945,8 @@ describe('MemochoSection: フィルタバー', () => {
 
     // 全5条件（キーワード・WiFi・車椅子・料理・評価）を同時に適用する
     fireEvent.change(keywordInput(), { target: { value: 'ラーメン' } })
-    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
-    fireEvent.change(wcSelect(), { target: { value: 'gte_partial' } })
+    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }))
+    fireEvent.click(wcCheck())
     fireEvent.click(cuisineHeader())
     fireEvent.click(within(cuisineGroup()).getByRole('button', { name: 'ラーメン（1件）' }))
     fireEvent.click(ratingStar(2))
@@ -977,8 +970,8 @@ describe('MemochoSection: フィルタバー', () => {
 
     // キーワードが空になり、全条件（チップ・星）が解除され、全件が表示される
     expect(keywordInput().value).toBe('')
-    expect(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }).checked).toBe(false)
-    expect(wcSelect().value).toBe('all')
+    expect(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }).checked).toBe(false)
+    expect(wcCheck().checked).toBe(false)
     // 星ボタンは全て解除（「すべて」に戻る）
     for (let n = 1; n <= 5; n++) {
       expect(ratingStar(n).getAttribute('aria-pressed')).toBe('false')
@@ -1018,7 +1011,7 @@ describe('MemochoSection: フィルタバー', () => {
 
     expect(keywordInput()).toBeTruthy()
     expect(wifiGroup()).toBeTruthy()
-    expect(wcSelect()).toBeTruthy()
+    expect(wcCheck()).toBeTruthy()
     expect(ratingGroup()).toBeTruthy()
     expect(cuisineHeader()).toBeNull()
     expect(cuisineGroup()).toBeNull()
@@ -1027,8 +1020,8 @@ describe('MemochoSection: フィルタバー', () => {
   it('0件のときはフィルタバーは出ない', () => {
     renderSection()
     expect(screen.queryByRole('textbox', { name: '名前・メモで絞り込む' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Wi-Fi・電源のありで絞る' })).toBeNull()
-    expect(screen.queryByRole('combobox', { name: '車椅子対応で絞る' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '設備で絞る' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: '車椅子' })).toBeNull()
     expect(screen.queryByRole('group', { name: '評価で絞る' })).toBeNull()
   })
 
@@ -1036,7 +1029,7 @@ describe('MemochoSection: フィルタバー', () => {
     seedFilterItems()
     const { view } = renderSection()
 
-    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }))
+    fireEvent.click(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }))
     expect(screen.getByText('全6件中、3件を表示')).toBeTruthy()
 
     // コンポーネントをアンマウントして再レンダ（状態はローカルなので初期化される）
@@ -1044,18 +1037,18 @@ describe('MemochoSection: フィルタバー', () => {
     renderSection()
 
     expect(screen.getByText('6件')).toBeTruthy()
-    expect(within(wifiGroup()).getByRole('checkbox', { name: 'WiFiあり' }).checked).toBe(false)
+    expect(within(wifiGroup()).getByRole('checkbox', { name: 'Wi-Fi' }).checked).toBe(false)
     // 絞り込みは表示のみで、localStorage の保存データは変更されない
     expect(storedItems()).toHaveLength(6)
   })
 })
 
 describe('MemochoSection: 横長コンパクトフィルタバー（id 28。1行1コントロール＋チップ横スクロール）', () => {
-  it('チップ行は1行で横スクロールし、縦に改行しない（Wi-Fi・電源）、評価行は星5つの1行', () => {
+  it('チップ行は1行で横スクロールし、縦に改行しない（設備）、評価行は星5つの1行', () => {
     seedFilterItems()
     renderSection()
 
-    for (const name of ['Wi-Fi・電源のありで絞る']) {
+    for (const name of ['設備で絞る']) {
       const group = screen.getByRole('group', { name })
       // チップ群は1行で横スクロール（overflow-x-auto・flex は nowrap の意図）。改行用 flex-wrap は無い
       expect(group.className).toContain('overflow-x-auto')
@@ -1069,13 +1062,14 @@ describe('MemochoSection: 横長コンパクトフィルタバー（id 28。1行
       expect(group.previousElementSibling.className).toContain('min-h-[44px]')
     }
 
-    // 車椅子行（単一選択セレクト）も横長の1行で、見出し（♿ 車椅子）がセレクトの右隣に並ぶ
-    const wc = wcSelect()
-    const wcRow = wc.parentElement
-    expect(wcRow.className).toContain('flex')
-    expect(wcRow.className).toContain('min-h-[44px]')
-    expect(wc.previousElementSibling).toBeTruthy()
-    expect(wc.previousElementSibling.className).toContain('min-h-[44px]')
+    // 設備行: チェックボックス群は横スクロールの1行で、見出し（📶 設備）が同じ行に並ぶ
+    const wc = wcCheck()
+    const wcGroup = wc.parentElement.parentElement
+    expect(wcGroup.className).toContain('flex')
+    expect(wcGroup.className).toContain('overflow-x-auto')
+    expect(wcGroup.className).not.toContain('flex-wrap')
+    expect(wcGroup.previousElementSibling).toBeTruthy()
+    expect(wcGroup.previousElementSibling.className).toContain('min-h-[44px]')
 
     // 評価行: 星ボタン5つの1行（カードの★評価行と同じ。5つの小さいボタンは
     //   横にはみ出さないため overflow-x-auto は不要・改行しない flex 1行）

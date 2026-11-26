@@ -541,9 +541,9 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     })
     await expectPins('node/30', 'node/31')
 
-    const wifi = screen.getByRole('checkbox', { name: 'WiFiあり' })
-    const power = screen.getByRole('checkbox', { name: '電源あり' })
-    const wheelchair = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+    const wifi = screen.getByRole('checkbox', { name: 'Wi-Fi' })
+    const power = screen.getByRole('checkbox', { name: '電源' })
+    const wheelchair = screen.getByRole('checkbox', { name: '車椅子' })
     fireEvent.click(cuisineHeader())
     expect(screen.getByRole('button', { name: '和食（1件）' })).toBeTruthy()
     fireEvent.click(wifi)
@@ -555,10 +555,10 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     await expectPins('node/31')
     expect(screen.getByRole('button', { name: '和食（1件）' })).toBeTruthy()
     fireEvent.click(power)
-    fireEvent.change(wheelchair, { target: { value: 'gte_yes' } })
+    fireEvent.click(wheelchair)
     await expectPins('node/30')
     expect(screen.queryByRole('button', { name: '和食（1件）' })).toBeNull()
-    fireEvent.change(wheelchair, { target: { value: 'all' } })
+    fireEvent.click(wheelchair)
     const japanese = screen.getByRole('button', { name: '和食（1件）' })
     fireEvent.click(japanese)
     await expectPins('node/31')
@@ -1168,40 +1168,39 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
 
-    // Wi-Fi・電源は1行に統合（WifiPowerRow）。車椅子はしきい値型の単一選択（FilterSelect）
-    const wp = screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
-    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+    // 設備行: Wi-Fi・電源・車椅子を1行に統合（WifiPowerRow）
+    const wp = screen.getByRole('group', { name: '設備で絞る' })
+    const wc = within(wp).getByRole('checkbox', { name: '車椅子' })
 
-    // デフォルト: Wi-Fi・電源の実チェックボックスは未選択、車椅子セレクトは「すべて」（絞り込みなし）
-    expect(within(wp).getByRole('checkbox', { name: 'WiFiあり' }).checked).toBe(false)
-    expect(within(wp).getByRole('checkbox', { name: '電源あり' }).checked).toBe(false)
+    // デフォルト: 3つのチェックボックスは未選択（絞り込みなし）
+    expect(within(wp).getByRole('checkbox', { name: 'Wi-Fi' }).checked).toBe(false)
+    expect(within(wp).getByRole('checkbox', { name: '電源' }).checked).toBe(false)
     expect(wc).toBeTruthy()
-    expect(wc.value).toBe('all')
+    expect(wc.checked).toBe(false)
     // 「なし」絞り込みは廃止: なし系チェックボックスは存在しない
     expect(within(wp).queryByRole('checkbox', { name: 'WiFiなし' })).toBeNull()
     expect(within(wp).queryByRole('checkbox', { name: '電源なし' })).toBeNull()
   })
 
-  it('全フィルタ行に「アイコン＋見出し」が付く（id 27 統一。車椅子=♿・Wi-Fi・電源=📶）', () => {
-    render(<Harness preActions={[
+  it('全フィルタ行に「アイコン＋見出し」が付く（id 27 統一。設備=📶）', () => {
+    render(<Harness preActions={[ 
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
 
-    // 車椅子行: 見出しにアイコン(♿)＋文言「車椅子」
-    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
-    const wcHeading = wc.previousElementSibling
-    expect(wcHeading.textContent).toContain('車椅子')
-    expect(wcHeading.textContent).toContain('♿')
+    // 設備行: 見出しにアイコン(📶)＋文言「設備」
+    const wp = screen.getByRole('group', { name: '設備で絞る' })
+    const wpHeading = wp.previousElementSibling
+    expect(wpHeading.textContent).toContain('設備')
+    expect(wpHeading.textContent).toContain('📶')
     // 統一見出しスタイル（text-sm font-medium text-slate-700・min-h-[44px]）
-    expect(wcHeading.className).toContain('text-sm font-medium text-slate-700')
-    expect(wcHeading.className).toContain('min-h-[44px]')
+    expect(wpHeading.className).toContain('text-sm font-medium text-slate-700')
+    expect(wpHeading.className).toContain('min-h-[44px]')
 
-    // Wi-Fi・電源の統合行にも見出し（📶 Wi-Fi・電源）が出る
-    const wp = screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
-    expect(wp.previousElementSibling.textContent).toContain('Wi-Fi')
-    expect(wp.previousElementSibling.textContent).toContain('電源')
-    expect(wp.previousElementSibling.textContent).toContain('📶')
+    // 3つのチェックボックス（Wi-Fi・電源・車椅子）が同じグループ内・「あり」は付かない
+    expect(within(wp).getByRole('checkbox', { name: 'Wi-Fi' })).toBeTruthy()
+    expect(within(wp).getByRole('checkbox', { name: '電源' })).toBeTruthy()
+    expect(within(wp).getByRole('checkbox', { name: '車椅子' })).toBeTruthy()
   })
 
   it('id 27: 入力・セレクト系行（キーワード🔍/種別詳細📁/並び順↕️）にもアイコン＋見出しが付く（キーワードは文言なし・アイコンのみ）', () => {
@@ -1237,9 +1236,9 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
-    const wp = screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
+    const wp = screen.getByRole('group', { name: '設備で絞る' })
 
-    fireEvent.click(within(wp).getByRole('checkbox', { name: 'WiFiあり' }))
+    fireEvent.click(within(wp).getByRole('checkbox', { name: 'Wi-Fi' }))
     expect(screen.getByText('カフェG')).toBeTruthy()
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
     expect(screen.queryByText('ラーメンI')).toBeNull() // 'no'
@@ -1250,51 +1249,42 @@ describe('MobileListTab: 共通フィルタバー（POI一覧のWiFi・電源・
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
-    const wp = screen.getByRole('group', { name: 'Wi-Fi・電源のありで絞る' })
+    const wp = screen.getByRole('group', { name: '設備で絞る' })
 
-    fireEvent.click(within(wp).getByRole('checkbox', { name: '電源あり' }))
+    fireEvent.click(within(wp).getByRole('checkbox', { name: '電源' }))
     expect(screen.getByText('カフェG')).toBeTruthy() // power_supply=yes
     expect(screen.getByText('ラーメンI')).toBeTruthy() // socket:indoor=yes
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
   })
 
-  it('車椅子 対応可のみ: wheelchair が yes/designated のものだけ残る（limited・未登録は除外）', () => {
-    render(<Harness preActions={[
+  it('車椅子: チェックで「一部対応以上」（gte_partial）、外すと「すべて」（all）', () => {
+    render(<Harness preActions={[ 
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
-    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
+    const wp = screen.getByRole('group', { name: '設備で絞る' })
 
-    fireEvent.change(wc, { target: { value: 'gte_yes' } })
-    expect(screen.getByText('カフェG')).toBeTruthy() // yes
-    expect(screen.getByText('ラーメンI')).toBeTruthy() // designated
-    expect(screen.queryByText('カフェH')).toBeNull() // 未登録
-    expect(screen.queryByText('カフェJ')).toBeNull() // limited
-  })
-
-  it('車椅子 一部対応以上: wheelchair が yes/designated/limited のものだけ残る（未登録は除外）', () => {
-    render(<Harness preActions={[
-      { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
-      { type: 'SET_STATUS', payload: 'success' },
-    ]} />)
-    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
-
-    fireEvent.change(wc, { target: { value: 'gte_partial' } })
+    // 一部対応以上 → yes/designated/limited が残る（未登録は除外）
+    fireEvent.click(within(wp).getByRole('checkbox', { name: '車椅子' }))
     expect(screen.getByText('カフェG')).toBeTruthy() // yes
     expect(screen.getByText('カフェJ')).toBeTruthy() // limited
     expect(screen.getByText('ラーメンI')).toBeTruthy() // designated
     expect(screen.queryByText('カフェH')).toBeNull() // 未登録
+
+    // 解除 → 全件（4件）
+    fireEvent.click(within(wp).getByRole('checkbox', { name: '車椅子' }))
+    expect(screen.getByText('カフェH')).toBeTruthy()
   })
 })
 
 describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1コントロール＋チップ横スクロール）', () => {
-  it('チップ行は1行で横スクロールし、縦に改行しない（Wi-Fi・電源）。車椅子は単一行セレクト', () => {
-    render(<Harness preActions={[
+  it('チップ行は1行で横スクロールし、縦に改行しない（設備）。車椅子はチェックボックス', () => {
+    render(<Harness preActions={[ 
       { type: 'SET_RESULTS', payload: FILTERBAR_ITEMS },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
 
-    for (const name of ['Wi-Fi・電源のありで絞る']) {
+    for (const name of ['設備で絞る']) {
       const group = screen.getByRole('group', { name })
       // チップ群は1行で横スクロール（overflow-x-auto・flex は nowrap の意図）。改行用 flex-wrap は無い
       expect(group.className).toContain('overflow-x-auto')
@@ -1308,13 +1298,14 @@ describe('MobileListTab: 横長コンパクトフィルタバー（id 28。1行1
       expect(group.previousElementSibling.className).toContain('min-h-[44px]')
     }
 
-    // 車椅子行（単一選択セレクト）も横長の1行で、見出し（♿ 車椅子）がセレクトの右隣に並ぶ
-    const wc = screen.getByRole('combobox', { name: '車椅子対応で絞る' })
-    const wcRow = wc.parentElement
-    expect(wcRow.className).toContain('flex')
-    expect(wcRow.className).toContain('min-h-[44px]')
-    expect(wc.previousElementSibling).toBeTruthy() // 見出しが直前の子
-    expect(wc.previousElementSibling.className).toContain('min-h-[44px]')
+    // 設備行: チェックボックス群は横スクロールの1行で、見出し（📶 設備）が同じ行に並ぶ
+    const wc = screen.getByRole('checkbox', { name: '車椅子' })
+    const wcGroup = wc.parentElement.parentElement
+    expect(wcGroup.className).toContain('flex')
+    expect(wcGroup.className).toContain('overflow-x-auto')
+    expect(wcGroup.className).not.toContain('flex-wrap')
+    expect(wcGroup.previousElementSibling).toBeTruthy() // 見出しが直前の子
+    expect(wcGroup.previousElementSibling.className).toContain('min-h-[44px]')
   })
 
   it('入力・セレクト行も横長の1行で、見出し（アイコン＋文言）がコントロールの右隣に並ぶ', () => {

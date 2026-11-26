@@ -10,8 +10,8 @@ import { linkifySegments } from '../../utils/linkify'
 import { cuisineFacetValues } from '../../utils/resultFilters'
 import { DEFAULT_MEMO_FILTERS, applyMemochoFilters, isMemoFilterActive } from '../../utils/memochoFilters'
 import {
-  FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  FilterInput, WifiPowerRow, CategorySelect, CuisineChips,
+  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL
 } from '../ResultFilterBar'
 import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { normalizeBookId, DEFAULT_BOOK_ID, MAX_BOOKS } from '../../utils/scrapbooks'
@@ -486,19 +486,10 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
               onWifiChange={(v) => setMemoFilters((f) => ({ ...f, wifi: v }))}
               powerValue={memoFilters.power}
               onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
+              wheelchairValue={memoFilters.wheelchair}
+              onWheelchairChange={(v) => setMemoFilters((f) => ({ ...f, wheelchair: v }))}
             />
             <PairedFilterRow>
-              <FilterSelect
-                label="車椅子対応で絞る"
-                value={memoFilters.wheelchair}
-                onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
-                filter="wheelchair"
-                className="flex-[1_1_10.5rem] min-w-0"
-              >
-                {WHEELCHAIR_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </FilterSelect>
               <RatingStarsRow
                 value={memoFilters.rating}
                 onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}

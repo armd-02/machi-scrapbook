@@ -308,35 +308,45 @@ export function FilterCheckboxRow({ label, value, onChange, filter = null, optio
 }
 
 /**
- * Wi-Fi・電源の統合チェックボックス行。
+ * 設備（Wi-Fi・電源・車椅子）の統合チェックボックス行。
  *
- * 2値フィルタ（Wi-Fi・電源）を1行にまとめ、「あり」だけをチェックボックスで
- * 絞り込む。各チェックボックスは独立したオン/オフ（両方 checked にできる
- * ＝ AND）。unchecked ＝ その条件を絞らない（'all'）。従来の「なし」絞り込みは
- * 廃止（選択肢に 'no' が無いため UI から選択できない）。
+ * 3つのフィルタを1行にまとめ、チェックボックスで絞り込む。Wi-Fi・電源は独立した
+ * オン/オフ（両方 checked にできる ＝ AND）。車椅子は単一のチェックボックスで
+ * 「一部対応以上」（gte_partial）を表現する（checked ＝ 'all' 以外）。unchecked ＝
+ * その条件を絞らない（'all'）。従来の「なし」絞り込みは廃止（選択肢に 'no' が
+ * 無いため UI から選択できない）。
  *
- * 状態は単一値のまま（'all' | 'yes'）。checked='yes'・unchecked='all' を各
- * onChange に渡す。絞り込みロジック（resultFilters.js）は変更しない（両方
- * 'yes' のとき AND になるのは既存の仕来り）。
+ * 状態は単一値のまま（Wi-Fi・電源は 'all' | 'yes'、車椅子は
+ * 'all' | 'gte_partial' | 'gte_yes'）。チェック時は 'gte_partial'、外したときは
+ * 'all' を onWheelchairChange に渡す。絞り込みロジック（resultFilters.js）は変更
+ * しない（両方 'yes' のとき AND になるのは既存の仕来り）。共有URLなどで 'gte_yes'
+ * が入っている場合は checked 表示になり、外せば 'all'、付け直せば 'gte_partial'
+ * になる（「対応可のみ」の選択肢はUIから無くなる）。
  *
  * @param {string} wifiValue - 現在の Wi-Fi 状態（'all' | 'yes'）
  * @param {(v: string) => void} onWifiChange - 'yes' / 'all' を渡して呼ばれる
  * @param {string} powerValue - 現在の電源状態（'all' | 'yes'）
  * @param {(v: string) => void} onPowerChange
+ * @param {string} [wheelchairValue] - 現在の車椅子状態（'all' | 'gte_partial' | 'gte_yes'）
+ * @param {(v: string) => void} [onWheelchairChange] - 'gte_partial' / 'all' を渡して呼ばれる
  * @param {string} [className=''] - 追加クラス
  */
-export function WifiPowerRow({ wifiValue, onWifiChange, powerValue, onPowerChange, className = '' }) {
+export function WifiPowerRow({ wifiValue, onWifiChange, powerValue, onPowerChange, wheelchairValue, onWheelchairChange, className = '' }) {
   const wifiChecked = wifiValue === 'yes'
   const powerChecked = powerValue === 'yes'
+  const wheelchairChecked = wheelchairValue != null && wheelchairValue !== 'all'
   return (
     <div className={`${className} ${ROW_CLASS}`}>
-      <FilterHeading icon="📶" heading="Wi-Fi・電源" />
-      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label="Wi-Fi・電源のありで絞る">
+      <FilterHeading icon="📶" heading="設備" />
+      <div className={CHECKBOX_GROUP_CLASS} role="group" aria-label="設備で絞る">
         <CheckboxPill checked={wifiChecked} onChange={() => onWifiChange(wifiChecked ? 'all' : 'yes')}>
-          WiFiあり
+          Wi-Fi
         </CheckboxPill>
         <CheckboxPill checked={powerChecked} onChange={() => onPowerChange(powerChecked ? 'all' : 'yes')}>
-          電源あり
+          電源
+        </CheckboxPill>
+        <CheckboxPill checked={wheelchairChecked} onChange={() => onWheelchairChange(wheelchairChecked ? 'all' : 'gte_partial')}>
+          車椅子
         </CheckboxPill>
       </div>
     </div>

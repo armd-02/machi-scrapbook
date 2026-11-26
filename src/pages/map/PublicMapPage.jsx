@@ -4,8 +4,8 @@ import { appReducer, createInitialState } from '../../state/appReducer'
 import CollapsibleResultsMap from '../../components/mobile/CollapsibleResultsMap'
 import MobileFacilityCard from '../../components/mobile/MobileFacilityCard'
 import {
-  FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  FilterInput, WifiPowerRow, CategorySelect, CuisineChips,
+  RatingStarsRow, PairedFilterRow, KEYWORD_LABEL
 } from '../../components/ResultFilterBar'
 import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 import { fetchActivities, toErrorObject } from '../../utils/cmmSync'
@@ -192,19 +192,10 @@ export default function PublicMapPage() {
                   onWifiChange={(v) => setMemoFilters((f) => ({ ...f, wifi: v }))}
                   powerValue={memoFilters.power}
                   onPowerChange={(v) => setMemoFilters((f) => ({ ...f, power: v }))}
+                  wheelchairValue={memoFilters.wheelchair}
+                  onWheelchairChange={(v) => setMemoFilters((f) => ({ ...f, wheelchair: v }))}
                 />
                 <PairedFilterRow>
-                  <FilterSelect
-                    label="車椅子対応で絞る"
-                    value={memoFilters.wheelchair}
-                    onChange={(e) => setMemoFilters((f) => ({ ...f, wheelchair: e.target.value }))}
-                    filter="wheelchair"
-                    className="flex-[1_1_10.5rem] min-w-0"
-                  >
-                    {WHEELCHAIR_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </FilterSelect>
                   <RatingStarsRow
                     value={memoFilters.rating}
                     onChange={(v) => setMemoFilters((f) => ({ ...f, rating: v }))}

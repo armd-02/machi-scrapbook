@@ -10,7 +10,7 @@ import BarrierFreeSummary from './BarrierFreeSummary'
 import ShareButton from '../ShareButton'
 import {
   FilterInput, FilterSelect, WifiPowerRow, CategorySelect, CuisineChips,
-  PairedFilterRow, KEYWORD_LABEL, WHEELCHAIR_OPTIONS
+  PairedFilterRow, KEYWORD_LABEL
 } from '../ResultFilterBar'
 import AttributeCompleteness from '../AttributeCompleteness'
 import WorkspacePowerWifiSummary from '../WorkspacePowerWifiSummary'
@@ -169,19 +169,10 @@ function PoiMobileList() {
                 onWifiChange={(v) => setFilters({ wifi: v })}
                 powerValue={resultFilters.power}
                 onPowerChange={(v) => setFilters({ power: v })}
+                wheelchairValue={resultFilters.wheelchair}
+                onWheelchairChange={(v) => setFilters({ wheelchair: v })}
               />
               <PairedFilterRow>
-                <FilterSelect
-                  label="車椅子対応で絞る"
-                  value={resultFilters.wheelchair}
-                  onChange={(e) => setFilters({ wheelchair: e.target.value })}
-                  filter="wheelchair"
-                  className="flex-[1_1_10.5rem] min-w-0"
-                >
-                  {WHEELCHAIR_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </FilterSelect>
                 <FilterSelect
                   label="並び順"
                   value={sortDir}
