@@ -334,16 +334,20 @@ describe('MobileResultsMap: バリアフリー結果（kind="barrier_free"）', 
     await flushLoad()
 
     const map = getMap()
-    // ソース・レイヤ: 'barrier-free' + bf-line/bf-node
+    // ソース・レイヤ: 'barrier-free' + bf-line/bf-node/bf-way-icon
     expect(map._sources.get('barrier-free')).toBeTruthy()
-    expect(map._layers.map((l) => l.id)).toEqual(['bf-line', 'bf-node', 'bf-selected-line', 'bf-selected-node'])
+    expect(map._layers.map((l) => l.id)).toEqual(['bf-line', 'bf-node', 'bf-way-icon', 'bf-selected-line', 'bf-selected-node', 'bf-selected-way-icon'])
 
     const fc = map._lastGeoJSON.data
-    expect(fc.features).toHaveLength(2)
+    expect(fc.features).toHaveLength(3)
     const line = fc.features.find((f) => f.geometry.type === 'LineString')
-    const point = fc.features.find((f) => f.geometry.type === 'Point')
+    const icon = fc.features.find((f) => f.properties.key === 'way/100' && f.properties.kind === 'way-icon')
+    const point = fc.features.find((f) => f.properties.key === 'node/200')
     expect(line.geometry.coordinates).toEqual([[135.0, 34.0], [135.01, 34.01], [135.02, 34.0]])
     expect(line.properties).toMatchObject({ key: 'way/100', kind: 'way', tactile: 'yes' })
+    // (#73) ウェイの中点アイコン: 線と同じ key を持ち、Point として出される
+    expect(icon.geometry.type).toBe('Point')
+    expect(icon.properties).toMatchObject({ key: 'way/100', kind: 'way-icon' })
     expect(point.geometry.coordinates).toEqual([135.1, 34.1])
     expect(point.properties).toMatchObject({ key: 'node/200', kind: 'node', role: 'kerb' })
 
@@ -489,8 +493,8 @@ describe('MobileResultsMap: hidden→表示 遷移（修正）', () => {
     const map = getMap()
     // 隠れている間は fitBounds しない
     expect(callsOf(map, 'fitBounds')).toHaveLength(0)
-    // ソース（barrier-free）への setData は行われる
-    expect(map._lastGeoJSON.data.features).toHaveLength(2)
+    // ソース（barrier-free）への setData は行われる（線・ウェイアイコン・点）
+    expect(map._lastGeoJSON.data.features).toHaveLength(3)
 
     // 表示復帰 → resize ＋ 線・点を含む範囲への fitBounds
     await showContainer(360, 200)
@@ -713,12 +717,16 @@ describe('MobileResultsMap: マーカータップ → onMarkerClick（修正）'
     await flushLoad()
 
     const map = getMap()
-    const [line, point] = map._lastGeoJSON.data.features
+    const line = map._lastGeoJSON.data.features.find((f) => f.geometry.type === 'LineString')
+    const icon = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'way/100' && f.properties.kind === 'way-icon')
+    const point = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'node/200')
     act(() => {
       map.fire('click', 'bf-line', { features: [line] })
+      map.fire('click', 'bf-way-icon', { features: [icon] })
       map.fire('click', 'bf-selected-node', { features: [point] })
     })
-    expect(onMarkerClick.mock.calls).toEqual([[bfFootway], [bfKerb]])
+    // ウェイの中点アイコンのクリックも同じウェイ（bfFootway）を解決する
+    expect(onMarkerClick.mock.calls).toEqual([[bfFootway], [bfFootway], [bfKerb]])
   })
 })
 

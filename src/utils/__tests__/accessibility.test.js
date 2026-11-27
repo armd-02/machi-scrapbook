@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAccessibility, wheelchairBadge, toneOf, pickLocalized } from '../accessibility'
+import { parseAccessibility, wheelchairBadge, toneOf, pickLocalized, parseBarrierFreeMeasurements } from '../accessibility'
 
 /**
  * (#61) バリアフリータグ解釈のテスト
@@ -164,5 +164,47 @@ describe('wheelchairBadge', () => {
   it('未定義値は生値をそのまま使う', () => {
     const badge = wheelchairBadge({ wheelchair: 'permissive' })
     expect(badge.text).toBe('♿ permissive')
+  })
+})
+
+describe('parseBarrierFreeMeasurements', () => {
+  it('数値タグがなければ空配列', () => {
+    expect(parseBarrierFreeMeasurements(null)).toEqual([])
+    expect(parseBarrierFreeMeasurements({})).toEqual([])
+    expect(parseBarrierFreeMeasurements({ amenity: 'cafe' })).toEqual([])
+  })
+
+  it('幅（width）は m を付けて数値表示', () => {
+    expect(parseBarrierFreeMeasurements({ width: '3' })).toEqual([
+      { key: 'width', label: '幅', value: '3 m' }
+    ])
+  })
+
+  it('幅が数値らしくない値はそのまま表示', () => {
+    expect(parseBarrierFreeMeasurements({ width: 'wide' })).toEqual([
+      { key: 'width', label: '幅', value: 'wide' }
+    ])
+  })
+
+  it('勾配・平滑度・路面はそれぞれ表示', () => {
+    expect(parseBarrierFreeMeasurements({ incline: '1:20', smoothness: 'smooth', surface: 'concrete' })).toEqual([
+      { key: 'incline', label: '勾配', value: '1:20' },
+      { key: 'smoothness', label: '平滑度', value: 'smooth' },
+      { key: 'surface', label: '路面', value: 'concrete' }
+    ])
+  })
+
+  it('登録済み項目のみ（未登録は含まない・順序は幅→勾配→平滑度→路面）', () => {
+    expect(parseBarrierFreeMeasurements({ surface: 'asphalt' })).toEqual([
+      { key: 'surface', label: '路面', value: 'asphalt' }
+    ])
+    expect(parseBarrierFreeMeasurements({ width: '2.5', incline: '1:10' })).toEqual([
+      { key: 'width', label: '幅', value: '2.5 m' },
+      { key: 'incline', label: '勾配', value: '1:10' }
+    ])
+  })
+
+  it('空文字のタグは含めない', () => {
+    expect(parseBarrierFreeMeasurements({ width: '', incline: '', smoothness: '', surface: '' })).toEqual([])
   })
 })

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useApp } from '../context/AppContext'
-import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../utils/barrierFreeGeoJSON'
+import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR, BF_NEW_ELEMENT_COLORS } from '../utils/barrierFreeGeoJSON'
 
 /**
  * (#62) バリアフリー検索の地図凡例（第4ピース）
@@ -30,6 +30,15 @@ const POINT_ITEMS = [
   { color: NODE_ROLE_COLORS['kerb+signal'], label: '縁石＋案内信号' }
 ]
 
+// (#70) バリアフリー検索の追加対象（T1）。線（way）として表示するため線スウォッチ。
+const NEW_ELEMENT_ITEMS = [
+  { color: BF_NEW_ELEMENT_COLORS.elevator, label: 'エレベーター' },
+  { color: BF_NEW_ELEMENT_COLORS.toilets, label: 'トイレ' },
+  { color: BF_NEW_ELEMENT_COLORS.parking, label: '車椅子用駐車場' },
+  { color: BF_NEW_ELEMENT_COLORS.steps, label: '階段' },
+  { color: BF_NEW_ELEMENT_COLORS.ramp, label: 'スロープ' }
+]
+
 export default function BarrierFreeLegend({ twoColumns = false }) {
   const { state } = useApp()
   const results = state.results || []
@@ -39,7 +48,7 @@ export default function BarrierFreeLegend({ twoColumns = false }) {
     <div className="rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-md">
       <div className="mb-1 text-xs font-semibold text-slate-700">凡例</div>
       <ul className={`text-[11px] text-slate-600 ${
-        twoColumns ? 'grid grid-flow-col grid-cols-2 grid-rows-4 gap-x-3 gap-y-1' : 'space-y-1'
+        twoColumns ? 'grid grid-flow-col grid-cols-2 grid-rows-6 gap-x-3 gap-y-1' : 'space-y-1'
       }`}>
         {LINE_ITEMS.map((item) => (
           <li key={item.label} className="flex items-center gap-1.5">
@@ -56,6 +65,16 @@ export default function BarrierFreeLegend({ twoColumns = false }) {
             <span
               aria-hidden="true"
               className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-white"
+              style={{ backgroundColor: item.color }}
+            />
+            {item.label}
+          </li>
+        ))}
+        {NEW_ELEMENT_ITEMS.map((item) => (
+          <li key={item.label} className="flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-[3px] w-5 shrink-0 rounded-full"
               style={{ backgroundColor: item.color }}
             />
             {item.label}

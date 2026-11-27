@@ -15,6 +15,9 @@
  */
 import { MARKER_TAG, MARKER_SUBTAG, MARKER_KEY_ORDER, FALLBACK_ICON } from '../data/markerIcons'
 
+// Fallback アイコン名を再エクスポート（コンポーネント側で「対応表に無い」判定に使う）
+export { FALLBACK_ICON }
+
 // .svg → .png（コピー元 normalizeIcon と同じ）。テスト用にも export する。
 export const normalizeIconName = (icon) => (icon ? icon.replace('.svg', '.png') : '')
 const normalizeIcon = normalizeIconName

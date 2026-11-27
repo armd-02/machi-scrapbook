@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import { AppContext } from '../../context/AppContext'
-import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../../utils/barrierFreeGeoJSON'
+import { TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR, BF_NEW_ELEMENT_COLORS } from '../../utils/barrierFreeGeoJSON'
 
 // 表示条件テスト用のバリアフリー結果（barrierFreeMapView.test.jsx と同一形状）
 const BF_RESULT = {
@@ -107,7 +107,12 @@ describe('内容（ラベルと色）', () => {
       '横断歩道',
       '音声・振動案内信号',
       '縁石',
-      '縁石＋案内信号'
+      '縁石＋案内信号',
+      'エレベーター',
+      'トイレ',
+      '車椅子用駐車場',
+      '階段',
+      'スロープ'
     ])
   })
 
@@ -123,8 +128,24 @@ describe('内容（ラベルと色）', () => {
 
   it('点項目のスウォッチ色が NODE_ROLE_COLORS と一致する', () => {
     const { view } = renderBf()
-    const items = [...view.container.querySelectorAll('li')].slice(4)
+    const items = [...view.container.querySelectorAll('li')].slice(4, 7)
     const expected = [NODE_ROLE_COLORS.signal, NODE_ROLE_COLORS.kerb, NODE_ROLE_COLORS['kerb+signal']]
+    items.forEach((li, i) => {
+      const swatch = li.querySelector('span[aria-hidden="true"]')
+      expect(swatch.style.backgroundColor).toBe(hexToRgb(expected[i]))
+    })
+  })
+
+  it('追加対象（T1）のスウォッチ色が BF_NEW_ELEMENT_COLORS と一致する', () => {
+    const { view } = renderBf()
+    const items = [...view.container.querySelectorAll('li')].slice(7)
+    const expected = [
+      BF_NEW_ELEMENT_COLORS.elevator,
+      BF_NEW_ELEMENT_COLORS.toilets,
+      BF_NEW_ELEMENT_COLORS.parking,
+      BF_NEW_ELEMENT_COLORS.steps,
+      BF_NEW_ELEMENT_COLORS.ramp
+    ]
     items.forEach((li, i) => {
       const swatch = li.querySelector('span[aria-hidden="true"]')
       expect(swatch.style.backgroundColor).toBe(hexToRgb(expected[i]))

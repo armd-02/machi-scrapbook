@@ -205,14 +205,22 @@ function segmentIntersectsBbox(x1, y1, x2, y2, bbox) {
 /**
  * 要素型の日本語ラベル（一覧表示用）
  * - way: footway → 歩道, path → 歩行者用通路, それ以外 → 通路(タグ値)
+ *   (#70) 追加対象を優先: エレベーター / 階段 / トイレ / 車椅子用駐車場 / スロープ
  * - node: 音+振動 → 音・振動案内信号, 音のみ → 音声案内信号,
  *         振動のみ → 振動案内信号, barrier=kerb か kerb タグ → 縁石
+ *   (#70) 追加対象を優先: エレベーター / トイレ / 車椅子用駐車場 / スロープ
  */
 export function barrierFreeTypeLabel(result) {
   const r = result || {}
   const tags = r.tags || {}
   const bf = r.bf || {}
   if (r.type === 'way') {
+    // (#70) 追加対象: 点字ブロックが該当しない要素は種別名をそのまま表示
+    if (tags.highway === 'elevator') return 'エレベーター'
+    if (tags.highway === 'steps') return '階段'
+    if (tags.amenity === 'toilets') return 'トイレ'
+    if (tags.parking_space === 'disabled') return '車椅子用駐車場'
+    if (tags['ramp:wheelchair'] != null) return 'スロープ'
     if (tags.highway === 'footway') return '歩道'
     if (tags.highway === 'path') return '歩行者用通路'
     return tags.highway ? `通路(${tags.highway})` : '通路'
@@ -224,6 +232,11 @@ export function barrierFreeTypeLabel(result) {
   if (hasVibration) return '振動案内信号'
   if (tags.barrier === 'kerb' || tags.kerb != null) return '縁石'
   if (tags.highway === 'crossing') return '横断歩道'
+  // (#70) 追加対象: エレベーター / トイレ / 車椅子用駐車場 / スロープ
+  if (tags.highway === 'elevator') return 'エレベーター'
+  if (tags.amenity === 'toilets') return 'トイレ'
+  if (tags.parking_space === 'disabled') return '車椅子用駐車場'
+  if (tags['ramp:wheelchair'] != null) return 'スロープ'
   return 'バリアフリー要素'
 }
 

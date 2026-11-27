@@ -18,7 +18,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
-import MapView, { BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF } from '../MapView'
+import MapView, { BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF, BF_WAY_ICON_LAYER_DEF } from '../MapView'
 import { AppContext } from '../../context/AppContext'
 
 const mockState = vi.hoisted(() => ({ api: null }))
@@ -123,27 +123,36 @@ describe('バリアフリー結果の線・点描画', () => {
     expect(src.type).toBe('geojson')
     expect(src.cluster).toBeUndefined()
 
-    // レイヤは既存3件+bf2件
-    expect(layerIds(map)).toEqual(['point-circle', 'clusters', 'cluster-count', 'bf-line', 'bf-node'])
+    // レイヤは既存3件+bf3件
+    expect(layerIds(map)).toEqual(['point-circle', 'clusters', 'cluster-count', 'bf-line', 'bf-node', 'bf-way-icon'])
 
     // 最終 setData は bf ソース（先にresultsクリア→後にbf設定の順序）
     const { id, data } = map._lastGeoJSON
     expect(id).toBe('barrier-free')
-    expect(data.features).toHaveLength(5)
+    // (#73) 線2 + ウェイアイコン2 + ノード3 = 7
+    expect(data.features).toHaveLength(7)
 
     const lines = data.features.filter((f) => f.geometry.type === 'LineString')
-    const points = data.features.filter((f) => f.geometry.type === 'Point')
+    const nodes = data.features.filter((f) => f.properties.kind === 'node')
+    const wayIcons = data.features.filter((f) => f.properties.kind === 'way-icon')
     expect(lines).toHaveLength(2)
-    expect(points).toHaveLength(3)
+    expect(wayIcons).toHaveLength(2)
+    expect(nodes).toHaveLength(3)
 
     // way は bf.geometry の正確な形状（頂点平均の中心点ではない）
     expect(lines[0].geometry.coordinates).toEqual([[135.48, 34.67], [135.481, 34.6705], [135.482, 34.671]])
     expect(lines[0].properties).toEqual({ key: 'way/1', kind: 'way', name: null, tactile: 'yes' })
     expect(lines[1].properties.tactile).toBe('no')
 
+    // (#73) ウェイアイコンは線と同じ key を持ち、Point として中点にある
+    expect(wayIcons.map((f) => f.properties.key)).toEqual(['way/1', 'way/2'])
+    expect(wayIcons.every((f) => f.geometry.type === 'Point')).toBe(true)
+    expect(wayIcons[0].properties.tactile).toBe('yes')
+    expect(wayIcons[1].properties.tactile).toBe('no')
+
     // node は Point + 役割（role）
-    expect(points.map((f) => f.properties.key)).toEqual(['node/3', 'node/4', 'node/5'])
-    expect(points.map((f) => f.properties.role)).toEqual(['signal', 'kerb', 'kerb+signal'])
+    expect(nodes.map((f) => f.properties.key)).toEqual(['node/3', 'node/4', 'node/5'])
+    expect(nodes.map((f) => f.properties.role)).toEqual(['signal', 'kerb', 'kerb+signal'])
   })
 
   it('検索結果が更新されると bf ソースのデータも再 setData される', () => {
@@ -154,8 +163,10 @@ describe('バリアフリー結果の線・点描画', () => {
     const nextResults = [BF_RESULTS[0]]
     rerender(view, { ...state, results: nextResults })
     expect(map._lastGeoJSON.id).toBe('barrier-free')
-    expect(map._lastGeoJSON.data.features).toHaveLength(1)
+    // (#73) way/1 は 線1 + ウェイアイコン1 = 2
+    expect(map._lastGeoJSON.data.features).toHaveLength(2)
     expect(map._lastGeoJSON.data.features[0].properties.key).toBe('way/1')
+    expect(map._lastGeoJSON.data.features[1].properties.kind).toBe('way-icon')
   })
 })
 
@@ -208,9 +219,11 @@ describe('POI ⇄ バリアフリー のソース切り替え', () => {
     expect(map.getSource('barrier-free')).toBeTruthy()
     expect(layerIds(map)).toContain('bf-line')
     expect(layerIds(map)).toContain('bf-node')
+    expect(layerIds(map)).toContain('bf-way-icon')
     // 最終 setData は bf ソース（results は先に空クリア済み）
     expect(map._lastGeoJSON.id).toBe('barrier-free')
-    expect(map._lastGeoJSON.data.features).toHaveLength(5)
+    // (#73) 線2 + ウェイアイコン2 + ノード3 = 7
+    expect(map._lastGeoJSON.data.features).toHaveLength(7)
   })
 })
 
@@ -286,6 +299,43 @@ describe('バリアフリー線・点のクリック（ポップアップ）', (
     expect(onMarkerClick.mock.calls[0][0].id).toBe(4)
     expect(mockState.api._state.popups.length).toBe(popupsBefore)
   })
+
+  it('PC: bf-way-icon（ウェイ中点）クリックで同じウェイのポップアップを表示する', () => {
+    renderMap({ results: BF_RESULTS, resultKind: 'barrier_free' })
+    fireLoad()
+    const map = getMap()
+
+    // way/1 の中点アイコン: 線と同じ key なので、ポップアップは way/1 のラベルになる
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'way/1' && f.properties.kind === 'way-icon')
+    expect(feature).toBeTruthy()
+    act(() => {
+      map.fire('click', 'bf-way-icon', { features: [feature], lngLat: { lat: 34.6705, lng: 135.481 } })
+    })
+
+    const popup = mockState.api._state.popups.at(-1)
+    expect(popup).toBeTruthy()
+    expect(popup._element.querySelector('.map-popup-name').textContent).toBe('歩道（点字ブロックあり）')
+    const osmLink = popup._element.querySelector('a[href="https://www.openstreetmap.org/way/1"]')
+    expect(osmLink).toBeTruthy()
+  })
+
+  it('モバイル: onMarkerClick があれば bf-way-icon タップでコールバックし、ポップアップを作らない', () => {
+    const onMarkerClick = vi.fn()
+    renderMap({ results: BF_RESULTS, resultKind: 'barrier_free' }, { onMarkerClick })
+    fireLoad()
+    const map = getMap()
+    const popupsBefore = mockState.api._state.popups.length
+
+    const feature = map._lastGeoJSON.data.features.find((f) => f.properties.key === 'way/2' && f.properties.kind === 'way-icon')
+    expect(feature).toBeTruthy()
+    act(() => {
+      map.fire('click', 'bf-way-icon', { features: [feature], lngLat: { lat: 34.672, lng: 135.483 } })
+    })
+
+    expect(onMarkerClick).toHaveBeenCalledTimes(1)
+    expect(onMarkerClick.mock.calls[0][0].id).toBe(2)
+    expect(mockState.api._state.popups.length).toBe(popupsBefore)
+  })
 })
 
 describe('凡例の位置（MapView 内では描画しない）', () => {
@@ -304,6 +354,11 @@ describe('bf レイヤ定義（MapLibre仕様）', () => {
     })
     expect(BF_LINE_LAYER_DEF.paint['line-color']).toEqual([
       'case', ['==', ['get', 'crossing'], true], '#db2777',
+      ['==', ['get', 'newType'], 'elevator'], '#2563eb',
+      ['==', ['get', 'newType'], 'toilets'], '#a21caf',
+      ['==', ['get', 'newType'], 'parking'], '#059669',
+      ['==', ['get', 'newType'], 'steps'], '#d97706',
+      ['==', ['get', 'newType'], 'ramp'], '#0f766e',
       ['match', ['get', 'tactile'], 'yes', '#16a34a', 'no', '#dc2626', '#475569']
     ])
     expect(BF_LINE_LAYER_DEF.paint['line-width']).toBe(4)
@@ -318,15 +373,40 @@ describe('bf レイヤ定義（MapLibre仕様）', () => {
       filter: ['==', ['get', 'kind'], 'node']
     })
     expect(BF_NODE_LAYER_DEF.paint['circle-color']).toEqual([
-      'match', ['get', 'role'],
-      'signal', '#7c3aed',
-      'kerb', '#f59e0b',
-      'kerb+signal', '#0d9488',
-      'crossing', '#db2777',
-      '#64748b'
+      'case',
+      ['==', ['get', 'newType'], 'elevator'], '#2563eb',
+      ['==', ['get', 'newType'], 'toilets'], '#a21caf',
+      ['==', ['get', 'newType'], 'parking'], '#059669',
+      ['==', ['get', 'newType'], 'steps'], '#d97706',
+      ['==', ['get', 'newType'], 'ramp'], '#0f766e',
+      ['match', ['get', 'role'],
+        'signal', '#7c3aed',
+        'kerb', '#f59e0b',
+        'kerb+signal', '#0d9488',
+        'crossing', '#db2777',
+        '#64748b']
     ])
     expect(BF_NODE_LAYER_DEF.paint['circle-radius']).toBe(6)
     const camelKeys = Object.keys(BF_NODE_LAYER_DEF).filter((k) => /^[a-z]+[A-Z]/.test(k))
+    expect(camelKeys).toEqual([])
+  })
+
+  it('bf-way-icon は circle レイヤで線と同じ色分け（kebab-case / paint nesting）', () => {
+    expect(BF_WAY_ICON_LAYER_DEF).toMatchObject({
+      id: 'bf-way-icon', type: 'circle', source: 'barrier-free',
+      filter: ['==', ['get', 'kind'], 'way-icon']
+    })
+    expect(BF_WAY_ICON_LAYER_DEF.paint['circle-radius']).toBe(6)
+    expect(BF_WAY_ICON_LAYER_DEF.paint['circle-color']).toEqual([
+      'case', ['==', ['get', 'crossing'], true], '#db2777',
+      ['==', ['get', 'newType'], 'elevator'], '#2563eb',
+      ['==', ['get', 'newType'], 'toilets'], '#a21caf',
+      ['==', ['get', 'newType'], 'parking'], '#059669',
+      ['==', ['get', 'newType'], 'steps'], '#d97706',
+      ['==', ['get', 'newType'], 'ramp'], '#0f766e',
+      ['match', ['get', 'tactile'], 'yes', '#16a34a', 'no', '#dc2626', '#475569']
+    ])
+    const camelKeys = Object.keys(BF_WAY_ICON_LAYER_DEF).filter((k) => /^[a-z]+[A-Z]/.test(k))
     expect(camelKeys).toEqual([])
   })
 })

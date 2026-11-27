@@ -423,14 +423,14 @@ describe('自治体検索 E2E（トップ画面「都道府県から探す」セ
     const sec = muniSection()
     await selectMunicipality('大阪府', '高槻市')
 
-    // 「遊ぶ・公園」目的チップのみタップ（カテゴリチップは押さない。セクション内に限定）
-    fireEvent.click(within(sec).getByRole('button', { name: '遊ぶ・公園' }))
+    // 「お出かけ」目的チップのみタップ（カテゴリチップは押さない。セクション内に限定）
+    fireEvent.click(within(sec).getByRole('button', { name: 'お出かけ' }))
 
     fireEvent.click(sectionSearchBtn(sec))
 
     await waitFor(() => expect(overpassCalls.length).toBe(1), { timeout: 5000 })
     const q = overpassCalls[0]
-    // 遊ぶ・公園グループのタグ条件が含まれる
+    // お出かけグループのタグ条件が含まれる
     expect(q).toContain('[leisure~"^(park|playground|garden|pitch)$"]')
     expect(q).toContain('[amenity=plaza]')
     expect(q).toContain('[amenity=place_of_worship]')

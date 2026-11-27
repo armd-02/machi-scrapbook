@@ -18,6 +18,7 @@ import { ATTRIBUTE_LABELS } from '../../utils/statistics'
 import { barrierFreeTypeLabel, tactileStatus, lengthLabel, signalLabels } from '../../utils/barrierFreeResults'
 import { kerbDetailLabel } from '../../utils/barrierFree'
 import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
+import { getFacilityIcon, facilityIconUrl, FALLBACK_ICON } from '../../utils/facilityIcon'
 import { useFacilityMapSelection } from '../../hooks/useFacilityMapSelection'
 import { useScrapbooks } from '../../hooks/useScrapbooks'
 import { DEFAULT_BOOK_ID } from '../../utils/scrapbooks'
@@ -446,6 +447,10 @@ function BarrierFreeCard({ result, selected, onSelect }) {
   // タイトル: 名称があれば名称、なければ種別ラベルのみ
   const title = named ? result.name : barrierFreeTypeLabel(result)
 
+  // (#70) 追加対象のアイコン: 対応表にあり（fallback 以外）のときは表示。
+  // 歩道・縁石・案内信号等（fallback）はアイコンを出さない。
+  const iconUrl = getFacilityIcon(tags) === FALLBACK_ICON ? null : facilityIconUrl(getFacilityIcon(tags))
+
   // 点字ブロックバッジ: 歩道（way）では 有/無/未記録 のどれか必ず1つ出す。
   // ノードでは tactile が記録されている場合のみ 有/無 を出す。
   let tactileBadge = null
@@ -514,6 +519,15 @@ function BarrierFreeCard({ result, selected, onSelect }) {
         selected ? 'border-primary-400 ring-2 ring-primary-500' : 'border-slate-200'}`}
     >
       <div className="flex items-center gap-2">
+        {iconUrl && (
+          <img
+            src={iconUrl}
+            alt=""
+            aria-hidden="true"
+            className="h-6 w-6 shrink-0"
+            loading="lazy"
+          />
+        )}
         {showTypeBadge && (
           <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-xs shrink-0">
             {barrierFreeTypeLabel(result)}

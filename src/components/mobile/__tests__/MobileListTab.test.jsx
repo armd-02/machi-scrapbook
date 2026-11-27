@@ -11,7 +11,7 @@ import { render, screen, fireEvent, within, cleanup, waitFor, act } from '@testi
 import { AppContext } from '../../../context/AppContext'
 import { appReducer, createInitialState } from '../../../state/appReducer'
 import MobileListTab from '../MobileListTab'
-import { facilityIconUrl } from '../../../utils/facilityIcon'
+import { facilityIconUrl, getFacilityIcon, FALLBACK_ICON } from '../../../utils/facilityIcon'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
 import { resetScrapbooksStore } from '../../../hooks/useScrapbooks'
 import { MEMOCHO_STORAGE_KEY, loadMemocho } from '../../../utils/memocho'
@@ -441,6 +441,32 @@ describe('MobileListTab: バリアフリー検索結果 (#62)', () => {
     render(<Harness preActions={bfMobileActions([])} />)
     expect(screen.getByText(/バリアフリー関連の登録がありません/)).toBeTruthy()
   })
+
+  it('追加対象でアイコンが対応表にある場合はアイコンを表示する（fallback は出さない）', () => {
+    const cases = [
+      { id: 330, tags: { highway: 'elevator' } },
+      { id: 331, tags: { amenity: 'toilets' } },
+      { id: 332, tags: { highway: 'steps' } },
+      { id: 333, tags: { highway: 'footway', tactile_paving: 'yes' } },
+      { id: 334, tags: { 'ramp:wheelchair': 'yes' } },
+    ]
+    render(<Harness preActions={bfMobileActions(cases.map((c) => bfWayFixture(c.id, c.tags, null)))} />)
+
+    for (const c of cases) {
+      const card = cardOf(`way/${c.id}`)
+      const img = card.querySelector('img')
+      const hasIcon = getFacilityIcon(c.tags) !== FALLBACK_ICON
+      if (hasIcon) {
+        expect(img).toBeTruthy()
+        expect(img.getAttribute('src')).toContain('icons/')
+      } else {
+        expect(img).toBeNull()
+      }
+    }
+    // 既知: エレベーターは対応表にあり（アイコン表示）、歩道は fallback（アイコンなし）
+    expect(cardOf('way/330').querySelector('img')).toBeTruthy()
+    expect(cardOf('way/333').querySelector('img')).toBeNull()
+  })
 })
 
 // ===== (修正) モバイル結果マップ =====
@@ -758,12 +784,12 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(mapBlock.contains(mapCanvas)).toBe(true)
     expect(screen.getByText('凡例').nextElementSibling.className).toContain('grid-cols-2')
 
-    // 線（LineString）と点（Point）が設定され、結果範囲にfitBoundsされる
+    // 線（LineString）・ウェイ中点アイコン・点（Point）が設定され、結果範囲にfitBoundsされる
     await waitFor(async () => {
       const map = mockState.api._state.maps.at(-1)
       const features = map._lastGeoJSON?.data?.features || []
-      expect(features.length).toBe(2)
-      expect(features.map((f) => f.geometry.type).sort()).toEqual(['LineString', 'Point'])
+      expect(features.length).toBe(3)
+      expect(features.map((f) => f.geometry.type).sort()).toEqual(['LineString', 'Point', 'Point'])
     })
     const map = mockState.api._state.maps.at(-1)
     // 線（135.0〜135.02, 34.0〜34.01）と点（135.1, 34.1）を含む範囲
@@ -793,7 +819,7 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
     await waitFor(async () => {
       const map = mockState.api._state.maps.at(-1)
-      expect(map._lastGeoJSON?.data?.features?.length).toBe(2)
+      expect(map._lastGeoJSON?.data?.features?.length).toBe(3)
     })
     const map = mockState.api._state.maps.at(-1)
     expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
@@ -809,7 +835,7 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(screen.getByRole('application', { name: 'バリアフリー要素マップ' })).toBeTruthy()
 
     const map = mockState.api._state.maps.at(-1)
-    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(3))
     const highlight = (id) => map._layers.find((layer) => layer.id === id).filter
     const keyFilter = (key) => ['==', ['get', 'key'], key]
     expect(highlight('bf-selected-line')).toEqual(['all', ['==', ['get', 'kind'], 'way'], keyFilter('way/100')])
@@ -836,7 +862,7 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
   it('バリアフリー地図の地物を選ぶと、固定された地図の下で対応カードへスクロールする', async () => {
     render(<Harness preActions={bfMobileActions()} />)
     const map = mockState.api._state.maps.at(-1)
-    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(2))
+    await waitFor(() => expect(map._lastGeoJSON?.data.features).toHaveLength(3))
     const card = document.getElementById('barrier-free-card-node/200')
     const list = card.closest('.overflow-y-auto')
     list.scrollTo = vi.fn()

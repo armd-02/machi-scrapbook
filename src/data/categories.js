@@ -66,7 +66,10 @@ export const CATEGORIES = [
   {
     id: 'retail',
     label: '小売店',
-    tags: [{ key: 'shop', values: ['clothes', 'shoes', 'department_store', 'gift', 'stationery', 'convenience', 'supermarket', 'bakery', 'confectionery', 'butcher', 'greengrocer', 'florist', 'jewelry', 'hairdresser', 'beauty', 'car', 'motorcycle', 'bicycle', 'sports', 'toys', 'books', 'music', 'newsagent', 'alcohol', 'tobacco', 'variety_store', 'hardware', 'furniture', 'carpet', 'diary', 'leather', 'optician', 'tattoo', 'car_repair', 'pet', 'office_supplies', 'outdoor', 'computer', 'hifi', 'charity', 'composite', 'covered_market'] }],
+    tags: [
+      { key: 'shop', values: ['clothes', 'shoes', 'department_store', 'gift', 'stationery', 'convenience', 'supermarket', 'bakery', 'confectionery', 'butcher', 'greengrocer', 'florist', 'jewelry', 'hairdresser', 'beauty', 'car', 'motorcycle', 'bicycle', 'sports', 'toys', 'books', 'music', 'newsagent', 'alcohol', 'tobacco', 'variety_store', 'hardware', 'furniture', 'carpet', 'diary', 'leather', 'optician', 'tattoo', 'car_repair', 'pet', 'office_supplies', 'outdoor', 'computer', 'hifi', 'charity', 'composite', 'covered_market', 'dry_cleaning', 'laundry', 'electronics', 'mobile_phone', 'doityourself', 'mall', 'second_hand', 'chemist', 'storage_rental'] },
+      { key: 'amenity', values: ['marketplace'] }
+    ],
     logic: 'or',
     description: '各種小売店舗'
   },
@@ -83,7 +86,10 @@ export const CATEGORIES = [
   {
     id: 'hospital',
     label: '病院・クリニック',
-    tags: [{ key: 'amenity', values: ['hospital', 'clinic', 'doctors', 'dentist'] }],
+    tags: [
+      { key: 'amenity', values: ['hospital', 'clinic', 'doctors', 'dentist'] },
+      { key: 'shop', values: ['massage'] }
+    ],
     logic: 'or',
     description: '病院・クリニック・歯科'
   },
@@ -91,7 +97,7 @@ export const CATEGORIES = [
     id: 'public_facility',
     label: '役所・公共機関',
     tags: [
-      { key: 'amenity', values: ['townhall', 'post_office', 'police', 'fire_station', 'community_centre', 'recycling', 'shelter'] },
+      { key: 'amenity', values: ['townhall', 'post_office', 'police', 'fire_station', 'recycling', 'shelter', 'courthouse', 'public_building'] },
       { key: 'office', values: ['government', 'municipality'] }
     ],
     logic: 'or',
@@ -108,7 +114,8 @@ export const CATEGORIES = [
     tags: [
       { key: 'office', values: [
         // 仕様が代表値として列挙する民間・専門職系の値
-        'company', 'coworking', 'lawyer', 'financial', 'it', 'research',
+        // 注: coworking は「学ぶ・仕事」の独立詳細に移動（#再編）、financial は「銀行・金融」と二重所属（会社側にも残す）
+        'company', 'lawyer', 'financial', 'it', 'research',
         'accounting', 'marketing', 'telecommunication',
         // その他の共通値（taginfo の office 頻出値から民間系を選定）
         'accountant', 'advertising_agency', 'airline', 'architect', 'association',
@@ -140,14 +147,14 @@ export const CATEGORIES = [
     // 併記される。実データ（東京圏）では education=prep_school が365件存在するなど、
     // 両キーを併用して取得率を確保する。
     id: 'kindergarten',
-    label: '幼稚園',
+    label: '幼稚園・保育園',
     tags: [
-      { key: 'amenity', values: ['kindergarten'] },
+      { key: 'amenity', values: ['kindergarten', 'childcare'] },
       { key: 'education', values: ['kindergarten'] },
       { key: 'school', values: ['kindergarten'] }
     ],
     logic: 'or',
-    description: '幼稚園（public・private）'
+    description: '幼稚園・保育園（public・private）'
   },
   {
     id: 'primary_school',
@@ -209,29 +216,33 @@ export const CATEGORIES = [
     tags: [
       { key: 'railway', values: ['station', 'subway_entry', 'tram_stop'] },
       { key: 'highway', values: ['bus_stop', 'platform'] },
-      { key: 'amenity', values: ['fuel', 'parking', 'bicycle_rental', 'bicycle_parking'] }
+      { key: 'amenity', values: ['fuel', 'parking', 'bicycle_rental', 'bicycle_parking', 'taxi', 'bus_station', 'ferry_terminal', 'car_rental', 'charging_station', 'car_wash'] }
     ],
     logic: 'or',
-    description: '駅・バス停・ガソリンスタンド・駐車場・レンタサイクル・駐輪場'
+    description: '駅・バス停・ガソリンスタンド・駐車場・レンタサイクル・駐輪場・タクシー・バスターミナル・フェリー乗り場・レンタカー・EV充電・洗車'
   },
   {
     id: 'accommodation',
     label: '宿泊施設',
     tags: [
-      { key: 'tourism', values: ['hotel', 'hostel', 'motel', 'guest_house', 'apartment'] },
+      { key: 'tourism', values: ['hotel', 'hostel', 'motel', 'guest_house', 'apartment', 'camp_site'] },
       { key: 'building', values: ['hotel'] }
     ],
     logic: 'or',
-    description: 'ホテル・ゲストハウス・旅館'
+    description: 'ホテル・ゲストハウス・旅館・キャンプ場'
   },
   {
+    // (#再編) 銀行・金融: 銀行・ATMに加え質屋・金貸し・郵便局・証券会社・金貸し（office=financial）。
+    // post_office は「公共施設」の public_facility にも、financial は「会社・事務所」の company_office にも残す（二重所属）。
     id: 'bank',
-    label: '銀行・ATM',
+    label: '銀行・金融',
     tags: [
-      { key: 'amenity', values: ['bank', 'atm'] }
+      { key: 'amenity', values: ['bank', 'atm', 'money_lending', 'post_office'] },
+      { key: 'shop', values: ['pawnbroker'] },
+      { key: 'office', values: ['financial'] }
     ],
     logic: 'or',
-    description: '銀行・現金自動預払機'
+    description: '銀行・ATM・質屋・金貸し・郵便局・証券会社'
   },
   {
     id: 'toilets',
@@ -282,10 +293,10 @@ export const CATEGORIES = [
     id: 'sports',
     label: 'スポーツ施設',
     tags: [
-      { key: 'leisure', values: ['sports_centre', 'stadium', 'swimming_pool', 'pitch', 'golf_course', 'tennis_court', 'basketball_court', 'volleyball_court', 'dance'] }
+      { key: 'leisure', values: ['sports_centre', 'stadium', 'swimming_pool', 'pitch', 'golf_course', 'tennis_court', 'basketball_court', 'volleyball_court', 'dance', 'fitness_centre', 'sports_hall'] }
     ],
     logic: 'or',
-    description: 'スポーツセンター・プール・球場・コート・ダンススタジオ'
+    description: 'スポーツセンター・プール・球場・コート・ダンススタジオ・フィットネス・体育館'
   },
   {
     id: 'barrier_free',
@@ -301,6 +312,80 @@ export const CATEGORIES = [
     logic: 'or',
     description: '博物館・美術館・展望台'
   },
+  {
+    // (#再編) 「買う」へ: 葬儀場・葬儀社
+    id: 'funeral',
+    label: '葬儀',
+    tags: [
+      { key: 'amenity', values: ['funeral_hall'] },
+      { key: 'shop', values: ['funeral_directors'] }
+    ],
+    logic: 'or',
+    description: '葬儀場・葬儀社'
+  },
+  {
+    // (#再編) 「学ぶ・仕事」へ: コワーキング（company_office から移動）
+    id: 'coworking',
+    label: 'コワーキング',
+    tags: [{ key: 'office', values: ['coworking'] }],
+    logic: 'or',
+    description: 'コワーキングスペース'
+  },
+  {
+    // (#再編) 「学ぶ・仕事」へ: 公民館・コミュニティ（public_facility から移動）
+    id: 'community_centre',
+    label: '公民館・コミュニティ',
+    tags: [{ key: 'amenity', values: ['community_centre'] }],
+    logic: 'or',
+    description: '公民館・コミュニティセンター'
+  },
+  {
+    // (#再編) 「学ぶ・仕事」へ: 習い事・教習
+    id: 'lessons',
+    label: '習い事・教習',
+    tags: [{ key: 'amenity', values: ['driving_school', 'music_school', 'dojo'] }],
+    logic: 'or',
+    description: '自動車学校・音楽教室・道場'
+  },
+  {
+    // (#再編) 「お出かけ」へ: 映画・娯楽
+    id: 'entertainment',
+    label: '映画・娯楽',
+    tags: [
+      { key: 'amenity', values: ['cinema', 'theatre', 'karaoke_box'] },
+      { key: 'leisure', values: ['amusement_arcade', 'adult_gaming_centre'] },
+      { key: 'tourism', values: ['zoo', 'theme_park'] }
+    ],
+    logic: 'or',
+    description: '映画・劇場・カラオケ・ゲームセンター・パチンコ・動物園・テーマパーク'
+  },
+  {
+    // (#再編) 「お出かけ」へ: 銭湯・サウナ
+    id: 'bath',
+    label: '銭湯・サウナ',
+    tags: [
+      { key: 'amenity', values: ['public_bath'] },
+      { key: 'leisure', values: ['sauna'] }
+    ],
+    logic: 'or',
+    description: '銭湯・サウナ'
+  },
+  {
+    // (#再編) 「病院・薬局」へ: 動物病院
+    id: 'veterinary',
+    label: '動物病院',
+    tags: [{ key: 'amenity', values: ['veterinary'] }],
+    logic: 'or',
+    description: '動物病院'
+  },
+  {
+    // (#再編) 「病院・薬局」へ: 福祉施設
+    id: 'welfare',
+    label: '福祉施設',
+    tags: [{ key: 'amenity', values: ['social_facility', 'nursing_home'] }],
+    logic: 'or',
+    description: '社会福祉施設・老人ホーム'
+  }
 ]
 // 注1: 旧スーパーマーケット(shop=supermarket)・ガソリンスタンド(amenity=fuel)エントリは、
 // それぞれコンビニ・スーパー・交通・駅に完全に包含される重複だったため削除。
@@ -326,25 +411,29 @@ export function getCategoryById(id) {
  * (#44 改訂 2026-10-28、再編) 目的ベースの施設グループ — 「生活者目線UI」
  *
  * OSMタグキー（amenity=…など）を上位カテゴリにしない代わりに、利用目的で
- * グループ化する: 食べる／買う／遊ぶ・公園／学ぶ／病院・薬局／役所・手続き／
- * 公共設備／会社・事務所／移動・交通／バリアフリー。
+ * グループ化する: 食べる／買う／お出かけ／学ぶ・仕事／病院・薬局／公共施設／
+ * 銀行・金融／会社・事務所／移動・交通／バリアフリー。
  * PCのカテゴリselectの <optgroup> ラベル、モバイルの目的チップ、トップ画面の
  * タイルで同じ定義を共有する（単一データソース）。
  * 各カテゴリはちょうど1つのグループにだけ所属する（重複所属はない）。
  * icon は目的チップ・タイル表示用（emoji）。
  * グループ内の順序はここで制御する（CATEGORIES 配列の順序に依存しない）。
- * 表示順は「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系
- * （病院・薬局・役所・手続き・公共設備・会社・事務所・移動・交通）で、
+ * 表示順は「すること」系（食べる・買う・お出かけ・学ぶ・仕事）→「生活の施設」系
+ * （病院・薬局・公共施設・銀行・金融・会社・事務所・移動・交通）で、
  * チップ・セレクト・タイルすべてでこの定義順をそのまま使う。
  */
 export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
-  { name: '買う', icon: '🛍️', ids: ['retail', 'convenience'] },
-  { name: '遊ぶ・公園', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation'] },
-  { name: '学ぶ', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library'] },
-  { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy'] },
-  { name: '役所・手続き', icon: '🏛️', ids: ['public_facility', 'bank'] },
-  { name: '公共設備', icon: '🚻', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'] },
+  { name: '買う', icon: '🛍️', ids: ['retail', 'convenience', 'funeral'] },
+  // (#再編) 「遊ぶ・公園」を「お出かけ」に改名（表示名のみ）。entertainment・bath を追加。
+  { name: 'お出かけ', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'] },
+  // (#再編) 「学ぶ」を「学ぶ・仕事」に改名（表示名のみ）。coworking・community_centre・lessons を追加。
+  { name: '学ぶ・仕事', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library', 'coworking', 'community_centre', 'lessons'] },
+  { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy', 'veterinary', 'welfare'] },
+  // (#再編) 「公共設備」を「公共施設」に改名（表示名のみ）。public_facility を移入（旧「役所・手続き」廃止）。
+  { name: '公共施設', icon: '🏛️', ids: ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box', 'public_facility'] },
+  // (#再編) 「銀行・金融」は独立した種別（旧「役所・手続き」から分離）。公共施設の次・会社・事務所の前。
+  { name: '銀行・金融', icon: '🏦', ids: ['bank'] },
   { name: '会社・事務所', icon: '🏢', ids: ['company_office'] },
   { name: '移動・交通', icon: '🚉', ids: ['transport'] },
   { name: 'バリアフリー', icon: '♿', ids: ['barrier_free'] }
@@ -387,7 +476,7 @@ export function isFoodCategory(id) {
 
 /**
  * (#44) 目的グループ名（'食べる'など）からカテゴリ一覧を取得
- * @param {string} purposeName - '食べる' | '買う' | '遊ぶ・公園' | '学ぶ' | '病院・薬局' | '役所・手続き' | '公共設備' | '会社・事務所' | '移動・交通' | 'バリアフリー'
+ * @param {string} purposeName - '食べる' | '買う' | 'お出かけ' | '学ぶ・仕事' | '病院・薬局' | '公共施設' | '銀行・金融' | '会社・事務所' | '移動・交通' | 'バリアフリー'
  * @returns {Array<object>|null} カテゴリ配列、未知の目的ならnull
  */
 export function getCategoriesForPurpose(purposeName) {
@@ -437,7 +526,7 @@ export function getPurposeUnionFilters(purposeName) {
 
 /**
  * (#44) 目的グループの施設種類ラベルを「・」区切りで返す（UI案内文用）
- * 例: getPurposeLabelList('遊ぶ・公園') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設'
+ * 例: getPurposeLabelList('お出かけ') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ'
  */
 export function getPurposeLabelList(purposeName) {
   const cats = getCategoriesForPurpose(purposeName)

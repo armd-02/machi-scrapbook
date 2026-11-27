@@ -6,7 +6,8 @@ import {
   safeWebsite,
   buildSnsLink
 } from '../../utils/facilityLabels'
-import { parseAccessibility } from '../../utils/accessibility'
+import { parseAccessibility, parseBarrierFreeMeasurements } from '../../utils/accessibility'
+import { getFacilityIcon, facilityIconUrl, FALLBACK_ICON } from '../../utils/facilityIcon'
 import { buildOsmElementUrl } from '../../utils/editLinks'
 import { keyInfoFor } from '../../utils/categoryProfiles'
 import { formatOpeningHoursJa } from '../../utils/openingHours'
@@ -95,6 +96,14 @@ export default function MobileFacilityDetail({ detail, onClose }) {
   const accessItems = parseAccessibility(tags)
   const hasCoords = result.lat != null && result.lon != null
 
+  // (#70) バリアフリー要素（bf を持つ）のアイコン: 対応表にあり（fallback 以外）のときは表示。
+  const bfIconUrl = result.bf != null
+    ? (getFacilityIcon(tags) === FALLBACK_ICON ? null : facilityIconUrl(getFacilityIcon(tags)))
+    : null
+
+  // (#70) バリアフリー要素の数値情報（幅・勾配・平滑度・路面）。登録ありのみ表示。
+  const bfMeasurements = result.bf != null ? parseBarrierFreeMeasurements(tags) : []
+
   // (A3) カテゴリ別の追加項目（基本4項目・wheelchair は除外。カードと同じ条件）
   const extraItems = keyInfoFor(result).items.filter(
     (it) => !BASE_KEYS.has(it.key) && it.key !== 'wheelchair'
@@ -127,6 +136,15 @@ export default function MobileFacilityDetail({ detail, onClose }) {
           </button>
           {/* 施設名 ＋ カテゴリチップ（カードと同じ見た目） */}
           <div className="flex items-center gap-2 pr-10">
+            {bfIconUrl && (
+              <img
+                src={bfIconUrl}
+                alt=""
+                aria-hidden="true"
+                className="h-8 w-8 shrink-0"
+                loading="lazy"
+              />
+            )}
             <h2 className="text-base font-semibold text-slate-800 break-words min-w-0 flex-1">{name}</h2>
             <span className="shrink-0 text-[11px] text-primary-700 bg-primary-50 rounded-md px-2 py-0.5">
               {typeLabel}
@@ -246,6 +264,23 @@ export default function MobileFacilityDetail({ detail, onClose }) {
                     {it.note && (
                       <span className="block text-[11px] text-slate-500 mt-0.5 break-words">{it.note}</span>
                     )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* (#70) バリアフリー要素の数値情報（幅・勾配・平滑度・路面）。登録済み項目のみ表示 */}
+          {bfMeasurements.length > 0 && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <p className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-600">
+                数値情報
+              </p>
+              <ul className="px-3 py-2 space-y-1.5">
+                {bfMeasurements.map((m) => (
+                  <li key={m.key} className="text-xs">
+                    <span className="text-slate-400">{m.label}</span>
+                    <span className="ml-1 text-slate-700">{m.value}</span>
                   </li>
                 ))}
               </ul>

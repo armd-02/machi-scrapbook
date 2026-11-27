@@ -8,7 +8,7 @@ import { facilityName } from '../utils/facilityLabels'
 import { BASEMAP_STYLE } from '../utils/mapStyle'
 import { wheelchairBadge } from '../utils/accessibility'
 import { buildOsmElementUrl } from '../utils/editLinks'
-import { barrierFreeToMapGeoJSON, TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR } from '../utils/barrierFreeGeoJSON'
+import { barrierFreeToMapGeoJSON, TACTILE_LINE_COLORS, NODE_ROLE_COLORS, CROSSING_COLOR, BF_NEW_ELEMENT_COLORS } from '../utils/barrierFreeGeoJSON'
 import { barrierFreeLabel } from '../utils/barrierFree'
 
 // Default center: Osaka, Japan（MapLibreは[経度, 緯度]順）
@@ -27,6 +27,7 @@ const CLUSTER_COUNT_LAYER = 'cluster-count'
 const BF_SOURCE = 'barrier-free'
 const BF_LINE_LAYER = 'bf-line'
 const BF_NODE_LAYER = 'bf-node'
+const BF_WAY_ICON_LAYER = 'bf-way-icon'
 
 // 空のFeatureCollection（ソースのデータクリア用。共有して再利用する）
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
@@ -90,13 +91,22 @@ export const CLUSTER_COUNT_LAYER_DEF = {
 // - bf-line: way を線描画。色は点字ブロックの登録状態（tactile）で分ける。
 //   way の近似中心点（頂点平均）はマーカーとしては描画しない。
 // - bf-node: node を点描画。色は役割（role: signal / kerb / kerb+signal）で分ける。
+// - bf-way-icon: way の形状中点に置いた Point アイコン。タップしにくい線をタップしやすくするための。
+//   線と同じ key を持ち、色は線と同じ（crossing / newType / tactile）で分ける。
 export const BF_LINE_LAYER_DEF = {
   id: BF_LINE_LAYER,
   type: 'line',
   source: BF_SOURCE,
   filter: ['==', ['get', 'kind'], 'way'],
   paint: {
+    // (#70) T1追加対象は種別（newType）ごとに色分けし、
+    // それ以外は横断歩道 → 点字ブロックの順で色分けする。
     'line-color': ['case', ['==', ['get', 'crossing'], true], CROSSING_COLOR,
+      ['==', ['get', 'newType'], 'elevator'], BF_NEW_ELEMENT_COLORS.elevator,
+      ['==', ['get', 'newType'], 'toilets'], BF_NEW_ELEMENT_COLORS.toilets,
+      ['==', ['get', 'newType'], 'parking'], BF_NEW_ELEMENT_COLORS.parking,
+      ['==', ['get', 'newType'], 'steps'], BF_NEW_ELEMENT_COLORS.steps,
+      ['==', ['get', 'newType'], 'ramp'], BF_NEW_ELEMENT_COLORS.ramp,
       ['match', ['get', 'tactile'],
         'yes', TACTILE_LINE_COLORS.yes,
         'no', TACTILE_LINE_COLORS.no,
@@ -113,12 +123,44 @@ export const BF_NODE_LAYER_DEF = {
   filter: ['==', ['get', 'kind'], 'node'],
   paint: {
     'circle-radius': 6,
-    'circle-color': ['match', ['get', 'role'],
-      'signal', NODE_ROLE_COLORS.signal,
-      'kerb', NODE_ROLE_COLORS.kerb,
-      'kerb+signal', NODE_ROLE_COLORS['kerb+signal'],
-      'crossing', NODE_ROLE_COLORS.crossing,
-      NODE_ROLE_COLORS.other],
+    // (#70) T1追加対象は種別（newType）ごとに色分けし、
+    // それ以外は役割（role）で色分けする。
+    'circle-color': ['case',
+      ['==', ['get', 'newType'], 'elevator'], BF_NEW_ELEMENT_COLORS.elevator,
+      ['==', ['get', 'newType'], 'toilets'], BF_NEW_ELEMENT_COLORS.toilets,
+      ['==', ['get', 'newType'], 'parking'], BF_NEW_ELEMENT_COLORS.parking,
+      ['==', ['get', 'newType'], 'steps'], BF_NEW_ELEMENT_COLORS.steps,
+      ['==', ['get', 'newType'], 'ramp'], BF_NEW_ELEMENT_COLORS.ramp,
+      ['match', ['get', 'role'],
+        'signal', NODE_ROLE_COLORS.signal,
+        'kerb', NODE_ROLE_COLORS.kerb,
+        'kerb+signal', NODE_ROLE_COLORS['kerb+signal'],
+        'crossing', NODE_ROLE_COLORS.crossing,
+        NODE_ROLE_COLORS.other]],
+    'circle-stroke-width': 2,
+    'circle-stroke-color': '#ffffff'
+  }
+}
+
+// (#73) ウェイの中点アイコン（線と同じ key）。線と同色の種別色（crossing / newType / tactile）。
+// 半径は通常の施設ピン（point-circle）と同程度（6）にしてタップしやすい。
+export const BF_WAY_ICON_LAYER_DEF = {
+  id: BF_WAY_ICON_LAYER,
+  type: 'circle',
+  source: BF_SOURCE,
+  filter: ['==', ['get', 'kind'], 'way-icon'],
+  paint: {
+    'circle-radius': 6,
+    'circle-color': ['case', ['==', ['get', 'crossing'], true], CROSSING_COLOR,
+      ['==', ['get', 'newType'], 'elevator'], BF_NEW_ELEMENT_COLORS.elevator,
+      ['==', ['get', 'newType'], 'toilets'], BF_NEW_ELEMENT_COLORS.toilets,
+      ['==', ['get', 'newType'], 'parking'], BF_NEW_ELEMENT_COLORS.parking,
+      ['==', ['get', 'newType'], 'steps'], BF_NEW_ELEMENT_COLORS.steps,
+      ['==', ['get', 'newType'], 'ramp'], BF_NEW_ELEMENT_COLORS.ramp,
+      ['match', ['get', 'tactile'],
+        'yes', TACTILE_LINE_COLORS.yes,
+        'no', TACTILE_LINE_COLORS.no,
+        TACTILE_LINE_COLORS.unknown]],
     'circle-stroke-width': 2,
     'circle-stroke-color': '#ffffff'
   }
@@ -493,9 +535,11 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, initialCamera = nul
     })
     map.addLayer(BF_LINE_LAYER_DEF)
     map.addLayer(BF_NODE_LAYER_DEF)
-    // (#62 第4ピース) 線（way）と点（node）のクリックでポップアップを表示。
+    map.addLayer(BF_WAY_ICON_LAYER_DEF)
+    // (#62 第4ピース) 線（way）・点（node）・ウェイ中点アイコンのクリックでポップアップを表示。
     // ポイントレイヤ（POINT_LAYER）と同一のハンドラを共有する。
-    for (const layerId of [BF_LINE_LAYER, BF_NODE_LAYER]) {
+    // (#73) ウェイアイコンは線と同じ key を持ち、タップで同じウェイが選択される。
+    for (const layerId of [BF_LINE_LAYER, BF_NODE_LAYER, BF_WAY_ICON_LAYER]) {
       map.on('click', layerId, makeFeatureClickHandler(map))
       map.on('mouseenter', layerId, () => {
         const canvas = map.getCanvas?.()
@@ -513,6 +557,7 @@ function MapView({ onMarkerClick = null, onMarkerTap = null, initialCamera = nul
     if (!map.getSource(BF_SOURCE)) return
     map.removeLayer(BF_LINE_LAYER)
     map.removeLayer(BF_NODE_LAYER)
+    map.removeLayer(BF_WAY_ICON_LAYER)
     map.removeSource(BF_SOURCE)
   }
 

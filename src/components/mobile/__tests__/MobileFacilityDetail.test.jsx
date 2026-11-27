@@ -357,6 +357,55 @@ describe('MobileFacilityDetail: バリアフリー情報（#61）', () => {
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByText(/バリアフリー情報/)).toBeNull()
   })
+
+  it('バリアフリー要素（bf）でアイコンが対応表にある場合はヘッダーにアイコンが表示される', () => {
+    renderDetail({
+      type: 'node', id: 20, lat: 34.8, lon: 135.5, name: 'エレベーター',
+      tags: { highway: 'elevator', name: 'エレベーター' },
+      bf: { kind: 'node', tactile: null, lengthM: null, kerb: null, hasSound: false, hasVibration: false, geometry: [135.5, 34.8] }
+    })
+    const dialog = screen.getByRole('dialog')
+    // エレベーターは対応表にあり（アイコン表示）
+    expect(dialog.querySelector('img')).toBeTruthy()
+    expect(dialog.querySelector('img').getAttribute('src')).toContain('icons/')
+  })
+
+  it('バリアフリー要素（bf）でアイコンが対応表に無い場合はヘッダーにアイコンが表示されない', () => {
+    renderDetail({
+      type: 'node', id: 21, lat: 34.8, lon: 135.5, name: '歩道',
+      tags: { highway: 'footway', name: '歩道' },
+      bf: { kind: 'node', tactile: 'yes', lengthM: null, kerb: null, hasSound: false, hasVibration: false, geometry: [135.5, 34.8] }
+    })
+    const dialog = screen.getByRole('dialog')
+    // 歩道は fallback（アイコンなし）
+    expect(dialog.querySelector('img')).toBeNull()
+  })
+
+  it('バリアフリー要素の数値情報（幅・勾配・平滑度・路面）は登録済み項目のみ表示される', () => {
+    renderDetail({
+      type: 'way', id: 22, lat: 34.8, lon: 135.5,
+      tags: { highway: 'footway', width: '3', incline: '1:20', smoothness: 'smooth', surface: 'asphalt' },
+      bf: { kind: 'way', tactile: 'yes', lengthM: 100, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.5, 34.8], [135.51, 34.8]] }
+    })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('数値情報')).toBeTruthy()
+    expect(within(dialog).getByText('幅')).toBeTruthy()
+    expect(within(dialog).getByText('勾配')).toBeTruthy()
+    expect(within(dialog).getByText('平滑度')).toBeTruthy()
+    expect(within(dialog).getByText('路面')).toBeTruthy()
+    expect(within(dialog).getByText('3 m')).toBeTruthy()
+    expect(within(dialog).getByText('1:20')).toBeTruthy()
+  })
+
+  it('数値情報が未登録のときは「数値情報」セクションが表示されない', () => {
+    renderDetail({
+      type: 'way', id: 23, lat: 34.8, lon: 135.5,
+      tags: { highway: 'footway' },
+      bf: { kind: 'way', tactile: 'yes', lengthM: 100, kerb: null, hasSound: false, hasVibration: false, geometry: [[135.5, 34.8], [135.51, 34.8]] }
+    })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByText('数値情報')).toBeNull()
+  })
 })
 
 describe('MobileFacilityDetail: SNSリンク', () => {

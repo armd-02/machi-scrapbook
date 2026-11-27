@@ -196,8 +196,82 @@ describe('barrierFreeTypeLabel', () => {
     expect(barrierFreeTypeLabel(standard({
       ...footway,
       osmId: 'way/102',
+      tags: { highway: 'track' }
+    }))).toBe('通路(track)')
+  })
+
+  // --- (#70) 追加対象 ---
+
+  it('highway=elevator の way → エレベーター', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...footway,
+      osmId: 'way/200',
+      tags: { highway: 'elevator' }
+    }))).toBe('エレベーター')
+  })
+
+  it('highway=steps の way → 階段', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...footway,
+      osmId: 'way/201',
       tags: { highway: 'steps' }
-    }))).toBe('通路(steps)')
+    }))).toBe('階段')
+  })
+
+  it('amenity=toilets の way → トイレ', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...footway,
+      osmId: 'way/202',
+      tags: { amenity: 'toilets' }
+    }))).toBe('トイレ')
+  })
+
+  it('parking_space=disabled の way → 車椅子用駐車場', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...footway,
+      osmId: 'way/203',
+      tags: { parking_space: 'disabled' }
+    }))).toBe('車椅子用駐車場')
+  })
+
+  it('ramp:wheelchair が付いた way → スロープ', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...footway,
+      osmId: 'way/204',
+      tags: { 'ramp:wheelchair': 'yes' }
+    }))).toBe('スロープ')
+  })
+
+  it('highway=elevator の node → エレベーター', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...kerbNode,
+      osmId: 'node/300',
+      tags: { highway: 'elevator' }
+    }))).toBe('エレベーター')
+  })
+
+  it('amenity=toilets の node → トイレ', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...kerbNode,
+      osmId: 'node/301',
+      tags: { amenity: 'toilets' }
+    }))).toBe('トイレ')
+  })
+
+  it('parking_space=disabled の node → 車椅子用駐車場', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...kerbNode,
+      osmId: 'node/302',
+      tags: { parking_space: 'disabled' }
+    }))).toBe('車椅子用駐車場')
+  })
+
+  it('ramp:wheelchair が付いた node → スロープ', () => {
+    expect(barrierFreeTypeLabel(standard({
+      ...kerbNode,
+      osmId: 'node/303',
+      tags: { 'ramp:wheelchair': 'left' }
+    }))).toBe('スロープ')
   })
   it('barrier=kerb のノード → 縁石', () => {
     expect(barrierFreeTypeLabel(standard(kerbNode))).toBe('縁石')

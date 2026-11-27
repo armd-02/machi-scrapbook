@@ -5,7 +5,8 @@ import { useApp } from '../../context/AppContext'
 import { BASEMAP_STYLE } from '../../utils/mapStyle'
 import {
   BF_LINE_LAYER_DEF,
-  BF_NODE_LAYER_DEF
+  BF_NODE_LAYER_DEF,
+  BF_WAY_ICON_LAYER_DEF
 } from '../MapView'
 import { barrierFreeToMapGeoJSON } from '../../utils/barrierFreeGeoJSON'
 import { useDraggableHeight } from '../../hooks/useDraggableHeight'
@@ -28,6 +29,8 @@ import { getFacilityIcon, facilityIconUrl } from '../../utils/facilityIcon'
  * - kind='poi'      → 白い円の上に施設アイコンを表示（circle + symbol レイヤ）
  *   kind='barrier_free' → 歩道を線・縁石/案内信号を点として表示
  *   （MapView と同じレイヤ定義・色を使うため、見た目が一致する）
+ *   (#73) ウェイの中点アイコン（bf-way-icon）も MapView と同様に表示し、
+ *   線と同じ key なのでタップで同じウェイが選択される
  * - (アイコンピン) kind='poi': アイコン解決は施設カードと同じ getFacilityIcon /
  *   facilityIconUrl（utils/facilityIcon.js）。必要なアイコン画像のみを
  *   map.loadImage + map.addImage で読み込み・登録し、読込に成功したアイコンは
@@ -158,6 +161,16 @@ const SELECTED_BF_LINE = {
 const SELECTED_BF_NODE = {
   ...BF_NODE_LAYER_DEF,
   id: 'bf-selected-node',
+  paint: {
+    'circle-radius': 9,
+    'circle-color': '#93c5fd',
+    'circle-stroke-color': '#2563eb',
+    'circle-stroke-width': 2,
+  },
+}
+const SELECTED_BF_WAY_ICON = {
+  ...BF_WAY_ICON_LAYER_DEF,
+  id: 'bf-selected-way-icon',
   paint: {
     'circle-radius': 9,
     'circle-color': '#93c5fd',
@@ -380,6 +393,7 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, o
     if (kind === 'barrier_free') {
       map.setFilter(SELECTED_BF_LINE.id, ['all', SELECTED_BF_LINE.filter, filter])
       map.setFilter(SELECTED_BF_NODE.id, ['all', SELECTED_BF_NODE.filter, filter])
+      map.setFilter(SELECTED_BF_WAY_ICON.id, ['all', SELECTED_BF_WAY_ICON.filter, filter])
     } else {
       map.setFilter(SELECTED_POI_BACKGROUND.id, filter)
       map.setFilter(SELECTED_POI_ICON.id, ['all', HAS_POI_ICON, filter])
@@ -457,9 +471,11 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, o
         map.addSource(BF_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
         map.addLayer(BF_LINE_LAYER_DEF)
         map.addLayer(BF_NODE_LAYER_DEF)
+        map.addLayer(BF_WAY_ICON_LAYER_DEF)
         map.addLayer({ ...SELECTED_BF_LINE, filter: ['all', SELECTED_BF_LINE.filter, filter] })
         map.addLayer({ ...SELECTED_BF_NODE, filter: ['all', SELECTED_BF_NODE.filter, filter] })
-        clickableLayers = [BF_LINE_LAYER_DEF.id, BF_NODE_LAYER_DEF.id, SELECTED_BF_LINE.id, SELECTED_BF_NODE.id]
+        map.addLayer({ ...SELECTED_BF_WAY_ICON, filter: ['all', SELECTED_BF_WAY_ICON.filter, filter] })
+        clickableLayers = [BF_LINE_LAYER_DEF.id, BF_NODE_LAYER_DEF.id, BF_WAY_ICON_LAYER_DEF.id, SELECTED_BF_LINE.id, SELECTED_BF_NODE.id, SELECTED_BF_WAY_ICON.id]
       } else {
         map.addSource(POI_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
         map.addLayer(POI_BACKGROUND_LAYER_DEF)

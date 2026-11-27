@@ -79,8 +79,8 @@ describe('CategoryPicker（mobile: 目的チップ）', () => {
   it('選択中カテゴリと異なる目的を展開すると旧選択がクリアされる（stale条件の防止）', () => {
     const onChange = vi.fn()
     renderControlledPickerLegacy('cafe', onChange) // カフェ（目的: 食べる）が選択中
-    // 「遊ぶ・公園」目的チップをタップ → 選択中バッジが消え、遊ぶ・公園カテゴリが展開
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    // 「お出かけ」目的チップをタップ → 選択中バッジが消え、お出かけカテゴリが展開
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
     expect(onChange).toHaveBeenCalledWith('')
     expect(screen.queryByRole('button', { name: '解除' })).toBeNull()
     expect(screen.getByRole('button', { name: '公園・広場' })).toBeTruthy()
@@ -92,16 +92,16 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
   it('目的チップをタップ（展開）すると onPurposeChange(目的名) が呼ばれる', () => {
     const onPurposeChange = vi.fn()
     renderPicker('', vi.fn(), onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
-    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ・公園')
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
+    expect(onPurposeChange).toHaveBeenCalledWith('お出かけ')
   })
 
   it('同じ目的チップを再タップ（閉じる）すると onPurposeChange(null) が呼ばれる', () => {
     const onPurposeChange = vi.fn()
     renderPicker('', vi.fn(), onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
     onPurposeChange.mockClear()
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
     expect(onPurposeChange).toHaveBeenCalledWith(null)
   })
 
@@ -109,8 +109,8 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
     const onChange = vi.fn()
     const onPurposeChange = vi.fn()
     renderPicker('', onChange, onPurposeChange)
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
-    expect(onPurposeChange).toHaveBeenLastCalledWith('遊ぶ・公園')
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
+    expect(onPurposeChange).toHaveBeenLastCalledWith('お出かけ')
     onPurposeChange.mockClear()
     fireEvent.click(screen.getByRole('button', { name: '公園・広場' }))
     expect(onChange).toHaveBeenCalledWith('park')
@@ -130,9 +130,9 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
     const onChange = vi.fn()
     const onPurposeChange = vi.fn()
     renderControlledPicker('cafe', onChange, onPurposeChange) // カフェ（食べる）選択中
-    fireEvent.click(screen.getByRole('button', { name: '遊ぶ・公園' }))
+    fireEvent.click(screen.getByRole('button', { name: 'お出かけ' }))
     expect(onChange).toHaveBeenCalledWith('')
-    expect(onPurposeChange).toHaveBeenCalledWith('遊ぶ・公園')
+    expect(onPurposeChange).toHaveBeenCalledWith('お出かけ')
   })
 
   it('同じ目的のカテゴリ選択中は目的チップ展開でスコープがセットされない', () => {
@@ -182,8 +182,8 @@ describe('CategoryPicker（mobile: 目的スコープ報告 #44）', () => {
     renderPicker('park')
     expect(screen.getByText(/公園・広場/)).toBeTruthy()
     expect(screen.getByRole('button', { name: '解除' })).toBeTruthy()
-    // 遊ぶ・公園 目的チップに選択インジケータ
-    expect(screen.getByRole('button', { name: '遊ぶ・公園' }).getAttribute('aria-pressed')).toBe('true')
+    // お出かけ 目的チップに選択インジケータ
+    expect(screen.getByRole('button', { name: 'お出かけ' }).getAttribute('aria-pressed')).toBe('true')
   })
 })
 
@@ -211,13 +211,13 @@ describe('CategoryPicker（pc: グループ付きselect）', () => {
 })
 
 describe('CategoryPicker（mobile: 種類別の表示順・バリアフリー）', () => {
-  it('目的チップは「すること」系（食べる・買う・遊ぶ・公園・学ぶ）→「生活の施設」系（病院・薬局・役所・手続き・公共設備・会社・事務所・移動・交通・バリアフリー）の順で表示される', () => {
+  it('目的チップは「すること」系（食べる・買う・お出かけ・学ぶ・仕事）→「生活の施設」系（病院・薬局・公共施設・銀行・金融・会社・事務所・移動・交通・バリアフリー）の順で表示される', () => {
     const { container } = renderPicker()
     const grid = container.querySelector('div.grid')
     const chips = [...grid.querySelectorAll('button')]
     expect(chips.map((b) => b.textContent)).toEqual([
-      '🍜食べる', '🛍️買う', '🎠遊ぶ・公園', '📚学ぶ',
-      '🏥病院・薬局', '🏛️役所・手続き', '🚻公共設備', '🏢会社・事務所', '🚉移動・交通', '♿バリアフリー'
+      '🍜食べる', '🛍️買う', '🎠お出かけ', '📚学ぶ・仕事',
+      '🏥病院・薬局', '🏛️公共施設', '🏦銀行・金融', '🏢会社・事務所', '🚉移動・交通', '♿バリアフリー'
     ])
   })
 

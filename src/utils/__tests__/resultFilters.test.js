@@ -18,9 +18,9 @@ const RESULTS = [cafe, park, hotel, conv]
 const BASE = { nameFilter: '', typeFilter: 'all', catFilter: '', purposeFilter: '', sortDir: 'none' }
 
 describe('applyResultFilters: purposeFilter（目的スコープ）', () => {
-  it('遊ぶ・公園: その目的のカテゴリに一致する要素だけが残る', () => {
-    const out = applyResultFilters(RESULTS, { ...BASE, purposeFilter: '遊ぶ・公園' })
-    // park（公園・広場）と hotel（宿泊施設）は遊ぶ・公園グループ、cafe（食べる）/conv（買う）は外れる
+  it('お出かけ: その目的のカテゴリに一致する要素だけが残る', () => {
+    const out = applyResultFilters(RESULTS, { ...BASE, purposeFilter: 'お出かけ' })
+    // park（公園・広場）と hotel（宿泊施設）はお出かけグループ、cafe（食べる）/conv（買う）は外れる
     expect(out.map(r => r.id)).toEqual([2, 3])
   })
 
@@ -40,8 +40,8 @@ describe('applyResultFilters: purposeFilter（目的スコープ）', () => {
   })
 
   it('catFilterとpurposeFilterはANDで効く', () => {
-    // cafe（食べる）をcatFilterで選択し、遊ぶ・公園のpurposeFilterも設定 → 一致なし
-    const out = applyResultFilters(RESULTS, { ...BASE, catFilter: 'cafe', purposeFilter: '遊ぶ・公園' })
+    // cafe（食べる）をcatFilterで選択し、お出かけのpurposeFilterも設定 → 一致なし
+    const out = applyResultFilters(RESULTS, { ...BASE, catFilter: 'cafe', purposeFilter: 'お出かけ' })
     expect(out).toHaveLength(0)
   })
 

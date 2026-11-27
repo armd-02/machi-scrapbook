@@ -17,6 +17,7 @@ import {
   CLUSTER_COUNT_LAYER_DEF,
   BF_LINE_LAYER_DEF,
   BF_NODE_LAYER_DEF,
+  BF_WAY_ICON_LAYER_DEF,
   BBOX_OVERLAY_LAYER_DEF
 } from '../MapView'
 
@@ -34,10 +35,10 @@ const makeStyle = (layers) => ({
   layers
 })
 
-const ALL = [POINT_LAYER_DEF, CLUSTERS_LAYER_DEF, CLUSTER_COUNT_LAYER_DEF, BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF, BBOX_OVERLAY_LAYER_DEF]
+const ALL = [POINT_LAYER_DEF, CLUSTERS_LAYER_DEF, CLUSTER_COUNT_LAYER_DEF, BF_LINE_LAYER_DEF, BF_NODE_LAYER_DEF, BF_WAY_ICON_LAYER_DEF, BBOX_OVERLAY_LAYER_DEF]
 
 describe('MapViewレイヤ定義（MapLibreスタイル仕様準拠）', () => {
-  it('6レイヤ（POI 3件 + バリアフリー 2件 + BBOXオーバーレイ 1件）すべてが実際のMapLibreバリデータでエラー0（addLayerが受理される）', () => {
+  it('7レイヤ（POI 3件 + バリアフリー 3件 + BBOXオーバーレイ 1件）すべてが実際のMapLibreバリデータでエラー0（addLayerが受理される）', () => {
     const errors = validateStyleMin(makeStyle(ALL))
     expect(errors).toEqual([])
   })

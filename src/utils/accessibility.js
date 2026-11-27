@@ -149,3 +149,34 @@ export function wheelchairBadge(tags) {
     cls: TONE_CLASSES[tone]
   }
 }
+
+/**
+ * (#70) バリアフリー要素の数値タグ（幅・勾配・平滑度・路面）の表示項目。
+ *
+ * 詳細シートに「登録されている項目のみ」を表示する（未登録は出さない・捏造しない）。
+ * 幅（width）は OSM の単位（メートル）に従って m を付ける。数値らしくない値はそのまま。
+ * @param {object} tags - OSM の tags
+ * @returns {{key:string, label:string, value:string}[]}
+ */
+export function parseBarrierFreeMeasurements(tags) {
+  if (!tags) return []
+  const items = []
+  if (tags.width != null && tags.width !== '') {
+    const w = tags.width
+    items.push({
+      key: 'width',
+      label: '幅',
+      value: Number.isFinite(Number(w)) ? `${w} m` : `${w}`
+    })
+  }
+  if (tags.incline != null && tags.incline !== '') {
+    items.push({ key: 'incline', label: '勾配', value: `${tags.incline}` })
+  }
+  if (tags.smoothness != null && tags.smoothness !== '') {
+    items.push({ key: 'smoothness', label: '平滑度', value: `${tags.smoothness}` })
+  }
+  if (tags.surface != null && tags.surface !== '') {
+    items.push({ key: 'surface', label: '路面', value: `${tags.surface}` })
+  }
+  return items
+}

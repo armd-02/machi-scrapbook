@@ -37,6 +37,41 @@ describe('buildBarrierFreeQuery (#62)', () => {
     expect(query).toContain('node["traffic_signals:vibration"]')
   })
 
+  // --- (#70) 追加対象のセレクタ ---
+
+  it('エレベーター（highway=elevator）は way と node の両方で取得される', () => {
+    const query = buildBarrierFreeQuery(testBbox)
+    expect(query).toContain('way[highway=elevator]')
+    expect(query).toContain('node[highway=elevator]')
+  })
+
+  it('トイレ（amenity=toilets）は way と node の両方で取得される', () => {
+    const query = buildBarrierFreeQuery(testBbox)
+    expect(query).toContain('way[amenity=toilets]')
+    expect(query).toContain('node[amenity=toilets]')
+  })
+
+  it('車椅子用駐車スペース（parking_space=disabled）は way と node の両方で取得される', () => {
+    const query = buildBarrierFreeQuery(testBbox)
+    expect(query).toContain('way[parking_space=disabled]')
+    expect(query).toContain('node[parking_space=disabled]')
+  })
+
+  it('階段（highway=steps）は way のみで取得される', () => {
+    const query = buildBarrierFreeQuery(testBbox)
+    expect(query).toContain('way[highway=steps]')
+    expect(query).not.toContain('node[highway=steps]')
+  })
+
+  it('スロープ（ramp:wheelchair）は way と node の両方で取得される（コロン付きキーはダブルクォート）', () => {
+    const query = buildBarrierFreeQuery(testBbox)
+    expect(query).toContain('way["ramp:wheelchair"]')
+    expect(query).toContain('node["ramp:wheelchair"]')
+    // コロン付きキーはダブルクォートで囲まれている（引用符なしの形式は出現しない）
+    expect(query).not.toContain('way[ramp:wheelchair]')
+    expect(query).not.toContain('node[ramp:wheelchair]')
+  })
+
   it('生成クエリが正しい Overpass QL 文法構造である（全体構造の完全一致）', () => {
     const query = buildBarrierFreeQuery(testBbox)
     // クエリ全体を完全一致で固定:
@@ -46,6 +81,11 @@ describe('buildBarrierFreeQuery (#62)', () => {
 (
   way[highway=footway](34.700000,135.480000,34.710000,135.490000);
   way[highway=path](34.700000,135.480000,34.710000,135.490000);
+  way[highway=elevator](34.700000,135.480000,34.710000,135.490000);
+  way[highway=steps](34.700000,135.480000,34.710000,135.490000);
+  way[amenity=toilets](34.700000,135.480000,34.710000,135.490000);
+  way[parking_space=disabled](34.700000,135.480000,34.710000,135.490000);
+  way["ramp:wheelchair"](34.700000,135.480000,34.710000,135.490000);
 );
 out geom;
 (
@@ -54,6 +94,10 @@ out geom;
   node[kerb](34.700000,135.480000,34.710000,135.490000);
   node["traffic_signals:sound"](34.700000,135.480000,34.710000,135.490000);
   node["traffic_signals:vibration"](34.700000,135.480000,34.710000,135.490000);
+  node[highway=elevator](34.700000,135.480000,34.710000,135.490000);
+  node[amenity=toilets](34.700000,135.480000,34.710000,135.490000);
+  node[parking_space=disabled](34.700000,135.480000,34.710000,135.490000);
+  node["ramp:wheelchair"](34.700000,135.480000,34.710000,135.490000);
 );
 out body;
 `)
@@ -349,7 +393,33 @@ describe('barrierFreeLabel (#62 仕様4)', () => {
   })
 
   it('他の highway 値 → 通路(値) として表示', () => {
-    expect(barrierFreeLabel(wayEl({ highway: 'steps' }))).toBe('通路(steps)（点字ブロック未記録）')
+    expect(barrierFreeLabel(wayEl({ highway: 'track' }))).toBe('通路(track)（点字ブロック未記録）')
+  })
+
+  // --- (#70) 追加対象: ウェイ ---
+
+  it('highway=elevator → エレベーター', () => {
+    expect(barrierFreeLabel(wayEl({ highway: 'elevator' }))).toBe('エレベーター')
+  })
+
+  it('highway=steps → 階段', () => {
+    expect(barrierFreeLabel(wayEl({ highway: 'steps' }))).toBe('階段')
+  })
+
+  it('amenity=toilets → トイレ', () => {
+    expect(barrierFreeLabel(wayEl({ amenity: 'toilets' }))).toBe('トイレ')
+  })
+
+  it('parking_space=disabled → 車椅子用駐車場', () => {
+    expect(barrierFreeLabel(wayEl({ parking_space: 'disabled' }))).toBe('車椅子用駐車場')
+  })
+
+  it('ramp:wheelchair が付いたウェイ → スロープ', () => {
+    expect(barrierFreeLabel(wayEl({ 'ramp:wheelchair': 'yes' }))).toBe('スロープ')
+  })
+
+  it('highway=elevator でも tactile_paving があると優先されない（エレベーター）', () => {
+    expect(barrierFreeLabel(wayEl({ highway: 'elevator', tactile_paving: 'yes' }))).toBe('エレベーター')
   })
 
   // --- node: 縁石（kerb 値） ---
@@ -399,6 +469,33 @@ describe('barrierFreeLabel (#62 仕様4)', () => {
 
   it('該当タグの無いノード → バリアフリー要素', () => {
     expect(barrierFreeLabel(nodeEl({ traffic_signals: 'traffic_signals' }))).toBe('バリアフリー要素')
+  })
+
+  // --- (#70) 追加対象: ノード ---
+
+  it('highway=elevator のノード → エレベーター', () => {
+    expect(barrierFreeLabel(nodeEl({ highway: 'elevator' }))).toBe('エレベーター')
+  })
+
+  it('amenity=toilets のノード → トイレ', () => {
+    expect(barrierFreeLabel(nodeEl({ amenity: 'toilets' }))).toBe('トイレ')
+  })
+
+  it('parking_space=disabled のノード → 車椅子用駐車場', () => {
+    expect(barrierFreeLabel(nodeEl({ parking_space: 'disabled' }))).toBe('車椅子用駐車場')
+  })
+
+  it('ramp:wheelchair が付いたノード → スロープ', () => {
+    expect(barrierFreeLabel(nodeEl({ 'ramp:wheelchair': 'left' }))).toBe('スロープ')
+  })
+
+  it('エレベーターノードは案内信号より優先されない（タグが両方ある場合）', () => {
+    // 案内信号のタグが同時に付いている場合は案内信号を優先（既存の優先順位を維持）
+    expect(barrierFreeLabel(nodeEl({ highway: 'elevator', 'traffic_signals:sound': 'yes' }))).toBe('音声案内信号')
+  })
+
+  it('トイレノードが car の wheelchair タグを持ってもトイレットとして表示', () => {
+    expect(barrierFreeLabel(nodeEl({ amenity: 'toilets', wheelchair: 'yes' }))).toBe('トイレ')
   })
 
   // --- 標準結果形状（bf フィールド付き）でも同じラベル ---

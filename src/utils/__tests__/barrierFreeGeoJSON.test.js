@@ -9,9 +9,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   barrierFreeToMapGeoJSON,
+  lineMidpoint,
   roleOf,
+  newElementType,
   TACTILE_LINE_COLORS,
-  NODE_ROLE_COLORS
+  NODE_ROLE_COLORS,
+  BF_NEW_ELEMENT_COLORS
 } from '../barrierFreeGeoJSON'
 
 // toStandardResults（barrierFreeResults.js）の出力形状を模した標準結果
@@ -42,10 +45,14 @@ describe('barrierFreeToMapGeoJSON', () => {
     const geom = [[135.48, 34.67], [135.481, 34.671], [135.482, 34.672]]
     const fc = barrierFreeToMapGeoJSON([wayResult(1, { highway: 'footway', tactile_paving: 'yes' }, 'yes', geom)])
     expect(fc.type).toBe('FeatureCollection')
-    expect(fc.features).toHaveLength(1)
+    expect(fc.features).toHaveLength(2)
     const f = fc.features[0]
     expect(f.geometry).toEqual({ type: 'LineString', coordinates: geom })
     expect(f.properties).toEqual({ key: 'way/1', kind: 'way', name: null, tactile: 'yes' })
+    // (#73) 線に伴って中点アイコン（Point）が付与される（同じ key）
+    const icon = fc.features[1]
+    expect(icon.geometry.type).toBe('Point')
+    expect(icon.properties).toEqual({ key: 'way/1', kind: 'way-icon', name: null, tactile: 'yes' })
   })
 
   it('way の tactile が未記録（null）でも properties.tactile は null になる', () => {
@@ -85,8 +92,9 @@ describe('barrierFreeToMapGeoJSON', () => {
       wayResult(1, { highway: 'footway' }, 'yes', [[135.48, 34.67], [135.481, 34.671]]),
       nodeResult(2, { 'traffic_signals:vibration': 'yes' }, { hasVibration: true })
     ])
-    expect(fc.features.map((f) => f.geometry.type)).toEqual(['LineString', 'Point'])
-    expect(fc.features.map((f) => f.properties.key)).toEqual(['way/1', 'node/2'])
+    // (#73) way に伴って中点アイコン（Point）が付与される
+    expect(fc.features.map((f) => f.geometry.type)).toEqual(['LineString', 'Point', 'Point'])
+    expect(fc.features.map((f) => f.properties.key)).toEqual(['way/1', 'way/1', 'node/2'])
   })
 
   it('空配列・非配列入力は空の FeatureCollection を返す', () => {
@@ -131,6 +139,129 @@ describe('barrierFreeToMapGeoJSON', () => {
     expect(tactileOf(undefined)).toBeNull()
     expect(tactileOf('maybe')).toBeNull()
   })
+
+  it('T1追加対象（way）には properties.newType が付与される', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.67]]
+    const cases = [
+      [{ highway: 'elevator' }, 'elevator'],
+      [{ highway: 'steps' }, 'steps'],
+      [{ amenity: 'toilets' }, 'toilets'],
+      [{ parking_space: 'disabled' }, 'parking'],
+      [{ 'ramp:wheelchair': 'yes' }, 'ramp']
+    ]
+    for (const [tags, expected] of cases) {
+      const fc = barrierFreeToMapGeoJSON([wayResult(1, tags, null, geom)])
+      expect(fc.features[0].properties.newType).toBe(expected)
+    }
+  })
+
+  it('既存の歩道・縁石・案内信号には newType は付与されない', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.67]]
+    expect(barrierFreeToMapGeoJSON([wayResult(1, { highway: 'footway' }, 'yes', geom)]).features[0].properties.newType).toBeUndefined()
+    expect(barrierFreeToMapGeoJSON([wayResult(1, { highway: 'path' }, null, geom)]).features[0].properties.newType).toBeUndefined()
+    expect(barrierFreeToMapGeoJSON([nodeResult(1, { barrier: 'kerb' }, { kerb: 'low' })]).features[0].properties.newType).toBeUndefined()
+    expect(barrierFreeToMapGeoJSON([nodeResult(1, { 'traffic_signals:sound': 'yes' }, { hasSound: true })]).features[0].properties.newType).toBeUndefined()
+  })
+
+  it('T1追加対象（node）には properties.newType が付与される', () => {
+    const cases = [
+      [{ highway: 'elevator' }, 'elevator'],
+      [{ amenity: 'toilets' }, 'toilets'],
+      [{ parking_space: 'disabled' }, 'parking'],
+      [{ 'ramp:wheelchair': 'yes' }, 'ramp']
+    ]
+    for (const [tags, expected] of cases) {
+      const fc = barrierFreeToMapGeoJSON([nodeResult(1, tags, {})])
+      expect(fc.features[0].properties.newType).toBe(expected)
+    }
+  })
+})
+
+describe('way-icon (#73)', () => {
+  it('way の中点に Point の way-icon を付与する（線と同じ key・色分け用プロパティ）', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.671], [135.482, 34.672]]
+    const fc = barrierFreeToMapGeoJSON([wayResult(1, { highway: 'footway' }, 'yes', geom)])
+    const icon = fc.features.find((f) => f.properties.kind === 'way-icon')
+    expect(icon).toBeTruthy()
+    expect(icon.geometry.type).toBe('Point')
+    expect(icon.properties).toEqual({ key: 'way/1', kind: 'way-icon', name: null, tactile: 'yes' })
+  })
+
+  it('T1追加対象の way の way-icon には newType が付与される', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.67]]
+    const fc = barrierFreeToMapGeoJSON([wayResult(1, { highway: 'steps' }, null, geom)])
+    const icon = fc.features.find((f) => f.properties.kind === 'way-icon')
+    expect(icon.properties.newType).toBe('steps')
+  })
+
+  it('横断歩道の way の way-icon には crossing が付与される', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.67]]
+    const fc = barrierFreeToMapGeoJSON([wayResult(1, { highway: 'footway', footway: 'crossing' }, 'yes', geom)])
+    const icon = fc.features.find((f) => f.properties.kind === 'way-icon')
+    expect(icon.properties.crossing).toBe(true)
+  })
+
+  it('頂点が2点未満の way は icon も付与されない', () => {
+    const fc = barrierFreeToMapGeoJSON([wayResult(1, { highway: 'footway' }, 'yes', [[135.48, 34.67]])])
+    expect(fc.features.some((f) => f.properties.kind === 'way-icon')).toBe(false)
+  })
+})
+
+describe('lineMidpoint (#73)', () => {
+  it('2点の線は中点（平均）を返す', () => {
+    const mid = lineMidpoint([[135.48, 34.67], [135.482, 34.67]])
+    expect(mid[0]).toBeCloseTo(135.481, 6)
+    expect(mid[1]).toBeCloseTo(34.67, 6)
+  })
+
+  it('3点の等間隔線は総長的一半（2番目の頂点）を返す', () => {
+    const geom = [[135.48, 34.67], [135.481, 34.67], [135.482, 34.67]]
+    const mid = lineMidpoint(geom)
+    expect(mid[0]).toBeCloseTo(135.481, 6)
+    expect(mid[1]).toBeCloseTo(34.67, 6)
+  })
+
+  it('不等間隔の線は距離基準で中点を返す（頂点平均ではない）', () => {
+    const geom = [[0, 0], [1, 0], [10, 0]]
+    const mid = lineMidpoint(geom)
+    const vertexAvg = (0 + 1 + 10) / 3
+    // 2番目の辺が長いので、距離基準の中点は頂点平均より C の近く
+    expect(mid[0]).toBeGreaterThan(vertexAvg)
+    expect(mid[0]).toBeLessThan(10)
+    expect(mid[1]).toBeCloseTo(0)
+  })
+
+  it('2点未満は null を返す', () => {
+    expect(lineMidpoint([])).toBeNull()
+    expect(lineMidpoint([[135.48, 34.67]])).toBeNull()
+    expect(lineMidpoint(null)).toBeNull()
+  })
+
+  it('全頂点が同一（総長ゼロ）の場合は先頭点を返す', () => {
+    expect(lineMidpoint([[135.48, 34.67], [135.48, 34.67]])).toEqual([135.48, 34.67])
+  })
+})
+
+describe('newElementType（T1追加対象の種別）', () => {
+  it('5つの追加対象をそれぞれ種別で返す', () => {
+    expect(newElementType({ tags: { highway: 'elevator' } })).toBe('elevator')
+    expect(newElementType({ tags: { highway: 'steps' } })).toBe('steps')
+    expect(newElementType({ tags: { amenity: 'toilets' } })).toBe('toilets')
+    expect(newElementType({ tags: { parking_space: 'disabled' } })).toBe('parking')
+    expect(newElementType({ tags: { 'ramp:wheelchair': 'yes' } })).toBe('ramp')
+    expect(newElementType({ tags: { 'ramp:wheelchair': 'no' } })).toBe('ramp')
+  })
+
+  it('既存の歩道・縁石・案内信号・横断歩道は null', () => {
+    expect(newElementType({ tags: { highway: 'footway' } })).toBeNull()
+    expect(newElementType({ tags: { highway: 'path' } })).toBeNull()
+    expect(newElementType({ tags: { barrier: 'kerb' } })).toBeNull()
+    expect(newElementType({ tags: { 'traffic_signals:sound': 'yes' } })).toBeNull()
+    expect(newElementType({ tags: { highway: 'crossing' } })).toBeNull()
+    expect(newElementType({ tags: {} })).toBeNull()
+    expect(newElementType(null)).toBeNull()
+    expect(newElementType({})).toBeNull()
+  })
 })
 
 describe('roleOf（ノードの役割）', () => {
@@ -140,7 +271,9 @@ describe('roleOf（ノードの役割）', () => {
       nodeResult(2, { highway: 'crossing' }),
     ])
     expect(features[0].properties.crossing).toBe(true)
-    expect(features[1].properties.role).toBe('crossing')
+    // (#73) way の中点アイコンは features[1]、node は features[2] になる
+    const node = features.find((f) => f.properties.key === 'node/2')
+    expect(node.properties.role).toBe('crossing')
   })
 
   it('hasSound または hasVibration のみなら signal', () => {
@@ -174,5 +307,18 @@ describe('色定数（凡例・レイヤ定義の共有）', () => {
   it('NODE_ROLE_COLORS は signal/kerb/kerb+signal/other の16進カラーを持つ', () => {
     expect(Object.keys(NODE_ROLE_COLORS).sort()).toEqual(['crossing', 'kerb', 'kerb+signal', 'other', 'signal'])
     for (const v of Object.values(NODE_ROLE_COLORS)) expect(v).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+
+  it('BF_NEW_ELEMENT_COLORS は 5つの16進カラーを持ち、互いに異なる', () => {
+    expect(Object.keys(BF_NEW_ELEMENT_COLORS).sort()).toEqual(['elevator', 'parking', 'ramp', 'steps', 'toilets'])
+    for (const v of Object.values(BF_NEW_ELEMENT_COLORS)) expect(v).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(new Set(Object.values(BF_NEW_ELEMENT_COLORS)).size).toBe(5)
+  })
+
+  it('BF_NEW_ELEMENT_COLORS は既存の色（点字ブロック・役割）と重複しない', () => {
+    const existing = new Set([...Object.values(TACTILE_LINE_COLORS), ...Object.values(NODE_ROLE_COLORS)])
+    for (const v of Object.values(BF_NEW_ELEMENT_COLORS)) {
+      expect(existing.has(v)).toBe(false)
+    }
   })
 })

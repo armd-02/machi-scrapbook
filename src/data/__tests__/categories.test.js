@@ -16,8 +16,8 @@ import {
 
 // 新構成（再編）の10種別: 「すること」系→「生活の施設」系の順
 const GROUP_NAMES = [
-  '食べる', '買う', '遊ぶ・公園', '学ぶ', '病院・薬局', '役所・手続き',
-  '公共設備', '会社・事務所', '移動・交通', 'バリアフリー'
+  '食べる', '買う', 'お出かけ', '学ぶ・仕事', '病院・薬局', '公共施設',
+  '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー'
 ]
 
 describe('カテゴリの目的ベースグループ化（#44 生活者目線UI・再編）', () => {
@@ -48,12 +48,12 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
   it('各グループの所属カテゴリが新しい構成と一致する', () => {
     const expected = {
       '食べる': ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'],
-      '買う': ['retail', 'convenience'],
-      '遊ぶ・公園': ['park', 'sports', 'museum', 'worship', 'accommodation'],
-      '学ぶ': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library'],
-      '病院・薬局': ['hospital', 'pharmacy'],
-      '役所・手続き': ['public_facility', 'bank'],
-      '公共設備': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'],
+      '買う': ['retail', 'convenience', 'funeral'],
+      'お出かけ': ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'],
+      '学ぶ・仕事': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library', 'coworking', 'community_centre', 'lessons'],
+      '病院・薬局': ['hospital', 'pharmacy', 'veterinary', 'welfare'],
+      '公共施設': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box', 'public_facility'],
+      '銀行・金融': ['bank'],
       '会社・事務所': ['company_office'],
       '移動・交通': ['transport'],
       'バリアフリー': ['barrier_free']
@@ -70,9 +70,9 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     }
   })
 
-  it('遊ぶグループの表示名は「遊ぶ・公園」（タイル・ピッカーで統一）', () => {
+  it('「お出かけ」グループの表示名は「お出かけ」（旧「遊ぶ・公園」改名、タイル・ピッカーで統一）', () => {
     const g = CATEGORY_GROUPS.find((x) => x.ids.includes('park'))
-    expect(g.name).toBe('遊ぶ・公園')
+    expect(g.name).toBe('お出かけ')
   })
 
   it('グループ名とグループ内順序がCATEGORY_GROUPS定義（広い→狭い）と一致する', () => {
@@ -132,8 +132,8 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
   it('getCategoriesForPurpose: 目的名からカテゴリ一覧を取得、未知の目的はnull', () => {
     const eat = getCategoriesForPurpose('食べる')
     expect(eat.map((c) => c.id)).toEqual(['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'])
-    const publicFac = getCategoriesForPurpose('公共設備')
-    expect(publicFac.map((c) => c.id)).toEqual(['toilets', 'telephone', 'drinking_water', 'aed', 'post_box'])
+    const publicFac = getCategoriesForPurpose('公共施設')
+    expect(publicFac.map((c) => c.id)).toEqual(['toilets', 'telephone', 'drinking_water', 'aed', 'post_box', 'public_facility'])
     const bf = getCategoriesForPurpose('バリアフリー')
     expect(bf.map((c) => c.id)).toEqual(['barrier_free'])
     expect(getCategoriesForPurpose('存在しない目的')).toBeNull()
@@ -142,22 +142,31 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
   it('getPurposeOfCategory: カテゴリ→唯一の所属種別名を解決できる', () => {
     expect(getPurposeOfCategory('cafe')).toBe('食べる')
     expect(getPurposeOfCategory('convenience')).toBe('買う')
-    expect(getPurposeOfCategory('park')).toBe('遊ぶ・公園')
-    expect(getPurposeOfCategory('accommodation')).toBe('遊ぶ・公園')
+    expect(getPurposeOfCategory('park')).toBe('お出かけ')
+    expect(getPurposeOfCategory('accommodation')).toBe('お出かけ')
     expect(getPurposeOfCategory('hospital')).toBe('病院・薬局')
-    expect(getPurposeOfCategory('public_facility')).toBe('役所・手続き')
-    expect(getPurposeOfCategory('bank')).toBe('役所・手続き')
-    expect(getPurposeOfCategory('school')).toBe('学ぶ')
-    expect(getPurposeOfCategory('kindergarten')).toBe('学ぶ')
-    expect(getPurposeOfCategory('primary_school')).toBe('学ぶ')
-    expect(getPurposeOfCategory('university')).toBe('学ぶ')
-    expect(getPurposeOfCategory('prep_school')).toBe('学ぶ')
-    expect(getPurposeOfCategory('toilets')).toBe('公共設備')
-    expect(getPurposeOfCategory('telephone')).toBe('公共設備')
-    expect(getPurposeOfCategory('drinking_water')).toBe('公共設備')
-    expect(getPurposeOfCategory('aed')).toBe('公共設備')
-    expect(getPurposeOfCategory('post_box')).toBe('公共設備')
+    expect(getPurposeOfCategory('public_facility')).toBe('公共施設')
+    expect(getPurposeOfCategory('bank')).toBe('銀行・金融')
+    expect(getPurposeOfCategory('school')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('kindergarten')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('primary_school')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('university')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('prep_school')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('toilets')).toBe('公共施設')
+    expect(getPurposeOfCategory('telephone')).toBe('公共施設')
+    expect(getPurposeOfCategory('drinking_water')).toBe('公共施設')
+    expect(getPurposeOfCategory('aed')).toBe('公共施設')
+    expect(getPurposeOfCategory('post_box')).toBe('公共施設')
     expect(getPurposeOfCategory('company_office')).toBe('会社・事務所')
+    // (#再編) 新カテゴリの所属
+    expect(getPurposeOfCategory('funeral')).toBe('買う')
+    expect(getPurposeOfCategory('entertainment')).toBe('お出かけ')
+    expect(getPurposeOfCategory('bath')).toBe('お出かけ')
+    expect(getPurposeOfCategory('coworking')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('community_centre')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('lessons')).toBe('学ぶ・仕事')
+    expect(getPurposeOfCategory('veterinary')).toBe('病院・薬局')
+    expect(getPurposeOfCategory('welfare')).toBe('病院・薬局')
     expect(getPurposeOfCategory('transport')).toBe('移動・交通')
     expect(getPurposeOfCategory('barrier_free')).toBe('バリアフリー')
     expect(getPurposeOfCategory('ramen')).toBeNull()
@@ -186,7 +195,7 @@ describe('新規の種別詳細（公衆電話・水飲み場・AED・郵便ポ�
       expect(cat).toBeTruthy()
       expect(cat.label).toBe(e.label)
       expect(categoryToQueryFilter(cat).unionFilters).toEqual([e.filter])
-      expect(getPurposeOfCategory(e.id)).toBe('公共設備')
+      expect(getPurposeOfCategory(e.id)).toBe('公共施設')
     }
   })
 })
@@ -203,7 +212,7 @@ describe('既存カテゴリの変更（ラベル・transportタグ）', () => {
     expect(f.unionFilters).toEqual([
       'railway~"^(station|subway_entry|tram_stop)$"',
       'highway~"^(bus_stop|platform)$"',
-      'amenity~"^(fuel|parking|bicycle_rental|bicycle_parking)$"'
+      'amenity~"^(fuel|parking|bicycle_rental|bicycle_parking|taxi|bus_station|ferry_terminal|car_rental|charging_station|car_wash)$"'
     ])
     expect(getCategoryById('transport').label).toBe('交通・駅')
   })
@@ -211,14 +220,16 @@ describe('既存カテゴリの変更（ラベル・transportタグ）', () => {
 
 describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabelList）', () => {
   it('getPurposeUnionFilters: グループ内全カテゴリのタグ条件を重複除去してunion化できる', () => {
-    const filters = getPurposeUnionFilters('遊ぶ・公園')
-    // 公園2 + スポーツ1 + 博物館1 + 寺院神社2 + 宿泊2 = 8条件
-    expect(filters).toHaveLength(8)
+    const filters = getPurposeUnionFilters('お出かけ')
+    // 公園2 + スポーツ1 + 博物館1 + 寺院神社2 + 宿泊2 + 娯楽3 + 銭湯2 = 13条件
+    expect(filters).toHaveLength(13)
     expect(filters).toContain('leisure~"^(park|playground|garden|pitch)$"')
-    expect(filters).toContain('leisure~"^(sports_centre|stadium|swimming_pool|pitch|golf_course|tennis_court|basketball_court|volleyball_court|dance)$"')
+    expect(filters).toContain('leisure~"^(sports_centre|stadium|swimming_pool|pitch|golf_course|tennis_court|basketball_court|volleyball_court|dance|fitness_centre|sports_hall)$"')
     expect(filters).toContain('amenity=plaza')
     expect(filters).toContain('amenity=place_of_worship')
     expect(filters).toContain('building=hotel')
+    expect(filters).toContain('amenity~"^(cinema|theatre|karaoke_box)$"')
+    expect(filters).toContain('amenity=public_bath')
     // 単一カテゴリ（カフェ）のフィルタが混入しない
     expect(filters).not.toContain('amenity=cafe')
   })
@@ -229,8 +240,8 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
   })
 
   it('getPurposeLabelList: グループ内カテゴリラベルを「・」区切りで返す', () => {
-    expect(getPurposeLabelList('遊ぶ・公園')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設')
-    expect(getPurposeLabelList('公共設備')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト')
+    expect(getPurposeLabelList('お出かけ')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ')
+    expect(getPurposeLabelList('公共施設')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト・役所・公共機関')
     expect(getPurposeLabelList('バリアフリー')).toBe('バリアフリー')
     expect(getPurposeLabelList('存在しない目的')).toBe('')
   })
@@ -240,35 +251,41 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
     expect(filters).toEqual([])
   })
 
-  it('getPurposeUnionFilters: 病院・薬局 = 病院・クリニック + 薬局・ドラッグストア のunion', () => {
+  it('getPurposeUnionFilters: 病院・薬局 = 病院・クリニック + 薬局・ドラッグストア + 動物病院 + 福祉施設 のunion', () => {
     expect(getPurposeUnionFilters('病院・薬局')).toEqual([
       'amenity~"^(hospital|clinic|doctors|dentist)$"',
+      'shop=massage',
       'amenity=pharmacy',
-      'shop=drugstore'
+      'shop=drugstore',
+      'amenity=veterinary',
+      'amenity~"^(social_facility|nursing_home)$"'
     ])
   })
 
-  it('getPurposeUnionFilters: 役所・手続き = 役所・公共機関 + 銀行・ATM のunion', () => {
-    expect(getPurposeUnionFilters('役所・手続き')).toEqual([
-      'amenity~"^(townhall|post_office|police|fire_station|community_centre|recycling|shelter)$"',
-      'office~"^(government|municipality)$"',
-      'amenity~"^(bank|atm)$"'
+  it('getPurposeUnionFilters: 銀行・金融 = bank のunion（質屋・金貸し・郵便局・金融）', () => {
+    expect(getPurposeUnionFilters('銀行・金融')).toEqual([
+      'amenity~"^(bank|atm|money_lending|post_office)$"',
+      'shop=pawnbroker',
+      'office=financial'
     ])
   })
 
-  it('getPurposeUnionFilters: 公共設備 = トイレ・公衆電話・水飲み場・AED・郵便ポスト のunion', () => {
-    expect(getPurposeUnionFilters('公共設備')).toEqual([
+  it('getPurposeUnionFilters: 公共施設 = トイレ・公衆電話・水飲み場・AED・郵便ポスト・役所・公共機関 のunion', () => {
+    expect(getPurposeUnionFilters('公共施設')).toEqual([
       'amenity=toilets',
       'amenity=telephone',
       'amenity=drinking_water',
       'emergency=defibrillator',
-      'amenity=post_box'
+      'amenity=post_box',
+      'amenity~"^(townhall|post_office|police|fire_station|recycling|shelter|courthouse|public_building)$"',
+      'office~"^(government|municipality)$"'
     ])
   })
 
   it('getPurposeLabelList: クイックグループの案内文', () => {
-    expect(getPurposeLabelList('病院・薬局')).toBe('病院・クリニック・薬局・ドラッグストア')
-    expect(getPurposeLabelList('役所・手続き')).toBe('役所・公共機関・銀行・ATM')
+    expect(getPurposeLabelList('病院・薬局')).toBe('病院・クリニック・薬局・ドラッグストア・動物病院・福祉施設')
+    expect(getPurposeLabelList('銀行・金融')).toBe('銀行・金融')
+    expect(getPurposeLabelList('公共施設')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト・役所・公共機関')
   })
 
   it('getPurposeUnionFilters: 他の目的グループに barrier_free フィルタが混入しない', () => {
@@ -320,9 +337,11 @@ describe('会社・事務所カテゴリ', () => {
   it('office値は民間の会社・専門事務所・団体に限定される', () => {
     const values = getCategoryById('company_office').tags[0].values
     // 仕様が代表値として列挙する値がすべて含まれる
-    for (const v of ['company', 'coworking', 'lawyer', 'financial', 'it', 'research', 'accounting', 'marketing', 'telecommunication']) {
+    for (const v of ['company', 'lawyer', 'financial', 'it', 'research', 'accounting', 'marketing', 'telecommunication']) {
       expect(values).toContain(v)
     }
+    // coworking は「学ぶ・仕事」の独立詳細に移動済み（company_office には含まれない）
+    expect(values).not.toContain('coworking')
     // 既存カテゴリが扱う値（役所系・教育系）は含まれない
     for (const v of ['government', 'municipality', 'educational_institution']) {
       expect(values).not.toContain(v)
@@ -333,7 +352,7 @@ describe('会社・事務所カテゴリ', () => {
     const f = categoryToQueryFilter(getCategoryById('company_office'))
     expect(f.andFilters).toEqual([])
     expect(f.unionFilters).toHaveLength(1)
-    expect(f.unionFilters[0]).toBe('office~"^(company|coworking|lawyer|financial|it|research|accounting|marketing|telecommunication|accountant|advertising_agency|airline|architect|association|broadcaster|charity|construction_company|consulting|courier|employment_agency|energy_supplier|engineer|estate_agent|event_management|financial_advisor|foundation|graphic_design|insurance|logistics|moving_company|newspaper|ngo|notary|publisher|property_management|security|surveyor|tax_advisor|transport|travel_agent|union|visa|water_utility|yes)$"')
+    expect(f.unionFilters[0]).toBe('office~"^(company|lawyer|financial|it|research|accounting|marketing|telecommunication|accountant|advertising_agency|airline|architect|association|broadcaster|charity|construction_company|consulting|courier|employment_agency|energy_supplier|engineer|estate_agent|event_management|financial_advisor|foundation|graphic_design|insurance|logistics|moving_company|newspaper|ngo|notary|publisher|property_management|security|surveyor|tax_advisor|transport|travel_agent|union|visa|water_utility|yes)$"')
   })
 
   it('「会社・事務所」種別に属する（唯一の所属グループ）', () => {
@@ -348,5 +367,64 @@ describe('会社・事務所カテゴリ', () => {
 
   it('フード系カテゴリではない（料理フィルタに組み込まれない）', () => {
     expect(isFoodCategory('company_office')).toBe(false)
+  })
+})
+
+describe('#再編 新カテゴリ（コワーキング・公民館・習い事・映画・娯楽・銭湯・サウナ・動物病院・福祉・葬儀）', () => {
+  it('8件の新カテゴリが存在し、正しいラベル・所属種別を持つ', () => {
+    const expected = [
+      { id: 'coworking', label: 'コワーキング', purpose: '学ぶ・仕事' },
+      { id: 'community_centre', label: '公民館・コミュニティ', purpose: '学ぶ・仕事' },
+      { id: 'lessons', label: '習い事・教習', purpose: '学ぶ・仕事' },
+      { id: 'entertainment', label: '映画・娯楽', purpose: 'お出かけ' },
+      { id: 'bath', label: '銭湯・サウナ', purpose: 'お出かけ' },
+      { id: 'veterinary', label: '動物病院', purpose: '病院・薬局' },
+      { id: 'welfare', label: '福祉施設', purpose: '病院・薬局' },
+      { id: 'funeral', label: '葬儀', purpose: '買う' }
+    ]
+    for (const e of expected) {
+      const cat = getCategoryById(e.id)
+      expect(cat).toBeTruthy()
+      expect(cat.label).toBe(e.label)
+      expect(getPurposeOfCategory(e.id)).toBe(e.purpose)
+    }
+  })
+
+  it('bank は「銀行・金融」に所属し、質屋・金貸し・郵便局・金融タグを持つ', () => {
+    const cat = getCategoryById('bank')
+    expect(cat.label).toBe('銀行・金融')
+    expect(getPurposeOfCategory('bank')).toBe('銀行・金融')
+    const f = categoryToQueryFilter(cat)
+    expect(f.unionFilters).toEqual([
+      'amenity~"^(bank|atm|money_lending|post_office)$"',
+      'shop=pawnbroker',
+      'office=financial'
+    ])
+  })
+
+  it('public_facility は「公共施設」に所属し、community_centre を持たず courthouse・public_building を持つ', () => {
+    const cat = getCategoryById('public_facility')
+    expect(getPurposeOfCategory('public_facility')).toBe('公共施設')
+    const f = categoryToQueryFilter(cat)
+    expect(f.unionFilters).toContain('amenity~"^(townhall|post_office|police|fire_station|recycling|shelter|courthouse|public_building)$"')
+    // community_centre は独立カテゴリへ移転（public_facility に残さない）
+    expect(f.unionFilters[0]).not.toContain('community_centre')
+  })
+
+  it('kindergarten は「幼稚園・保育園」に改名し、childcare タグを持つ', () => {
+    const cat = getCategoryById('kindergarten')
+    expect(cat.label).toBe('幼稚園・保育園')
+    const f = categoryToQueryFilter(cat)
+    expect(f.unionFilters).toContain('amenity~"^(kindergarten|childcare)$"')
+  })
+
+  it('「役所・手続き」「公共設備」「遊ぶ・公園」「学ぶ」は廃止され、新名称・独立種別へ', () => {
+    expect(CATEGORY_GROUPS.find((g) => g.name === '役所・手続き')).toBeUndefined()
+    expect(getCategoriesForPurpose('役所・手続き')).toBeNull()
+    expect(CATEGORY_GROUPS.find((g) => g.name === '銀行・金融')).toBeTruthy()
+    expect(CATEGORY_GROUPS.find((g) => g.name === '公共施設')).toBeTruthy()
+    expect(CATEGORY_GROUPS.find((g) => g.name === '公共設備')).toBeUndefined()
+    expect(CATEGORY_GROUPS.find((g) => g.name === '遊ぶ・公園')).toBeUndefined()
+    expect(CATEGORY_GROUPS.find((g) => g.name === '学ぶ')).toBeUndefined()
   })
 })

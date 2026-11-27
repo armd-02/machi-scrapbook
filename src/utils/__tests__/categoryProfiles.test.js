@@ -52,7 +52,7 @@ describe('keyInfoFor (A3)', () => {
     expect(ki.items.map((i) => i.key)).not.toContain('opening_hours')
   })
 
-  it('公共設備: wheelchairをハイライト属性として含む', () => {
+  it('公共施設: wheelchairをハイライト属性として含む', () => {
     const ki = keyInfoFor({
       type: 'node', id: 5,
       tags: { amenity: 'townhall', opening_hours: 'Mo-Su 09:00-18:00', wheelchair: 'yes' }

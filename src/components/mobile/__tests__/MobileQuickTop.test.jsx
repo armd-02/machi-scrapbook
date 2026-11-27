@@ -26,8 +26,8 @@ describe('QUICK_TILES: タイルデータ', () => {
 
   it('タイルの表示順・ラベル・アイコンは CATEGORY_GROUPS と同一（全10種別）', () => {
     expect(QUICK_TILES.map((t) => t.label)).toEqual([
-      '食べる', '買う', '遊ぶ・公園', '学ぶ',
-      '病院・薬局', '役所・手続き', '公共設備', '会社・事務所', '移動・交通', 'バリアフリー'
+      '食べる', '買う', 'お出かけ', '学ぶ・仕事',
+      '病院・薬局', '公共施設', '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー'
     ])
     for (const tile of QUICK_TILES) {
       const group = CATEGORY_GROUPS.find((g) => g.name === tile.purpose)
@@ -37,10 +37,12 @@ describe('QUICK_TILES: タイルデータ', () => {
     }
   })
 
-  it('新規タイル: 公共設備（🚻）・会社・事務所（🏢）・移動・交通（🚉）が生活の施設系に並ぶ', () => {
+  it('新規タイル: 公共施設（🏛️）・銀行・金融（🏦）・会社・事務所（🏢）・移動・交通（🚉）が生活の施設系に並ぶ', () => {
     const byLabel = (label) => QUICK_TILES.find((t) => t.label === label)
-    expect(byLabel('公共設備').icon).toBe('🚻')
-    expect(byLabel('公共設備').purpose).toBe('公共設備')
+    expect(byLabel('公共施設').icon).toBe('🏛️')
+    expect(byLabel('公共施設').purpose).toBe('公共施設')
+    expect(byLabel('銀行・金融').icon).toBe('🏦')
+    expect(byLabel('銀行・金融').purpose).toBe('銀行・金融')
     expect(byLabel('会社・事務所').icon).toBe('🏢')
     expect(byLabel('会社・事務所').purpose).toBe('会社・事務所')
     expect(byLabel('移動・交通').icon).toBe('🚉')

@@ -51,9 +51,9 @@ describe('filterGroupsByCounts', () => {
     expect(labels).toContain('cafe')
     expect(labels).toContain('park')
     expect(labels).not.toContain('restaurant')
-    // 出現しないグループ（買う・学ぶ・病院・薬局 ほか）はグループごと除外
+    // 出現しないグループ（買う・学ぶ・仕事・病院・薬局 ほか）はグループごと除外
     const groupNames = filtered.map((g) => g.group)
-    expect(groupNames).toEqual(['食べる', '遊ぶ・公園'])
+    expect(groupNames).toEqual(['食べる', 'お出かけ'])
     // count が付与される
     const cafeCat = filtered.find((g) => g.group === '食べる').categories.find((c) => c.id === 'cafe')
     expect(cafeCat.count).toBe(2)

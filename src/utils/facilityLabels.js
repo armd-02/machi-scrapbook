@@ -137,7 +137,7 @@ const AMENITY_LABELS = {
   bar: 'バー', pub: 'パブ', izakaya: '居酒屋', food_court: 'フードコート',
   pharmacy: '薬局', hospital: '病院', clinic: 'クリニック', dentist: '歯科',
   veterinary: '動物病院', doctors: '診療所',
-  bank: '銀行', post_office: '郵便局', police: '警察', fire_station: '消防署',
+  bank: '銀行', post_office: '郵便局', post_box: '郵便ポスト', police: '警察', fire_station: '消防署',
   townhall: '役場・庁舎', library: '図書館', community_centre: '公民館',
   place_of_worship: '寺院・教会', fountain: '飲水機', drinking_water: '飲料水',
   toilets: '公共トイレ', shower: 'シャワー',

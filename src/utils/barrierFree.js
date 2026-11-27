@@ -5,6 +5,13 @@
  * - 歩道ウェイ（highway=footway / highway=path）
  * - 縁石ノード（barrier=kerb / kerb タグ）
  * - 音声案内ノード（traffic_signals:sound / traffic_signals:vibration）
+ *
+ * (#70) 追加対象（バリアフリー検索の広げ）:
+ * - エレベーター（highway=elevator、node / way）
+ * - トイレ（amenity=toilets、node / way）
+ * - 車椅子用駐車スペース（parking_space=disabled、node / way）
+ * - 階段（highway=steps、way）
+ * - スロープ（ramp:wheelchair が付いた要素、node / way）
  */
 
 // ===== クエリ生成 =====
@@ -28,6 +35,11 @@ export function buildBarrierFreeQuery(bbox) {
     '(',
     `  way[highway=footway](${bboxStr});`,
     `  way[highway=path](${bboxStr});`,
+    `  way[highway=elevator](${bboxStr});`,
+    `  way[highway=steps](${bboxStr});`,
+    `  way[amenity=toilets](${bboxStr});`,
+    `  way[parking_space=disabled](${bboxStr});`,
+    `  way["ramp:wheelchair"](${bboxStr});`,
     ');',
     'out geom;',
     '(',
@@ -36,6 +48,10 @@ export function buildBarrierFreeQuery(bbox) {
     `  node[kerb](${bboxStr});`,
     `  node["traffic_signals:sound"](${bboxStr});`,
     `  node["traffic_signals:vibration"](${bboxStr});`,
+    `  node[highway=elevator](${bboxStr});`,
+    `  node[amenity=toilets](${bboxStr});`,
+    `  node[parking_space=disabled](${bboxStr});`,
+    `  node["ramp:wheelchair"](${bboxStr});`,
     ');',
     'out body;',
   ].join('\n')
@@ -194,8 +210,10 @@ export function kerbDetailLabel(kerb, heightValue) {
  *
  * - way: highway によるベース名（footway→歩道 / path→歩行者用通路 / その他→通路(値)）
  *        + tactile_paving の有無（あり／なし／未記録）
+ *        (#70) 追加対象を優先: エレベーター / 階段 / トイレ / 車椅子用駐車場 / スロープ
  * - node: 音声+振動 → 音・振動案内信号 / 音声のみ → 音声案内信号 /
  *        振動のみ → 振動案内信号 / 縁石 → 「縁石（kerb 値の日本語）」
+ *        (#70) 追加対象を優先: エレベーター / トイレ / 車椅子用駐車場 / スロープ
  *
  * 引数は parseBarrierFreeElements の出力（整形済み要素）か、
  * 標準結果形状（bf フィールドを持つもの）のどちらでもよい。
@@ -210,6 +228,13 @@ export function barrierFreeLabel(item) {
   const kind = bf.kind || (item.type === 'way' ? 'way' : 'node')
 
   if (kind === 'way') {
+    // (#70) 追加対象: 点字ブロックが該当しない要素は種別名をそのまま表示
+    if (tags.highway === 'elevator') return 'エレベーター'
+    if (tags.highway === 'steps') return '階段'
+    if (tags.amenity === 'toilets') return 'トイレ'
+    if (tags.parking_space === 'disabled') return '車椅子用駐車場'
+    if (tags['ramp:wheelchair'] != null) return 'スロープ'
+
     const hwy = tags.highway
     const base = hwy === 'footway'
       ? '歩道'
@@ -239,6 +264,12 @@ export function barrierFreeLabel(item) {
     if (sub === KERB_VALUE_LABELS.lowered) return `縁石 ${sub}`
     return `縁石（${sub}）`
   }
+
+  // (#70) 追加対象: エレベーター / トイレ / 車椅子用駐車場 / スロープ
+  if (tags.highway === 'elevator') return 'エレベーター'
+  if (tags.amenity === 'toilets') return 'トイレ'
+  if (tags.parking_space === 'disabled') return '車椅子用駐車場'
+  if (tags['ramp:wheelchair'] != null) return 'スロープ'
 
   return 'バリアフリー要素'
 }
