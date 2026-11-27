@@ -526,29 +526,33 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     expect(mockState.api._state.maps).toHaveLength(0)
   })
 
-  it('OSMリンクは地図の中心・ズームと選択した施設に追従する', async () => {
-    render(<Harness preActions={[
+
+  it('結果マップの最大化・閉じるボタン（アイコン）が動く', async () => {
+    const { container } = render(<Harness preActions={[
       { type: 'SET_RESULTS', payload: poiWithCoords },
       { type: 'SET_STATUS', payload: 'success' },
     ]} />)
-    const osmLink = () => screen.getByRole('link', { name: 'OpenStreetMapで開く' })
-    expect(osmLink().getAttribute('aria-disabled')).toBe('true')
+    // 折りたたみ中はボタンは無い
+    expect(screen.queryByRole('button', { name: '地図を最大化' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '地図を閉じる' })).toBeNull()
+
     fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
-    await waitFor(() => expect(osmLink().getAttribute('href')).toContain('#map='))
+    expect(screen.getByRole('application', { name: '検索結果マップ' })).toBeTruthy()
+    const panel = () => container.querySelector('.results-map-panel')
+    expect(panel().className).not.toContain('fixed')
 
-    const map = mockState.api._state.maps.at(-1)
-    map.getCenter = () => ({ lat: 34.70123, lng: 135.50678 })
-    map.getZoom = () => 16.8
-    act(() => { map.fire('moveend') })
-    const view = '#map=17/34.7012300/135.5067800'
-    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/${view}`)
-    expect(osmLink().getAttribute('target')).toBe('_blank')
+    // 最大化: パネルが fixed になり、ボタンは「戻す」に変わる
+    fireEvent.click(screen.getByRole('button', { name: '地図を最大化' }))
+    expect(panel().className).toContain('fixed')
+    expect(screen.getByRole('button', { name: '地図を元の大きさに戻す' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '地図を元の大きさに戻す' }))
+    expect(panel().className).not.toContain('fixed')
 
-    const cafe = screen.getByRole('button', { name: 'カフェAを地図で選択' })
-    fireEvent.click(cafe)
-    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/node/30${view}`)
-    fireEvent.click(cafe)
-    expect(osmLink().getAttribute('href')).toBe(`https://www.openstreetmap.org/${view}`)
+    // 閉じる: 地図が閉じてボタンも消える
+    fireEvent.click(screen.getByRole('button', { name: '地図を閉じる' }))
+    expect(screen.queryByRole('application', { name: '検索結果マップ' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '地図を閉じる' })).toBeNull()
+    expect(screen.getByRole('button', { name: /地図を表示/ })).toBeTruthy()
   })
 
   it('一覧のWi-Fi・電源・車椅子・料理ジャンルの絞り込みを地図のピンにも反映する', async () => {
@@ -839,8 +843,6 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
     const highlight = (id) => map._layers.find((layer) => layer.id === id).filter
     const keyFilter = (key) => ['==', ['get', 'key'], key]
     expect(highlight('bf-selected-line')).toEqual(['all', ['==', ['get', 'kind'], 'way'], keyFilter('way/100')])
-    expect(screen.getByRole('link', { name: 'OpenStreetMapで開く' }).getAttribute('href'))
-      .toMatch(/^https:\/\/www\.openstreetmap\.org\/way\/100#map=/)
     expect(cardOf('way/100').className).toContain('ring-primary-500')
     expect(map._calls.filter((c) => c.name === 'fitBounds').at(-1).args[0]).toEqual([[135.0, 34.0], [135.02, 34.01]])
 

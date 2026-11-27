@@ -332,7 +332,7 @@ function poiFitOptions(features) {
   return { ...FIT_OPTIONS, maxZoom: FIT_OPTIONS.maxZoom + Math.log2(MARKER_DIAMETER_PX / closest) }
 }
 
-export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, onMapReady = null, selection = null, results = null, fitPoiDensity = results === null, bbox = null, heightStorageKey = null }) {
+export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, onMapReady = null, selection = null, results = null, fitPoiDensity = results === null, bbox = null, heightStorageKey = null, fillHeight = false }) {
   const { state } = useApp()
   // 検索結果の絞り込み後のデータやメモ帳のデータが渡されていれば優先する。
   const poiResults = results ?? (state.results || [])
@@ -556,21 +556,27 @@ export default function MobileResultsMap({ kind = 'poi', onMarkerClick = null, o
   // 地図コンテナは既定高さクラス（poi: h-[200px] / barrier_free: h-[320px]）のまま
   // （ドラッグ後はstyle上書き）
   return (
-    <div className="results-map rounded-lg overflow-hidden border border-slate-200">
+    <div className={`results-map rounded-lg overflow-hidden border border-slate-200${fillHeight ? ' h-full flex flex-col' : ''}`}>
       <div
         ref={containerRef}
         role="application"
         aria-label={label}
-        className={`results-map-canvas bg-slate-100 ${isBarrierFree ? 'h-[320px]' : 'h-[200px]'}`}
-        style={{ ...mapHeight.containerStyle, maxHeight: 'var(--results-map-max-height, none)' }}
+        className={fillHeight
+          ? 'results-map-canvas bg-slate-100 flex-1 min-h-0'
+          : `results-map-canvas bg-slate-100 ${isBarrierFree ? 'h-[320px]' : 'h-[200px]'}`}
+        style={fillHeight
+          ? { maxHeight: 'none' }
+          : { ...mapHeight.containerStyle, maxHeight: 'var(--results-map-max-height, none)' }}
       />
-      {/* 高さドラッグハンドル（検索タブの地図と同一のフック・見た目） */}
-      <div
-        {...mapHeight.handleProps}
-        className="results-map-height-handle h-7 bg-slate-100 border-t border-slate-200 flex items-center justify-center"
-      >
-        <span className="w-8 h-1 rounded-full bg-slate-300" />
-      </div>
+      {/* 高さドラッグハンドル（検索タブの地図と同一のフック・見た目）。最大化時は隠す */}
+      {!fillHeight && (
+        <div
+          {...mapHeight.handleProps}
+          className="results-map-height-handle h-7 bg-slate-100 border-t border-slate-200 flex items-center justify-center"
+        >
+          <span className="w-8 h-1 rounded-full bg-slate-300" />
+        </div>
+      )}
     </div>
   )
 }

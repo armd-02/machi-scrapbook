@@ -447,6 +447,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
             onMarkerClick={handlePinSelect}
             selection={selection}
             heightStorageKey="mapHeight.memocho"
+            showWindowControls
           />
         </div>
       )}

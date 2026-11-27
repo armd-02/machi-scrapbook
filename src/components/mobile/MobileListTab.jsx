@@ -117,7 +117,7 @@ function PoiMobileList() {
           <CollapsibleResultsMap
             results={filtered}
             fitPoiDensity
-            showOsmLink
+            showWindowControls
             onMarkerClick={handleMarkerSelect}
             selection={selection}
           />
@@ -306,7 +306,7 @@ function BarrierFreeMobileList() {
             kind="barrier_free"
             results={filtered}
             initiallyOpen
-            showOsmLink
+            showWindowControls
             selection={selection}
             onMarkerClick={handleMarkerSelect}
           />
