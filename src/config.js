@@ -6,12 +6,12 @@
 export const OVERPASS_ENDPOINTS = {
   custom: {
     id: 'custom',
-    label: 'Overpass API (armd-01)',
+    label: '標準',
     url: 'https://armd-01.sakura.ne.jp/api/interpreter'
   },
   public: {
     id: 'public',
-    label: 'Overpass API（公式）',
+    label: '海外',
     url: 'https://overpass-api.de/api/interpreter'
   },
   // kumi.systems の後継ドメイン（OSMウィキで公式確認: "Previously known as overpass.kumi.systems"）。

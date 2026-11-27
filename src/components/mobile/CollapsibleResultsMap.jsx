@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import MobileResultsMap from './MobileResultsMap'
 
 /**
@@ -43,14 +44,20 @@ export default function CollapsibleResultsMap({
     if (!maximized) return
     const onKey = (e) => { if (e.key === 'Escape') setMaximized(false) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // 最大化中は背面のスクロールを止める
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
   }, [maximized])
   useEffect(() => {
     if (selection?.geometry || (Number.isFinite(selection?.lon) && Number.isFinite(selection?.lat))) {
       setVisible(true)
     }
   }, [selection])
-  return (
+  const panel = (
     <div className={maximized
       ? 'results-map-panel bg-white border border-slate-200 overflow-hidden fixed inset-0 z-50 flex flex-col'
       : 'results-map-panel bg-white border border-slate-200 rounded-xl overflow-hidden'}>
@@ -114,4 +121,8 @@ export default function CollapsibleResultsMap({
       )}
     </div>
   )
+  // 最大化時は body 直下へポータルする。祖先の container-type: size が作る
+  // レイアウト包含に fixed が閉じ込められると、ページのスクロール位置に
+  // よって見出し（戻す・閉じるボタン）が画面外に出て戻れなくなるため。
+  return maximized ? createPortal(panel, document.body) : panel
 }

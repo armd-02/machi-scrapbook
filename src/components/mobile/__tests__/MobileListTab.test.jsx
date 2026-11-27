@@ -538,12 +538,15 @@ describe('MobileListTab: 結果マップ（折りたたみ式・修正）', () =
 
     fireEvent.click(screen.getByRole('button', { name: /地図を表示/ }))
     expect(screen.getByRole('application', { name: '検索結果マップ' })).toBeTruthy()
-    const panel = () => container.querySelector('.results-map-panel')
+    const panel = () => document.querySelector('.results-map-panel')
     expect(panel().className).not.toContain('fixed')
+    expect(container.contains(panel())).toBe(true)
 
-    // 最大化: パネルが fixed になり、ボタンは「戻す」に変わる
+    // 最大化: パネルが fixed になり body 直下へ移る（祖先の包含に閉じ込められない）。ボタンは「戻す」に変わる
     fireEvent.click(screen.getByRole('button', { name: '地図を最大化' }))
     expect(panel().className).toContain('fixed')
+    expect(document.body.contains(panel())).toBe(true)
+    expect(container.contains(panel())).toBe(false)
     expect(screen.getByRole('button', { name: '地図を元の大きさに戻す' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '地図を元の大きさに戻す' }))
     expect(panel().className).not.toContain('fixed')

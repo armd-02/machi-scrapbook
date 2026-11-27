@@ -159,9 +159,10 @@ describe('HeaderMenu: Overpass API 切替', () => {
     expect(screen.getByRole('radiogroup', { name: 'Overpass API' })).toBeTruthy()
     expect(screen.getByRole('radio', { name: /標準/ }).getAttribute('aria-checked')).toBe('true')
     expect(screen.getByRole('radio', { name: /海外/ }).getAttribute('aria-checked')).toBe('false')
-    // 接続先ラベルが副題として付いている（どれが何か分かりやすく）
-    expect(screen.getByRole('radio', { name: /標準/ }).textContent).toContain('Overpass API (armd-01)')
-    expect(screen.getByRole('radio', { name: /海外/ }).textContent).toContain('Overpass API（公式）')
+    // 接続先の固有名（armd-01 等）は表示しない。「標準」「海外」だけを示す
+    expect(screen.getByRole('radio', { name: /標準/ }).textContent).not.toContain('armd-01')
+    expect(screen.getByRole('radio', { name: /標準/ }).textContent).not.toContain('Overpass API')
+    expect(screen.getByRole('radio', { name: /海外/ }).textContent).not.toContain('Overpass API')
   })
 
   it('「海外」を押すと localStorage に "public" が保存され、チェックが移動する（メニューは開いたまま）', () => {

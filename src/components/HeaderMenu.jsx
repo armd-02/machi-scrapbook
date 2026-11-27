@@ -10,7 +10,6 @@ import {
   getOverpassPreference,
   setOverpassPreference
 } from '../utils/overpassPreference'
-import { OVERPASS_ENDPOINTS } from '../config'
 
 /**
  * (#75) ヘッダーのハンバーガーメニュー（#79 でアプリ唯一のハンバーガーメニューに）
@@ -285,7 +284,6 @@ export default function HeaderMenu() {
                   className={`w-full min-h-[44px] px-3 py-1.5 flex flex-col items-start gap-0.5 text-left text-sm transition-colors ${
                     selected ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-slate-50'
                   }`}
-                  title={OVERPASS_ENDPOINTS[opt.id].label}
                 >
                   <span className="flex items-center gap-1.5">
                     {/* ラジオ指示（点・輪郭） */}
@@ -299,7 +297,6 @@ export default function HeaderMenu() {
                     </span>
                     {opt.label}
                   </span>
-                  <span className="text-[11px] text-slate-400">{OVERPASS_ENDPOINTS[opt.id].label}</span>
                 </button>
               )
             })}
