@@ -132,7 +132,7 @@ export function buildSimpleQuery(bbox, category, keyword, cuisine = '', purpose 
   const { south, west, north, east } = bbox
   const bboxStr = [south, west, north, east].map(n => n.toFixed(6)).join(',')
   const body = buildPoiSearchBody(bboxStr, category, cuisine, purpose)
-  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center;\n`
+  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center bb;\n`
   return { query, keyword }
 }
 
@@ -145,7 +145,7 @@ export function buildPoiQuery(bbox, category, keyword, cuisine = '', purpose = '
   const { south, west, north, east } = bbox
   const bboxStr = [south, west, north, east].map(n => n.toFixed(6)).join(',')
   const body = buildPoiSearchBody(bboxStr, category, cuisine, purpose)
-  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center;\n`
+  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center bb;\n`
   return { query, keyword }
 }
 
@@ -185,7 +185,7 @@ export function buildAdvancedQuery(bbox, tags, keyword, useAnd) {
       .join('\n')
   }
 
-  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center;\n`
+  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center bb;\n`
   return { query, keyword }
 }
 
@@ -526,11 +526,28 @@ export function parseOverpassResponse(data) {
         result.name = el.tags.name
       }
 
+      if (el.bounds) {
+        result.bounds = el.bounds
+      }
+
       return result
     })
     .filter((r) => r.lat !== null && r.lon !== null)
     // Wayを構成するタグ無しノード（匿名ノード）を除外
     .filter((r) => !(r.type === 'node' && Object.keys(r.tags).length === 0))
+    // 名前のない小さな庭園（leisure=garden）は除外する。名前のある庭園は残す
+    .filter((r) => {
+      if (r.tags.leisure !== 'garden' || r.tags.name) return true
+      if (r.type === 'node' || !r.bounds) return false
+      return bboxAreaM2(r.bounds) >= 1000
+    })
+}
+
+function bboxAreaM2(bounds) {
+  const meanLat = (bounds.minlat + bounds.maxlat) / 2
+  const height = (bounds.maxlat - bounds.minlat) * 111320
+  const width = (bounds.maxlon - bounds.minlon) * 111320 * Math.cos((meanLat * Math.PI) / 180)
+  return width * height
 }
 
 /**

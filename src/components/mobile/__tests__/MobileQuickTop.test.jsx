@@ -26,7 +26,7 @@ describe('QUICK_TILES: タイルデータ', () => {
 
   it('タイルの表示順・ラベル・アイコンは CATEGORY_GROUPS と同一（全10種別）', () => {
     expect(QUICK_TILES.map((t) => t.label)).toEqual([
-      '食べる', '買う', 'お出かけ', '学ぶ・仕事',
+      '食べる', '買う', '遊ぶ・巡る', '学ぶ・仕事',
       '病院・薬局', '公共施設', '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー'
     ])
     for (const tile of QUICK_TILES) {

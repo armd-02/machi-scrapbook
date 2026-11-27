@@ -116,16 +116,16 @@ describe('encodeStateToURL / decodeURLToState', () => {
     const state = {
       searchSource: 'map',
       searchMode: 'simple',
-      simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: 'お出かけ' },
+      simpleSearch: { category: '', keyword: '', location: '', cuisine: '', purpose: '遊ぶ・巡る' },
       advancedSearch: { tags: [], keyword: '', useAnd: true },
       municipalitySearch: { category: '', cuisine: '', purpose: '' },
       selectedMunicipality: null,
       bbox: { south: 34.7, west: 135.5, north: 34.72, east: 135.52 }
     }
     const qs = encodeStateToURL(state)
-    expect(qs).toContain('p=' + encodeURIComponent('お出かけ'))
+    expect(qs).toContain('p=' + encodeURIComponent('遊ぶ・巡る'))
     const decoded = decodeURLToState('?' + qs)
-    expect(decoded.simpleSearch.purpose).toBe('お出かけ')
+    expect(decoded.simpleSearch.purpose).toBe('遊ぶ・巡る')
   })
 
   it('自治体モードの目的スコープも復元される (#44)', () => {

@@ -25,19 +25,19 @@ describe('#44 buildPoiQuery', () => {
   })
 
   it('目的のみ指定時: その目的の施設種類unionに絞る（#44 目的スコープ）', () => {
-    const { query } = buildPoiQuery(testBbox, '', '', '', 'お出かけ')
-    // お出かけグループのフィルタが含まれる
+    const { query } = buildPoiQuery(testBbox, '', '', '', '遊ぶ・巡る')
+    // 遊ぶ・巡るグループのフィルタが含まれる
     expect(query).toContain('[leisure~"^(park|playground|garden|pitch)$"]')
     expect(query).toContain('[amenity=plaza]')
     expect(query).toContain('[amenity=place_of_worship]')
-    // お出かけに無関係なカテゴリ・汎用POIブランチは含まれない
+    // 遊ぶ・巡るに無関係なカテゴリ・汎用POIブランチは含まれない
     expect(query).not.toContain('[amenity=cafe]')
     expect(query).not.toContain('[shop]')
     expect(query).not.toContain('[office]')
   })
 
   it('カテゴリ+目的指定時: カテゴリが優先される（目的unionは使わない）', () => {
-    const { query } = buildPoiQuery(testBbox, 'cafe', '', '', 'お出かけ')
+    const { query } = buildPoiQuery(testBbox, 'cafe', '', '', '遊ぶ・巡る')
     expect(query).toContain('[amenity=cafe]')
     expect(query).not.toContain('[amenity=place_of_worship]')
     expect(query).not.toContain('[shop]')

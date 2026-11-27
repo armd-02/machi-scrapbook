@@ -1494,7 +1494,7 @@ describe('MobileListTab: メモ帳の登録先', () => {
 
   beforeEach(() => {
     localStorage.removeItem(MEMOCHO_STORAGE_KEY)
-    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify([{ id: 'outing', name: 'お出かけ' }]))
+    localStorage.setItem(SCRAPBOOKS_STORAGE_KEY, JSON.stringify([{ id: 'outing', name: '遊ぶ・巡る' }]))
     resetMemochoStore()
     resetScrapbooksStore()
   })

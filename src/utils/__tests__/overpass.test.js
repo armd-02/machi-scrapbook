@@ -240,6 +240,52 @@ describe('parseOverpassResponse: タグ無しノードの除外', () => {
   })
 })
 
+describe('parseOverpassResponse: 名前のない小さな庭園の除外', () => {
+  const smallBounds = { minlat: 34.7147305, minlon: 135.4957711, maxlat: 34.7148243, maxlon: 135.4960782 } // 約290㎡
+  const largeBounds = { minlat: 34.714, minlon: 135.495, maxlat: 34.716, maxlon: 135.497 } // 約4万㎡
+
+  it('名前のない庭園のnodeは除外する', () => {
+    const data = overpassPayload([
+      { type: 'node', id: 1, lat: 34.715, lon: 135.496, tags: { leisure: 'garden' } },
+    ])
+    expect(parseOverpassResponse(data)).toEqual([])
+  })
+
+  it('名前のない小さな庭園のwayは除外する', () => {
+    const data = overpassPayload([
+      { type: 'way', id: 2, center: { lat: 34.7148, lon: 135.4959 }, bounds: smallBounds, tags: { leisure: 'garden' } },
+    ])
+    expect(parseOverpassResponse(data)).toEqual([])
+  })
+
+  it('名前のない大きな庭園のwayは残す', () => {
+    const data = overpassPayload([
+      { type: 'way', id: 3, center: { lat: 34.715, lon: 135.496 }, bounds: largeBounds, tags: { leisure: 'garden' } },
+    ])
+    const results = parseOverpassResponse(data)
+    expect(results.length).toBe(1)
+    expect(results[0].id).toBe(3)
+  })
+
+  it('名前のある小さな庭園は残す', () => {
+    const data = overpassPayload([
+      { type: 'way', id: 4, center: { lat: 34.7148, lon: 135.4959 }, bounds: smallBounds, tags: { leisure: 'garden', name: '○○庭園' } },
+    ])
+    const results = parseOverpassResponse(data)
+    expect(results.length).toBe(1)
+    expect(results[0].id).toBe(4)
+  })
+
+  it('庭園以外の名前のないwayは残す', () => {
+    const data = overpassPayload([
+      { type: 'way', id: 5, center: { lat: 34.7148, lon: 135.4959 }, bounds: smallBounds, tags: { leisure: 'park' } },
+    ])
+    const results = parseOverpassResponse(data)
+    expect(results.length).toBe(1)
+    expect(results[0].id).toBe(5)
+  })
+})
+
 // ---------- (#54) cuisineフィルタのクエリ組み込み ----------
 const TEST_BBOX = { south: 34.0, west: 135.0, north: 34.1, east: 135.2 }
 

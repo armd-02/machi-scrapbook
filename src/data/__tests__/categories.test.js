@@ -16,7 +16,7 @@ import {
 
 // 新構成（再編）の10種別: 「すること」系→「生活の施設」系の順
 const GROUP_NAMES = [
-  '食べる', '買う', 'お出かけ', '学ぶ・仕事', '病院・薬局', '公共施設',
+  '食べる', '買う', '遊ぶ・巡る', '学ぶ・仕事', '病院・薬局', '公共施設',
   '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー'
 ]
 
@@ -49,7 +49,7 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     const expected = {
       '食べる': ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'],
       '買う': ['retail', 'convenience', 'funeral'],
-      'お出かけ': ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'],
+      '遊ぶ・巡る': ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'],
       '学ぶ・仕事': ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library', 'coworking', 'community_centre', 'lessons'],
       '病院・薬局': ['hospital', 'pharmacy', 'veterinary', 'welfare'],
       '公共施設': ['toilets', 'telephone', 'drinking_water', 'aed', 'post_box', 'public_facility'],
@@ -70,9 +70,9 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     }
   })
 
-  it('「お出かけ」グループの表示名は「お出かけ」（旧「遊ぶ・公園」改名、タイル・ピッカーで統一）', () => {
+  it('「遊ぶ・巡る」グループの表示名は「遊ぶ・巡る」（旧「遊ぶ・公園」改名、タイル・ピッカーで統一）', () => {
     const g = CATEGORY_GROUPS.find((x) => x.ids.includes('park'))
-    expect(g.name).toBe('お出かけ')
+    expect(g.name).toBe('遊ぶ・巡る')
   })
 
   it('グループ名とグループ内順序がCATEGORY_GROUPS定義（広い→狭い）と一致する', () => {
@@ -142,8 +142,8 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
   it('getPurposeOfCategory: カテゴリ→唯一の所属種別名を解決できる', () => {
     expect(getPurposeOfCategory('cafe')).toBe('食べる')
     expect(getPurposeOfCategory('convenience')).toBe('買う')
-    expect(getPurposeOfCategory('park')).toBe('お出かけ')
-    expect(getPurposeOfCategory('accommodation')).toBe('お出かけ')
+    expect(getPurposeOfCategory('park')).toBe('遊ぶ・巡る')
+    expect(getPurposeOfCategory('accommodation')).toBe('遊ぶ・巡る')
     expect(getPurposeOfCategory('hospital')).toBe('病院・薬局')
     expect(getPurposeOfCategory('public_facility')).toBe('公共施設')
     expect(getPurposeOfCategory('bank')).toBe('銀行・金融')
@@ -160,8 +160,8 @@ describe('カテゴリの目的ベースグループ化（#44 生活者目線UI�
     expect(getPurposeOfCategory('company_office')).toBe('会社・事務所')
     // (#再編) 新カテゴリの所属
     expect(getPurposeOfCategory('funeral')).toBe('買う')
-    expect(getPurposeOfCategory('entertainment')).toBe('お出かけ')
-    expect(getPurposeOfCategory('bath')).toBe('お出かけ')
+    expect(getPurposeOfCategory('entertainment')).toBe('遊ぶ・巡る')
+    expect(getPurposeOfCategory('bath')).toBe('遊ぶ・巡る')
     expect(getPurposeOfCategory('coworking')).toBe('学ぶ・仕事')
     expect(getPurposeOfCategory('community_centre')).toBe('学ぶ・仕事')
     expect(getPurposeOfCategory('lessons')).toBe('学ぶ・仕事')
@@ -220,7 +220,7 @@ describe('既存カテゴリの変更（ラベル・transportタグ）', () => {
 
 describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabelList）', () => {
   it('getPurposeUnionFilters: グループ内全カテゴリのタグ条件を重複除去してunion化できる', () => {
-    const filters = getPurposeUnionFilters('お出かけ')
+    const filters = getPurposeUnionFilters('遊ぶ・巡る')
     // 公園2 + スポーツ1 + 博物館1 + 寺院神社2 + 宿泊2 + 娯楽3 + 銭湯2 = 13条件
     expect(filters).toHaveLength(13)
     expect(filters).toContain('leisure~"^(park|playground|garden|pitch)$"')
@@ -240,7 +240,7 @@ describe('#44 目的スコープ検索（getPurposeUnionFilters / getPurposeLabe
   })
 
   it('getPurposeLabelList: グループ内カテゴリラベルを「・」区切りで返す', () => {
-    expect(getPurposeLabelList('お出かけ')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ')
+    expect(getPurposeLabelList('遊ぶ・巡る')).toBe('公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ')
     expect(getPurposeLabelList('公共施設')).toBe('トイレ・公衆電話・水飲み場・AED・郵便ポスト・役所・公共機関')
     expect(getPurposeLabelList('バリアフリー')).toBe('バリアフリー')
     expect(getPurposeLabelList('存在しない目的')).toBe('')
@@ -376,8 +376,8 @@ describe('#再編 新カテゴリ（コワーキング・公民館・習い事�
       { id: 'coworking', label: 'コワーキング', purpose: '学ぶ・仕事' },
       { id: 'community_centre', label: '公民館・コミュニティ', purpose: '学ぶ・仕事' },
       { id: 'lessons', label: '習い事・教習', purpose: '学ぶ・仕事' },
-      { id: 'entertainment', label: '映画・娯楽', purpose: 'お出かけ' },
-      { id: 'bath', label: '銭湯・サウナ', purpose: 'お出かけ' },
+      { id: 'entertainment', label: '映画・娯楽', purpose: '遊ぶ・巡る' },
+      { id: 'bath', label: '銭湯・サウナ', purpose: '遊ぶ・巡る' },
       { id: 'veterinary', label: '動物病院', purpose: '病院・薬局' },
       { id: 'welfare', label: '福祉施設', purpose: '病院・薬局' },
       { id: 'funeral', label: '葬儀', purpose: '買う' }

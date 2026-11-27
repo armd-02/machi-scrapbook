@@ -1280,7 +1280,7 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(screen.getByRole('region', { name: 'どこで探すか' })).toBeTruthy()
 
     // 目的（種別）タイル10種（バリアフリー含む）が揃って表示される
-    for (const label of ['食べる', '買う', 'お出かけ', '学ぶ・仕事', '病院・薬局', '公共施設', '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー']) {
+    for (const label of ['食べる', '買う', '遊ぶ・巡る', '学ぶ・仕事', '病院・薬局', '公共施設', '銀行・金融', '会社・事務所', '移動・交通', 'バリアフリー']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
 

@@ -56,11 +56,11 @@ describe('buildSearchCriteria — 地図モード（かんたん検索）', () =
   it('目的のみ指定時: 目的スコープクエリを生成する (#44 目的スコープ)', () => {
     const criteria = buildSearchCriteria(baseState({
       bbox: SMALL_BBOX,
-      simpleSearch: { category: '', keyword: '', location: '', purpose: 'お出かけ' }
+      simpleSearch: { category: '', keyword: '', location: '', purpose: '遊ぶ・巡る' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.category).toBe('')
-    expect(criteria.purpose).toBe('お出かけ')
+    expect(criteria.purpose).toBe('遊ぶ・巡る')
     expect(criteria.query).toContain(`node[leisure~"^(park|playground|garden|pitch)$"](${BBOX_STR});`)
     expect(criteria.query).toContain(`node[amenity=place_of_worship](${BBOX_STR});`)
     // 遊ぶに無関係なカテゴリ・汎用POIブランチは含まれない
@@ -71,7 +71,7 @@ describe('buildSearchCriteria — 地図モード（かんたん検索）', () =
   it('カテゴリ+目的指定時: カテゴリが優先される', () => {
     const criteria = buildSearchCriteria(baseState({
       bbox: SMALL_BBOX,
-      simpleSearch: { category: 'cafe', keyword: '', location: '', purpose: 'お出かけ' }
+      simpleSearch: { category: 'cafe', keyword: '', location: '', purpose: '遊ぶ・巡る' }
     }))
     expect(criteria.ok).toBe(true)
     expect(criteria.query).toContain(`node[amenity=cafe](${BBOX_STR});`)
@@ -203,10 +203,10 @@ describe('buildSearchCriteria — 自治体モード (#44/#47)', () => {
     const criteria = buildSearchCriteria(baseState({
       searchSource: 'municipality',
       selectedMunicipality: { code: '27214', name: '高槻市', bbox: SMALL_BBOX },
-      municipalitySearch: { category: '', purpose: 'お出かけ' }
+      municipalitySearch: { category: '', purpose: '遊ぶ・巡る' }
     }))
     expect(criteria.ok).toBe(true)
-    expect(criteria.purpose).toBe('お出かけ')
+    expect(criteria.purpose).toBe('遊ぶ・巡る')
     expect(criteria.query).toContain(`node[leisure~"^(park|playground|garden|pitch)$"](${BBOX_STR});`)
     expect(criteria.query).not.toContain(`node[shop](${BBOX_STR});`)
   })
@@ -399,7 +399,7 @@ describe('buildSearchCriteria — バリアフリー検索 (#62)', () => {
   it('通常カテゴリのクエリ生成には影響しない（queryKind: poi）', () => {
     const criteria = buildSearchCriteria(baseState({
       bbox: SMALL_BBOX,
-      simpleSearch: { category: 'cafe', keyword: '', location: '', purpose: 'お出かけ' }
+      simpleSearch: { category: 'cafe', keyword: '', location: '', purpose: '遊ぶ・巡る' }
     }))
     expect(criteria.queryKind).toBe('poi')
     expect(criteria.query).toContain(`node[amenity=cafe](${BBOX_STR});`)

@@ -348,7 +348,7 @@ export const CATEGORIES = [
     description: '自動車学校・音楽教室・道場'
   },
   {
-    // (#再編) 「お出かけ」へ: 映画・娯楽
+    // (#再編) 「遊ぶ・巡る」へ: 映画・娯楽
     id: 'entertainment',
     label: '映画・娯楽',
     tags: [
@@ -360,7 +360,7 @@ export const CATEGORIES = [
     description: '映画・劇場・カラオケ・ゲームセンター・パチンコ・動物園・テーマパーク'
   },
   {
-    // (#再編) 「お出かけ」へ: 銭湯・サウナ
+    // (#再編) 「遊ぶ・巡る」へ: 銭湯・サウナ
     id: 'bath',
     label: '銭湯・サウナ',
     tags: [
@@ -411,22 +411,22 @@ export function getCategoryById(id) {
  * (#44 改訂 2026-10-28、再編) 目的ベースの施設グループ — 「生活者目線UI」
  *
  * OSMタグキー（amenity=…など）を上位カテゴリにしない代わりに、利用目的で
- * グループ化する: 食べる／買う／お出かけ／学ぶ・仕事／病院・薬局／公共施設／
+ * グループ化する: 食べる／買う／遊ぶ・巡る／学ぶ・仕事／病院・薬局／公共施設／
  * 銀行・金融／会社・事務所／移動・交通／バリアフリー。
  * PCのカテゴリselectの <optgroup> ラベル、モバイルの目的チップ、トップ画面の
  * タイルで同じ定義を共有する（単一データソース）。
  * 各カテゴリはちょうど1つのグループにだけ所属する（重複所属はない）。
  * icon は目的チップ・タイル表示用（emoji）。
  * グループ内の順序はここで制御する（CATEGORIES 配列の順序に依存しない）。
- * 表示順は「すること」系（食べる・買う・お出かけ・学ぶ・仕事）→「生活の施設」系
+ * 表示順は「すること」系（食べる・買う・遊ぶ・巡る・学ぶ・仕事）→「生活の施設」系
  * （病院・薬局・公共施設・銀行・金融・会社・事務所・移動・交通）で、
  * チップ・セレクト・タイルすべてでこの定義順をそのまま使う。
  */
 export const CATEGORY_GROUPS = [
   { name: '食べる', icon: '🍜', ids: ['food_drink', 'cafe', 'restaurant', 'fast_food', 'bar_izakaya'] },
   { name: '買う', icon: '🛍️', ids: ['retail', 'convenience', 'funeral'] },
-  // (#再編) 「遊ぶ・公園」を「お出かけ」に改名（表示名のみ）。entertainment・bath を追加。
-  { name: 'お出かけ', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'] },
+  // (#再編) 「遊ぶ・公園」を「遊ぶ・巡る」に改名（表示名のみ）。entertainment・bath を追加。
+  { name: '遊ぶ・巡る', icon: '🎠', ids: ['park', 'sports', 'museum', 'worship', 'accommodation', 'entertainment', 'bath'] },
   // (#再編) 「学ぶ」を「学ぶ・仕事」に改名（表示名のみ）。coworking・community_centre・lessons を追加。
   { name: '学ぶ・仕事', icon: '📚', ids: ['kindergarten', 'primary_school', 'university', 'prep_school', 'school', 'library', 'coworking', 'community_centre', 'lessons'] },
   { name: '病院・薬局', icon: '🏥', ids: ['hospital', 'pharmacy', 'veterinary', 'welfare'] },
@@ -476,7 +476,7 @@ export function isFoodCategory(id) {
 
 /**
  * (#44) 目的グループ名（'食べる'など）からカテゴリ一覧を取得
- * @param {string} purposeName - '食べる' | '買う' | 'お出かけ' | '学ぶ・仕事' | '病院・薬局' | '公共施設' | '銀行・金融' | '会社・事務所' | '移動・交通' | 'バリアフリー'
+ * @param {string} purposeName - '食べる' | '買う' | '遊ぶ・巡る' | '学ぶ・仕事' | '病院・薬局' | '公共施設' | '銀行・金融' | '会社・事務所' | '移動・交通' | 'バリアフリー'
  * @returns {Array<object>|null} カテゴリ配列、未知の目的ならnull
  */
 export function getCategoriesForPurpose(purposeName) {
@@ -526,7 +526,7 @@ export function getPurposeUnionFilters(purposeName) {
 
 /**
  * (#44) 目的グループの施設種類ラベルを「・」区切りで返す（UI案内文用）
- * 例: getPurposeLabelList('お出かけ') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ'
+ * 例: getPurposeLabelList('遊ぶ・巡る') → '公園・広場・スポーツ施設・美術館・博物館・寺院・神社・宿泊施設・映画・娯楽・銭湯・サウナ'
  */
 export function getPurposeLabelList(purposeName) {
   const cats = getCategoriesForPurpose(purposeName)
