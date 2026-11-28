@@ -2,6 +2,12 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   facilityName,
   formatAddress,
+  formatBuildingLevels,
+  formatFee,
+  formatCapacity,
+  formatLevel,
+  formatSmoking,
+  formatBrand,
   safeWebsite,
   preferredFacilityLink,
   facilityTypeLabel
@@ -81,6 +87,14 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
     ? preferredFacilityLink(tags)
     : { label: '公式サイト', url: safeWebsite(tags) }
   const openingHours = formatOpeningHoursJa(tags.opening_hours, { multiline: true }) || ''
+  // 建物の階数（building:levels 等が登録されている場合だけ行を表示する）
+  const levelsLabel = formatBuildingLevels(tags)
+  // 追加の施設情報（登録されているタグから整形し、ある項目だけ行を表示する）
+  const levelLabel = formatLevel(tags)
+  const feeLabel = formatFee(tags)
+  const capacityInfo = formatCapacity(tags)
+  const smokingLabel = formatSmoking(tags)
+  const brandLabel = formatBrand(result)
   // (A3) カテゴリプロファイルの追加項目（基本4項目・wheelchair は除外）
   const extraItems = keyInfoFor(result).items.filter(
     (it) => !BASE_KEYS.has(it.key) && it.key !== 'wheelchair'
@@ -274,6 +288,42 @@ export default function MobileFacilityCard({ result, onOpen, onSelect, bare = fa
   ) : null
   const additionalRows = (
     <>
+      {levelsLabel && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">階数</span>
+          <span className="ml-1">{levelsLabel}</span>
+        </p>
+      )}
+      {levelLabel && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">所在階</span>
+          <span className="ml-1">{levelLabel}</span>
+        </p>
+      )}
+      {feeLabel && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">料金</span>
+          <span className="ml-1">{feeLabel}</span>
+        </p>
+      )}
+      {capacityInfo && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">{capacityInfo.label}</span>
+          <span className="ml-1">{capacityInfo.text}</span>
+        </p>
+      )}
+      {smokingLabel && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">喫煙</span>
+          <span className="ml-1">{smokingLabel}</span>
+        </p>
+      )}
+      {brandLabel && (
+        <p className="text-xs text-slate-600">
+          <span className="text-slate-400">ブランド</span>
+          <span className="ml-1">{brandLabel}</span>
+        </p>
+      )}
       {/* (作業スペース系) 電源・Wi-Fi の状態。基本4項目のあと・カテゴリ追加項目の前。
           対象施設のみ表示。あり/なしはバッジ（登録済みの事実）、
           未登録は控えめなプレーン表示（電話・Webサイトの「-」と同様） */}

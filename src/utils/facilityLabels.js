@@ -78,6 +78,116 @@ export function formatAddress(tags) {
 }
 
 /**
+ * 建物の階数表示（building:levels / building:levels:underground から整形）
+ * @param {object|null} tags
+ * @returns {string} 例: '5階' / '地上5階・地下1階' / '地下1階'（該当タグがなければ ''）
+ */
+export function formatBuildingLevels(tags) {
+  if (!tags) return ''
+  const parse = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  const levels = parse(tags['building:levels'])
+  const underground = parse(tags['building:levels:underground'])
+  if (levels !== null && underground !== null) return `地上${levels}階・地下${underground}階`
+  if (levels !== null) return `${levels}階`
+  if (underground !== null) return `地下${underground}階`
+  return ''
+}
+
+/**
+ * 料金表示（fee / charge から整形）
+ * fee=no は「無料」。charge があればその表記（料金表記そのもの）を優先し、
+ * 無ければ fee=yes を「有料」とする。
+ * @param {object|null} tags
+ * @returns {string} 料金表示（該当タグがなければ ''）
+ */
+export function formatFee(tags) {
+  if (!tags) return ''
+  if (tags.fee === 'no') return '無料'
+  if (tags.charge) return tags.charge
+  if (tags.fee === 'yes') return '有料'
+  return ''
+}
+
+/**
+ * 駐車・駐輪台数表示（capacity / capacity:disabled から整形）
+ * 対象は駐車場（amenity=parking）と駐輪場（amenity=bicycle_parking）のみ。
+ * 他の施設の capacity は人数などを指すため対象外。
+ * @param {object|null} tags
+ * @returns {{ label: string, text: string }|null} 例: { label: '駐車台数', text: '50台（車椅子用2台）' }
+ */
+export function formatCapacity(tags) {
+  if (!tags) return null
+  const isCar = tags.amenity === 'parking'
+  const isBike = tags.amenity === 'bicycle_parking'
+  if (!isCar && !isBike) return null
+  const parse = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  const total = parse(tags.capacity)
+  if (total === null) return null
+  const disabled = parse(tags['capacity:disabled'])
+  return {
+    label: isCar ? '駐車台数' : '駐輪台数',
+    text: disabled !== null ? `${total}台（車椅子用${disabled}台）` : `${total}台`
+  }
+}
+
+/**
+ * 施設の所在階表示（level から整形）
+ * OSM の level は 0 が地上階、負数が地下。日本式の階表記に直す:
+ * 0 → 1階 / 2 → 3階 / -1 → 地下1階。単一数値でない値（範囲・複数）はそのまま返す。
+ * @param {object|null} tags
+ * @returns {string} 所在階表示（該当タグがなければ ''）
+ */
+export function formatLevel(tags) {
+  if (!tags) return ''
+  const raw = tags.level
+  if (raw == null || raw === '') return ''
+  const n = Number(raw)
+  if (Number.isInteger(n)) {
+    if (n >= 0) return `${n + 1}階`
+    return `地下${-n}階`
+  }
+  return String(raw)
+}
+
+const SMOKING_LABELS = {
+  yes: '喫煙可',
+  no: '禁煙',
+  separated: '分煙',
+  isolated: '分煙（喫煙室あり）',
+  outside: '屋外のみ喫煙可',
+  dedicated: '喫煙専用室あり'
+}
+
+/**
+ * 喫煙可否表示（smoking から整形）
+ * @param {object|null} tags
+ * @returns {string} 喫煙表示（該当タグがなければ ''）
+ */
+export function formatSmoking(tags) {
+  if (!tags) return ''
+  return SMOKING_LABELS[tags.smoking] || ''
+}
+
+/**
+ * ブランド表示（brand。施設名と同じなら出さない）
+ * @param {object|null} result
+ * @returns {string} ブランド名（なければ ''）
+ */
+export function formatBrand(result) {
+  const tags = (result && result.tags) || {}
+  const brand = tags.brand || ''
+  if (!brand) return ''
+  if (brand === tags.name || brand === (result && result.name)) return ''
+  return brand
+}
+
+/**
  * 公式サイトURLを取得（scheme付きのhttp(s) URLのみ有効とみなす）
  */
 export function safeWebsite(tags) {

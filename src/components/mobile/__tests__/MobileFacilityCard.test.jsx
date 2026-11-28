@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import MobileFacilityCard, { facilityName, formatAddress, safeWebsite } from '../MobileFacilityCard'
+import { formatBuildingLevels, formatFee, formatCapacity, formatLevel, formatSmoking, formatBrand } from '../../../utils/facilityLabels'
 import { facilityTypeLabel, preferredFacilityLink } from '../../../utils/facilityLabels'
 import { MEMOCHO_STORAGE_KEY } from '../../../utils/memocho'
 import { resetMemochoStore } from '../../../hooks/useMemocho'
@@ -86,6 +87,65 @@ describe('ユーティリティ関数（facilityLabels.js 経由の再エクス�
 })
 
 describe('MobileFacilityCard（#44 生活者目線デザイン）', () => {
+  it('formatBuildingLevels: 地上・地下を整形し、未登録や不正値は空文字', () => {
+    expect(formatBuildingLevels({ 'building:levels': '5' })).toBe('5階')
+    expect(formatBuildingLevels({ 'building:levels': '5', 'building:levels:underground': '1' })).toBe('地上5階・地下1階')
+    expect(formatBuildingLevels({ 'building:levels:underground': '2' })).toBe('地下2階')
+    expect(formatBuildingLevels({})).toBe('')
+    expect(formatBuildingLevels({ 'building:levels': 'abc' })).toBe('')
+    expect(formatBuildingLevels(null)).toBe('')
+  })
+
+  it('建物の階数が登録されていれば階数行を表示し、なければ出ない', () => {
+    const tower = {
+      type: 'way', id: 55, lat: 34.8, lon: 135.5, name: 'テストタワー',
+      tags: { name: 'テストタワー', building: 'office', 'building:levels': '12', 'building:levels:underground': '2' },
+    }
+    render(<MobileFacilityCard result={tower} onOpen={vi.fn()} />)
+    expect(screen.getByText('階数')).toBeTruthy()
+    expect(screen.getByText('地上12階・地下2階')).toBeTruthy()
+    cleanup()
+    render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
+    expect(screen.queryByText('階数')).toBeNull()
+  })
+
+  it('formatFee/formatCapacity/formatLevel/formatSmoking/formatBrand の整形', () => {
+    expect(formatFee({ fee: 'no' })).toBe('無料')
+    expect(formatFee({ fee: 'yes' })).toBe('有料')
+    expect(formatFee({ fee: 'yes', charge: '200円/30分' })).toBe('200円/30分')
+    expect(formatFee({})).toBe('')
+    expect(formatCapacity({ amenity: 'parking', capacity: '50' })).toEqual({ label: '駐車台数', text: '50台' })
+    expect(formatCapacity({ amenity: 'parking', capacity: '50', 'capacity:disabled': '2' })).toEqual({ label: '駐車台数', text: '50台（車椅子用2台）' })
+    expect(formatCapacity({ amenity: 'bicycle_parking', capacity: '30' })).toEqual({ label: '駐輪台数', text: '30台' })
+    expect(formatCapacity({ amenity: 'restaurant', capacity: '40' })).toBeNull()
+    expect(formatLevel({ level: '0' })).toBe('1階')
+    expect(formatLevel({ level: '2' })).toBe('3階')
+    expect(formatLevel({ level: '-1' })).toBe('地下1階')
+    expect(formatLevel({})).toBe('')
+    expect(formatSmoking({ smoking: 'no' })).toBe('禁煙')
+    expect(formatSmoking({ smoking: 'separated' })).toBe('分煙')
+    expect(formatSmoking({ smoking: 'unknown_value' })).toBe('')
+    expect(formatBrand({ name: '店舗A', tags: { name: '店舗A', brand: 'チェーンB' } })).toBe('チェーンB')
+    expect(formatBrand({ name: 'チェーンB', tags: { name: 'チェーンB', brand: 'チェーンB' } })).toBe('')
+    expect(formatBrand({ name: '店舗A', tags: { name: '店舗A' } })).toBe('')
+  })
+
+  it('料金・所在階・喫煙・ブランドが登録されていれば行を表示する', () => {
+    const shop = {
+      type: 'node', id: 88, lat: 34.8, lon: 135.5, name: '駅ビル店',
+      tags: { name: '駅ビル店', shop: 'clothes', level: '2', fee: 'yes', smoking: 'no', brand: 'テストチェーン' },
+    }
+    render(<MobileFacilityCard result={shop} onOpen={vi.fn()} />)
+    expect(screen.getByText('所在階')).toBeTruthy()
+    expect(screen.getByText('3階')).toBeTruthy()
+    expect(screen.getByText('料金')).toBeTruthy()
+    expect(screen.getByText('有料')).toBeTruthy()
+    expect(screen.getByText('喫煙')).toBeTruthy()
+    expect(screen.getByText('禁煙')).toBeTruthy()
+    expect(screen.getByText('ブランド')).toBeTruthy()
+    expect(screen.getByText('テストチェーン')).toBeTruthy()
+  })
+
   it('名称・日本語の施設タイプ・住所を表示する', () => {
     render(<MobileFacilityCard result={COFFEE} onOpen={vi.fn()} />)
     // 施設名は大きめ・太字のh3（電話帳型カード）
