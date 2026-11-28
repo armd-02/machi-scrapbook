@@ -4,7 +4,7 @@
  *
  * 検証内容:
  * - バーの表示: スクラップブックセレクト（「すべて」＋「デフォルト」の選択肢）、
- *   「カテゴリ管理」ドロップダウンボタン。ごみ箱ビューにはバーを出さない
+ *   「冊子管理」ドロップダウンボタン。ごみ箱ビューにはバーを出さない
  * - ブック絞り込み: ブックの選択でリストがそのブックのメモだけに絞られ、
  *   件数表示は「全n件中、m件を表示」になる。従来のフィルタ条件と AND 結合される
  *   - bookId 無いアイテムは「デフォルト」への所属とみなす
@@ -12,7 +12,7 @@
  *   - stale な選択（存在しないブック）は「すべて」にフォールバック
  *   - 「フィルタをクリア」（✕）はブック選択も「すべて」に戻す
  *   - メモマップのピンも同じブック絞り込みの対象になる
- * - カテゴリ管理（「カテゴリ管理」ボタン）:
+ * - 冊子管理（「冊子管理」ボタン）:
  *   - 新規作成: 名前を入力して作成。作られたブックが選択状態になり、セレクトの選択肢に現れる
  *   - 名前を変更: 選択中のブックの名前が変わる（「すべて」選択中は不可）
  *   - 削除: 2段階確認。そのブックのメモ（ごみ箱含む）はすべて「デフォルト」へ移動し、
@@ -22,19 +22,19 @@
  *     タップで即座に保存されメニューが閉じる。「デフォルト」ブックも対象
  *   - 公開ブックはセレクトのラベルに「（公開）」が付く
  *   - メニュー外をタップするとメニューが閉じる
- * - カテゴリ編集モード: カード一覧の直前にあるボタンで開始・終了できる
- * - カテゴリ編集モード（ピース3・カード側）:
- *   - モード OFF のときはカードにカテゴリセレクトは出ない
- *   - モード ON のときは各カードに「カテゴリ」ラベル＋セレクトが出て、
+ * - 冊子編集モード: カード一覧の直前にあるボタンで開始・終了できる
+ * - 冊子編集モード（ピース3・カード側）:
+ *   - モード OFF のときはカードに冊子セレクトは出ない
+ *   - モード ON のときは各カードに「冊子」ラベル＋セレクトが出て、
  *     現在のブック名が表示される（bookId 無い・不明なものはデフォルト）
  *   - 変更は即座に保存される（localStorage に反映され、表示も更新）
  *   - 特定ブック表示中に別のブックへ移すとカードはその場で一覧から消える
  *   - 「すべて」表示中は消えず、所属表示だけが変わる
  *   - ブックの改名でカード側の表示も更新される
- * - (ピースM) 非公開カテゴリ選択時に公開系ボタンの無効化:
- *   - 非公開カテゴリを選択中 → 「公開地図へ反映」と「公開マップのURLをコピー」は
- *     disabled になり、「選択中のカテゴリは非公開です」の注記が出る
- *   - 「すべて」または公開カテゴリの選択中は有効のまま
+ * - (ピースM) 非公開冊子選択時に公開系ボタンの無効化:
+ *   - 非公開冊子を選択中 → 「公開地図へ反映」と「公開マップのURLをコピー」は
+ *     disabled になり、「選択中の冊子は非公開です」の注記が出る
+ *   - 「すべて」または公開冊子の選択中は有効のまま
  *   - 最終同期時刻の表示はそのまま残る
  */
 import React from 'react'
@@ -126,14 +126,14 @@ afterEach(() => {
 })
 
 describe('バーの表示', () => {
-  it('一覧ビューにはセレクト（「すべて」「デフォルト」の選択肢）と「カテゴリ管理」ボタンが表示される', () => {
+  it('一覧ビューにはセレクト（「すべて」「デフォルト」の選択肢）と「冊子管理」ボタンが表示される', () => {
     seedMemos([makeItem()])
     renderSection()
 
     expect(optionTexts()).toEqual(['すべて', 'デフォルト'])
     expect(bookSelect().value).toBe('all')
-    expect(screen.getByRole('button', { name: 'カテゴリ管理' })).toBeTruthy()
-    expect(screen.getByText('カテゴリ管理▾')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '冊子管理' })).toBeTruthy()
+    expect(screen.getByText('冊子管理▾')).toBeTruthy()
   })
 
   it('作成したブックはセレクトの選択肢に現れる（デフォルトを先頭に並ぶ）', () => {
@@ -149,10 +149,10 @@ describe('バーの表示', () => {
     renderSection({ view: 'trash', onViewChange: vi.fn() })
 
     expect(screen.queryByRole('combobox', { name: 'スクラップブック' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'カテゴリ管理' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '冊子管理' })).toBeNull()
   })
 
-  // (ピースI) 2行構成: 1行目はセレクト＋「カテゴリ管理」ボタン、2行目は同期ボタン＋
+  // (ピースI) 2行構成: 1行目はセレクト＋「冊子管理」ボタン、2行目は同期ボタン＋
   // 最終同期表示。セレクトと同期ボタンが別の行（別のコンテナ）にあることを確認
   it('セレクトと同期ボタンは別の行（別のコンテナ）にある（2行構成）', () => {
     seedMemos([makeItem()])
@@ -161,10 +161,10 @@ describe('バーの表示', () => {
     const select = bookSelect()
     const syncBtn = screen.getByRole('button', { name: '公開地図へ反映' })
 
-    // 1行目: セレクト＋カテゴリ管理（ドロップダウン）
+    // 1行目: セレクト＋冊子管理（ドロップダウン）
     const row1 = select.closest('div.flex')
     expect(row1).toBeTruthy()
-    expect(row1.contains(screen.getByRole('button', { name: 'カテゴリ管理' }))).toBe(true)
+    expect(row1.contains(screen.getByRole('button', { name: '冊子管理' }))).toBe(true)
     expect(row1.contains(syncBtn)).toBe(false)
 
     // 2行目: 同期ボタン＋未同期表示。セレクトは入らない
@@ -303,19 +303,19 @@ describe('ブック絞り込み', () => {
   })
 })
 
-describe('カテゴリ管理（新規作成・名前を変更・削除）', () => {
+describe('冊子管理（新規作成・名前を変更・削除）', () => {
   it('新規作成: 名前を入力して作成すると、新ブックが選択肢に現れ選択状態になる', () => {
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    expect(screen.getByRole('menu', { name: 'カテゴリ管理' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
+    expect(screen.getByRole('menu', { name: '冊子管理' })).toBeTruthy()
 
     // 名前が空だと「作成」は disabled
     const createBtn = screen.getByRole('menuitem', { name: '作成' })
     expect(createBtn.disabled).toBe(true)
 
-    fireEvent.change(screen.getByLabelText('新規カテゴリの名前'), { target: { value: '  桜  ' } })
+    fireEvent.change(screen.getByLabelText('新規冊子の名前'), { target: { value: '  桜  ' } })
     expect(createBtn.disabled).toBe(false)
     fireEvent.click(createBtn)
 
@@ -336,16 +336,16 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
     // デフォルト＋99冊のブックをシード（合計100冊）
     const books = [{ id: 'default', name: 'デフォルト', createdAt: null }]
     for (let i = 1; i < 100; i += 1) {
-      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `カテゴリ${i}`, createdAt: null })
+      books.push({ id: `sb_${String(i).padStart(3, '0')}`, name: `冊子${i}`, createdAt: null })
     }
     seedBooks(books)
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     // 作成の入力欄・ボタンが disabled
-    const createInput = screen.getByLabelText('新規カテゴリの名前')
+    const createInput = screen.getByLabelText('新規冊子の名前')
     expect(createInput.disabled).toBe(true)
     expect(screen.getByRole('menuitem', { name: '作成' }).disabled).toBe(true)
 
@@ -364,9 +364,9 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
 
     // 「カフェ」を選択してからメニューを開く（入力欄に現行名が入る）
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
-    const renameInput = screen.getByLabelText('カテゴリの名前')
+    const renameInput = screen.getByLabelText('冊子の名前')
     expect(renameInput.value).toBe('カフェ')
 
     fireEvent.change(renameInput, { target: { value: 'コーヒー' } })
@@ -385,8 +385,8 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    expect(screen.getByLabelText('カテゴリの名前').disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
+    expect(screen.getByLabelText('冊子の名前').disabled).toBe(true)
     expect(screen.getByRole('menuitem', { name: '変更' }).disabled).toBe(true)
     expect(screen.getByText('変更するブックを選択してください。')).toBeTruthy()
   })
@@ -402,7 +402,7 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
 
     // 「カフェ」を選択してメニューを開く
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     // 1回目: 確認メッセージが出る（まだ削除されない）
     fireEvent.click(screen.getByRole('menuitem', { name: '「カフェ」を削除' }))
@@ -437,7 +437,7 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
     renderSection()
 
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '「カフェ」を削除' }))
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'キャンセル' }))
@@ -455,7 +455,7 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
 
     // 「デフォルト」を選択してメニューを開く
     selectBook('default')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     expect(screen.getByText('「デフォルト」は削除できません（名前変更はできます）。')).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /を削除/ })).toBeNull()
@@ -466,7 +466,7 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
     expect(screen.getByText('削除するブックを選択してください。')).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /を削除/ })).toBeNull()
   })
@@ -475,7 +475,7 @@ describe('カテゴリ管理（新規作成・名前を変更・削除）', () =
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
     expect(screen.getByRole('menu')).toBeTruthy()
 
     fireEvent.pointerDown(document.body)
@@ -501,7 +501,7 @@ describe('公開設定（CMM への公開）', () => {
     renderSection()
 
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     // 現在非公開なので「公開にする」が出る
     expect(screen.getByRole('menuitem', { name: '公開にする' })).toBeTruthy()
@@ -523,7 +523,7 @@ describe('公開設定（CMM への公開）', () => {
     renderSection()
 
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     expect(screen.getByRole('menuitem', { name: '非公開にする' })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: '公開にする' })).toBeNull()
@@ -541,7 +541,7 @@ describe('公開設定（CMM への公開）', () => {
     renderSection()
 
     selectBook('default')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     fireEvent.click(screen.getByRole('menuitem', { name: '公開にする' }))
 
@@ -556,7 +556,7 @@ describe('公開設定（CMM への公開）', () => {
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     expect(screen.getByText('公開設定を変更するブックを選択してください。')).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: '公開にする' })).toBeNull()
@@ -567,8 +567,8 @@ describe('公開設定（CMM への公開）', () => {
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    fireEvent.change(screen.getByLabelText('新規カテゴリの名前'), { target: { value: '桜' } })
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
+    fireEvent.change(screen.getByLabelText('新規冊子の名前'), { target: { value: '桜' } })
     fireEvent.click(screen.getByRole('menuitem', { name: '作成' }))
 
     const books = JSON.parse(localStorage.getItem(SCRAPBOOKS_STORAGE_KEY))
@@ -577,56 +577,56 @@ describe('公開設定（CMM への公開）', () => {
   })
 })
 
-describe('カード一覧のカテゴリ編集ボタン', () => {
+describe('カード一覧の冊子編集ボタン', () => {
   it('管理メニュー外のカード一覧直前から編集を開始できる', () => {
     seedMemos([makeItem()])
     renderSection()
 
-    const editButton = screen.getByRole('button', { name: 'メモのカテゴリを変更' })
+    const editButton = screen.getByRole('button', { name: 'メモの冊子を変更' })
     const cardList = document.getElementById('memocho-card-node/1001').parentElement
     expect(cardList.previousElementSibling.contains(editButton)).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    expect(screen.getByRole('menu', { name: 'カテゴリ管理' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: 'メモのカテゴリを変更' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
+    expect(screen.getByRole('menu', { name: '冊子管理' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'メモの冊子を変更' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
 
     fireEvent.click(editButton)
-    expect(screen.getByRole('combobox', { name: 'テスト珈琲店のカテゴリを変更' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'カテゴリ変更を終了' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: 'テスト珈琲店の冊子を変更' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '冊子変更を終了' })).toBeTruthy()
   })
 
   it('編集モード中も管理メニューを開け、カード一覧のボタンから編集を終了できる', () => {
     seedMemos([makeItem()])
     renderSection()
 
-    fireEvent.click(screen.getByRole('button', { name: 'メモのカテゴリを変更' }))
-    const manageButton = screen.getByRole('button', { name: 'カテゴリ管理' })
+    fireEvent.click(screen.getByRole('button', { name: 'メモの冊子を変更' }))
+    const manageButton = screen.getByRole('button', { name: '冊子管理' })
     fireEvent.click(manageButton)
-    expect(screen.getByRole('menu', { name: 'カテゴリ管理' })).toBeTruthy()
+    expect(screen.getByRole('menu', { name: '冊子管理' })).toBeTruthy()
     fireEvent.click(manageButton)
 
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ変更を終了' }))
-    expect(screen.getByRole('button', { name: 'メモのカテゴリを変更' })).toBeTruthy()
-    expect(screen.queryByRole('combobox', { name: /のカテゴリを変更/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '冊子変更を終了' }))
+    expect(screen.getByRole('button', { name: 'メモの冊子を変更' })).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: /の冊子を変更/ })).toBeNull()
   })
 })
 
-describe('カテゴリ編集モード（ピース3・カード側のブック変更）', () => {
-  // カードのカテゴリセレクトは aria-label「{施設名}のカテゴリを変更」
-  const cardSelect = (name) => screen.getByRole('combobox', { name: `${name}のカテゴリを変更` })
+describe('冊子編集モード（ピース3・カード側のブック変更）', () => {
+  // カードの冊子セレクトは aria-label「{施設名}の冊子を変更」
+  const cardSelect = (name) => screen.getByRole('combobox', { name: `${name}の冊子を変更` })
   const selectedText = (select) => select.options[select.selectedIndex].text
 
   const enterEditMode = () => {
-    fireEvent.click(screen.getByRole('button', { name: 'メモのカテゴリを変更' }))
+    fireEvent.click(screen.getByRole('button', { name: 'メモの冊子を変更' }))
   }
 
-  it('モード OFF のときはカードにカテゴリセレクトは出ない', () => {
+  it('モード OFF のときはカードに冊子セレクトは出ない', () => {
     seedBooks([{ id: 'sb_cafe', name: 'カフェ' }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
 
-    expect(screen.queryByRole('combobox', { name: /のカテゴリを変更/ })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: /の冊子を変更/ })).toBeNull()
   })
 
   it('モード ON のときは各カードに現在のブック名が表示されたセレクトが出る', () => {
@@ -639,7 +639,7 @@ describe('カテゴリ編集モード（ピース3・カード側のブック変
 
     enterEditMode()
 
-    const selects = screen.getAllByRole('combobox', { name: /のカテゴリを変更/ })
+    const selects = screen.getAllByRole('combobox', { name: /の冊子を変更/ })
     expect(selects).toHaveLength(2)
     // 1件目（bookId: sb_cafe）は「カフェ」、2件目（bookId 無し）は「デフォルト」
     expect(selects.map(selectedText)).toEqual(['カフェ', 'デフォルト'])
@@ -721,8 +721,8 @@ describe('カテゴリ編集モード（ピース3・カード側のブック変
 
     // ブックを改名（「カフェ」を選択 → メニュー → 名前を変更）
     selectBook('sb_cafe')
-    fireEvent.click(screen.getByRole('button', { name: 'カテゴリ管理' }))
-    fireEvent.change(screen.getByLabelText('カテゴリの名前'), { target: { value: 'コーヒー' } })
+    fireEvent.click(screen.getByRole('button', { name: '冊子管理' }))
+    fireEvent.change(screen.getByLabelText('冊子の名前'), { target: { value: 'コーヒー' } })
     fireEvent.click(screen.getByRole('menuitem', { name: '変更' }))
 
     // 編集モード ON → カード側のセレクト表示も新名に更新される（bookId 自体は不変）
@@ -732,8 +732,8 @@ describe('カテゴリ編集モード（ピース3・カード側のブック変
   })
 })
 
-describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', () => {
-  it('非公開カテゴリを選択中なら「公開地図へ反映」と「公開マップのURLをコピー」が無効化され、注記が出る', () => {
+describe('非公開冊子選択時の公開系ボタン（ピースM）', () => {
+  it('非公開冊子を選択中なら「公開地図へ反映」と「公開マップのURLをコピー」が無効化され、注記が出る', () => {
     seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
@@ -744,7 +744,7 @@ describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', 
     const copyBtn = screen.getByRole('button', { name: 'URLをコピー' })
     expect(syncBtn.disabled).toBe(true)
     expect(copyBtn.disabled).toBe(true)
-    expect(screen.getByText('選択中のカテゴリは非公開です')).toBeTruthy()
+    expect(screen.getByText('選択中の冊子は非公開です')).toBeTruthy()
   })
 
   it('「すべて」選択中は両ボタンとも無効化され、案内の注記が出る', () => {
@@ -756,11 +756,11 @@ describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', 
     const copyBtn = screen.getByRole('button', { name: 'URLをコピー' })
     expect(syncBtn.disabled).toBe(true)
     expect(copyBtn.disabled).toBe(true)
-    expect(screen.getByText('反映するには公開カテゴリを選んでください')).toBeTruthy()
-    expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
+    expect(screen.getByText('反映するには公開冊子を選んでください')).toBeTruthy()
+    expect(screen.queryByText('選択中の冊子は非公開です')).toBeNull()
   })
 
-  it('公開カテゴリを選択中は両ボタンとも有効で、注記は出ない', () => {
+  it('公開冊子を選択中は両ボタンとも有効で、注記は出ない', () => {
     seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: true }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])
     renderSection()
@@ -769,10 +769,10 @@ describe('非公開カテゴリ選択時の公開系ボタン（ピースM）', 
 
     expect(screen.getByRole('button', { name: '公開地図へ反映' }).disabled).toBe(false)
     expect(screen.getByRole('button', { name: 'URLをコピー' }).disabled).toBe(false)
-    expect(screen.queryByText('選択中のカテゴリは非公開です')).toBeNull()
+    expect(screen.queryByText('選択中の冊子は非公開です')).toBeNull()
   })
 
-  it('非公開カテゴリ選択中でも「最終: ...」の同期時刻表示はそのまま残る', () => {
+  it('非公開冊子選択中でも「最終: ...」の同期時刻表示はそのまま残る', () => {
     localStorage.setItem(CMM_LAST_SYNC_KEY, JSON.stringify('2026-01-18T14:32:00Z'))
     seedBooks([{ id: 'sb_cafe', name: 'カフェ', public: false }])
     seedMemos([makeItem({ bookId: 'sb_cafe' })])

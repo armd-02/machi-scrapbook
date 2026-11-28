@@ -217,7 +217,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     // 左ペイン: 幅600px固定、非hidden（検索トップ表示）
     expect(left.className).toContain('w-[600px]')
     expect(left.hasAttribute('hidden')).toBe(false)
-    expect(within(left).getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
+    expect(within(left).getByText('まちを探す。集める。共有する。')).toBeTruthy()
     expect(within(left).getByRole('button', { name: /くわしく探す/ })).toBeTruthy()
     // 一般トップのため地図はhidden
     expect(within(left).getByTestId('map-block').hasAttribute('hidden')).toBe(true)
@@ -350,7 +350,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
 
     // 左ペイン: 一般トップへ戻る
     await waitFor(() => {
-      expect(within(getLeftPane()).getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
+      expect(within(getLeftPane()).getByText('まちを探す。集める。共有する。')).toBeTruthy()
     })
     // 右ペイン: 一覧のまま（内容は保持）
     expect(within(getRightPane()).getByRole('heading', { name: 'テスト珈琲店' })).toBeTruthy()
@@ -424,7 +424,7 @@ describe('PC 2ペインレイアウト（幅 >= 1024px）', () => {
     expect(nav).toBeTruthy()
     expect(tabIsCurrent('検索')).toBe(true)
     // 初期表示は検索タブ（一般トップ）
-    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
+    expect(screen.getByText('まちを探す。集める。共有する。')).toBeTruthy()
     setMediaMatches(false)
   })
 })
@@ -440,7 +440,7 @@ describe('matchMedia 変更でレイアウトが追従する', () => {
     await waitFor(() => {
       expect(getLeftPane()).toBeNull()
     })
-    expect(screen.getByText('好きな場所で作る、わたしのまち')).toBeTruthy()
+    expect(screen.getByText('まちを探す。集める。共有する。')).toBeTruthy()
 
     // PCへ
     fireMediaChange(false)

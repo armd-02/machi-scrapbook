@@ -127,9 +127,10 @@ export function QuickTopIntro({
   }
   return (
     <>
-      <p className="pt-1 text-base text-slate-600">
-        好きな場所で作る、わたしのまち
-      </p>
+      <div className="space-y-1 pt-1">
+        <p className="text-base font-semibold text-slate-800">まちを探す。集める。共有する。</p>
+        <p className="text-sm text-slate-600">地域のお店や施設を探して、自分だけの地域情報帳を作ろう。</p>
+      </div>
 
       {/* 場所指定: 地名・駅名を入力し、「地名検索」を押すと
           geocode → 検索エリア確定 が実行される */}

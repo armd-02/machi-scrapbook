@@ -70,14 +70,14 @@ import CmmSyncResultPanel from '../CmmSyncResultPanel'
  *     メモだけリスト・マップに表示される（「すべて」なら全部）。従来のフィルタ条件と
  *     AND 結合して適用される。選択は localStorage（machi-memocho-book-filter）に
  *     保存され次回も維持される（stale な選択は「すべて」にフォールバック）
- *   - 「カテゴリ管理」ボタン: 新規作成（作ったら選択状態にする）・名前を変更
+ *   - 「冊子管理」ボタン: 新規作成（作ったら選択状態にする）・名前を変更
  *     （選択中のブック・「すべて」選択中は不可）・削除（選択中のブック・2段階確認・
  *     そのブックのメモはすべて「デフォルト」へ移動）。「デフォルト」は削除不可。
  *   - ごみ箱ビュー（view='trash'）にはバーを出さない
  *
- * - カテゴリ編集モード（ピース3）: カード一覧の直前で開始・終了する。
+ * - 冊子編集モード（ピース3）: カード一覧の直前で開始・終了する。
  *   モード ON のとき、各メモカードの下部に所属
- *   ブックの変更 UI（「カテゴリ」ラベル＋セレクトボックス）が出る。現在の
+ *   ブックの変更 UI（「冊子」ラベル＋セレクトボックス）が出る。現在の
  *   ブック名がセレクトに表示され、「デフォルト」を含む全ブックから選べる。
  *   変更は即座に保存される（setBook → updateBook → localStorage）。カードの
  *   通常のタップ動作（詳細を開く）と干渉しない位置（施設カードのクリック領域の
@@ -219,7 +219,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
     }
   }
 
-  // カード一覧でカテゴリ編集を開始・終了する。
+  // カード一覧で冊子編集を開始・終了する。
   const [categoryEdit, setCategoryEdit] = useState(false)
 
   // (スクラップブックバー) ブックを削除する: そのブックのメモ（ごみ箱含む）をすべて
@@ -522,7 +522,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
                   : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
               }`}
             >
-              {categoryEdit ? 'カテゴリ変更を終了' : 'メモのカテゴリを変更'}
+              {categoryEdit ? '冊子変更を終了' : 'メモの冊子を変更'}
             </button>
           </div>
         )}
@@ -560,7 +560,7 @@ export default function MemochoSection({ view = 'list', onViewChange }) {
                   // 論理削除: deletedAt を付けてごみ箱へ移動する
                   onRemove={handleRemove}
                   selected={selectedKey === key}
-                  // (カテゴリ編集モード) ON のときだけカードに所属ブックの変更 UI を出す
+                  // (冊子編集モード) ON のときだけカードに所属ブックの変更 UI を出す
                   books={books}
                   editMode={categoryEdit}
                   onSetBook={setBook}
@@ -685,7 +685,7 @@ function MemochoCard({
   const key = memochoKeyOf(item)
   const memoValue = draft != null ? draft : item.memo || ''
   const rating = item.rating ?? 0 // 旧データ（rating 無し）は未評価として扱う
-  // (カテゴリ編集モード) 所属ブック ID。books に無い ID（例: 読み込みデータ）は
+  // (冊子編集モード) 所属ブック ID。books に無い ID（例: 読み込みデータ）は
   // 'default' にフォールバックし、セレクトで選択肢と一致させる
   const bookValue = books.some((b) => b.id === item.bookId) ? item.bookId : 'default'
   const isEditing = draft != null
@@ -822,7 +822,7 @@ function MemochoCard({
         </button>
       )}
       <div className="px-3 pb-3">
-        {/* (カテゴリ編集モード) 所属ブックの変更 UI。モード ON のときだけ表示。
+        {/* (冊子編集モード) 所属ブックの変更 UI。モード ON のときだけ表示。
             施設カード本体のクリック領域の外（下のエリア）に置くため、カードの通常の
             タップ動作（詳細を開く）と干渉しない。変更は即座に保存される
             （onSetBook → updateBook → localStorage）。
@@ -830,11 +830,11 @@ function MemochoCard({
             その場で一覧から消える。「すべて」表示中は消えず、所属表示だけが変わる */}
         {editMode && books.length > 0 && (
           <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="shrink-0 text-[11px] font-medium text-slate-500" aria-hidden="true">カテゴリ</span>
+            <span className="shrink-0 text-[11px] font-medium text-slate-500" aria-hidden="true">冊子</span>
             <select
               value={bookValue}
               onChange={(e) => onSetBook && onSetBook(key, e.target.value)}
-              aria-label={`${item.name}のカテゴリを変更`}
+              aria-label={`${item.name}の冊子を変更`}
               className="min-w-0 flex-1 min-h-[44px] px-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               {books.map((b) => (
@@ -898,15 +898,15 @@ function MemochoCard({
  * スクラップブックの切り替え・管理バー。
  *
  * (ピースI) レイアウトは2行構成: 1行目はブック切替セレクト（flex-1・
- * min-w-0）＋「カテゴリ管理」ドロップダウンボタン、2行目は同期ボタン
+ * min-w-0）＋「冊子管理」ドロップダウンボタン、2行目は同期ボタン
  * ＋最終同期時刻／「未同期」表示。セレクトは1行目の残り幅すべてを使い、
- * 狭い画面でも選択中のカテゴリ名が読める幅を確保する。
+ * 狭い画面でも選択中の冊子名が読める幅を確保する。
  *
  * - セレクトボックス: 「すべて」＋各ブック（「デフォルト」を先頭に）。単一選択で、
  *   選択中のブックのメモだけリスト・マップに表示される（「すべて」なら全部）。
  *   選択は localStorage（BOOK_FILTER_STORAGE_KEY）に保存され次回も維持される。
  *   見た目はメモ帳の絞り込みセレクト（FilterSelect）と同じ
- * - 「カテゴリ管理」ボタン（文字ラベルに「▾」を付けたドロップダウン）:
+ * - 「冊子管理」ボタン（文字ラベルに「▾」を付けたドロップダウン）:
  *   新規作成・名前を変更・公開設定・削除のメニュー。
  *   - 新規作成: 名前を入力して作成し、作ったらそのブックを選択状態にする
  *   - 名前を変更: 選択中のブックの名前を変更する（「すべて」選択中は不可）
@@ -920,9 +920,9 @@ function MemochoCard({
  *   同期中は無効化されラベルが「同期中…」に変わる。最終同期時刻がある場合、
  *   ボタンの右に「最終: YYYY/MM/DD HH:MM」を表示する。同期完了後はバーの下に
  *   結果パネル（CmmSyncResultPanel）が表示され、✕ で閉じられる
- * - (ピースM) 非公開のカテゴリを選択中のときは、「公開地図へ反映」と「公開マップのURLをコピー」
- *   ボタンを無効化（グレーアウト）し、「選択中のカテゴリは非公開です」の注記を表示する。
- *   「すべて」選択中または公開カテゴリ選択中は従来どおり有効。最終同期時刻の表示はそのまま
+ * - (ピースM) 非公開の冊子を選択中のときは、「公開地図へ反映」と「公開マップのURLをコピー」
+ *   ボタンを無効化（グレーアウト）し、「選択中の冊子は非公開です」の注記を表示する。
+ *   公開冊子選択中のみ有効。最終同期時刻の表示はそのまま
  *
  * @param {Array} books 現在あるブック配列（既定ブックが先頭）
  * @param {string} bookFilter 選択中のブックID（'all' ＝ すべて）
@@ -956,8 +956,8 @@ function ScrapbookBar({
   const canRename = selected != null
   const canPublish = selected != null
   const canDelete = selected != null && selected.id !== DEFAULT_BOOK_ID
-  // (ピースM・拡張) 公開系ボタンは公開カテゴリを選択中のみ有効。
-  // 非公開カテゴリ選択中と「すべて」選択中は無効化する（ユーザー判断 2026-11-26）
+  // (ピースM・拡張) 公開系ボタンは公開冊子を選択中のみ有効。
+  // 非公開冊子選択中と「すべて」選択中は無効化する（ユーザー判断 2026-11-26）
   const isPrivateSelected = selected != null && !selected.public
   const isAllSelected = selected == null
   const publishDisabled = isPrivateSelected || isAllSelected
@@ -1061,10 +1061,10 @@ function ScrapbookBar({
 
   return (
     <div ref={rootRef} className="relative">
-      {/* (ピースI) 2行構成: 1行目はセレクト＋「カテゴリ管理」ボタン、2行目は同期。
+      {/* (ピースI) 2行構成: 1行目はセレクト＋「冊子管理」ボタン、2行目は同期。
           セレクトは1行目の残り幅すべてを使える（flex-1・min-w-0） */}
       <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-col gap-2">
-        {/* 1行目: ブック切替セレクト＋カテゴリ管理（ドロップダウン） */}
+        {/* 1行目: ブック切替セレクト＋冊子管理（ドロップダウン） */}
         <div className="flex items-center gap-2">
           {/* ブック切替セレクト: 「すべて」＋各ブック（デフォルト先頭）。
               見た目は絞り込みセレクト（FIELD_CLASS）と揃える */}
@@ -1082,11 +1082,11 @@ function ScrapbookBar({
           <button
             type="button"
             onClick={toggleMenu}
-            aria-label="カテゴリ管理"
+            aria-label="冊子管理"
             aria-expanded={menuOpen}
             className="shrink-0 min-h-[44px] px-3 text-sm font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
           >
-            カテゴリ管理▾
+            冊子管理▾
           </button>
         </div>
         {/* 2行目: 公開地図への反映・URLのコピー・最終同期時刻 */}
@@ -1140,16 +1140,16 @@ function ScrapbookBar({
             </svg>
             URLをコピー
           </button>
-          {/* (ピースM) 非公開カテゴリ選択中の無効化理由 */}
+          {/* (ピースM) 非公開冊子選択中の無効化理由 */}
           {isPrivateSelected && (
             <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
-              選択中のカテゴリは非公開です
+              選択中の冊子は非公開です
             </span>
           )}
           {/* (拡張) 「すべて」選択中の無効化理由 */}
           {isAllSelected && (
             <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">
-              反映するには公開カテゴリを選んでください
+              反映するには公開冊子を選んでください
             </span>
           )}
           {lastSyncAt != null && formatLastSyncAt(lastSyncAt) != null ? (
@@ -1175,19 +1175,19 @@ function ScrapbookBar({
       {menuOpen && (
         <div
           role="menu"
-          aria-label="カテゴリ管理"
+          aria-label="冊子管理"
           className="absolute right-0 top-full mt-1.5 w-64 z-40 bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-3"
         >
           {/* 新規作成 */}
           <div className="space-y-1.5">
-            <p className="text-[11px] font-semibold tracking-wider text-slate-400">カテゴリの新規作成</p>
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">冊子の新規作成</p>
             <div className="flex gap-1.5">
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="カテゴリ名"
-                aria-label="新規カテゴリの名前"
+                placeholder="冊子名"
+                aria-label="新規冊子の名前"
                 disabled={atBookLimit}
                 className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-40"
               />
@@ -1203,7 +1203,7 @@ function ScrapbookBar({
             </div>
             {atBookLimit && (
               <p className="text-[10px] text-amber-600" role="status">
-                冊子の上限（{MAX_BOOKS}冊）に達しているため、新しいカテゴリを作れません。
+                冊子の上限（{MAX_BOOKS}冊）に達しているため、新しい冊子を作れません。
               </p>
             )}
           </div>
@@ -1221,7 +1221,7 @@ function ScrapbookBar({
                 value={renameName}
                 onChange={(e) => setRenameName(e.target.value)}
                 placeholder="新しい名前"
-                aria-label="カテゴリの名前"
+                aria-label="冊子の名前"
                 disabled={!canRename}
                 className="min-w-0 flex-1 min-h-[44px] px-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-40"
               />
