@@ -1306,17 +1306,6 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(mapBlock.hasAttribute('hidden')).toBe(true)
   }, IT_TIMEOUT)
 
-  it('目的タイル（食べる）を選択して「検索する」を押す: 初期ソースが自治体でも検索エリアで検索される（no_bboxにならない）', async () => {
-    overpassElements = OVERPASS_ELEMENTS_UMEDA
-    renderApp()
-    // (#63) タイル検索には検索エリアの設定が必要: ジオコードで「梅田」を設定する
-    await setAreaByGeocode()
-
-    // 回帰テスト: 初期ソースがmunicipalityのとき、旧実装は mapBounds 読み取りの条件が
-    // `state.searchSource === 'map'` だったため、dispatch で地図モードへ切替した直後の
-    // ハンドラ内で切り替え前の古い state を見て mapBounds が null になり、
-    // buildSearchCriteria が no_bbox で失敗していた（バナーは「接続エラー」と表示）。
-    // 修正後は切り替え前のソースに関係なく更新後の状態からスナップショットを
   it('検索テンプレートを選んでから場所を指定でき、選択や解除だけでは検索しない', async () => {
     renderApp()
     const templates = screen.getByRole('region', { name: '検索テンプレート' })
@@ -1354,6 +1343,17 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(overpassCalls[0]).not.toContain('amenity=restaurant')
   }, IT_TIMEOUT)
 
+  it('目的タイル（食べる）を選択して「検索する」を押す: 初期ソースが自治体でも検索エリアで検索される（no_bboxにならない）', async () => {
+    overpassElements = OVERPASS_ELEMENTS_UMEDA
+    renderApp()
+    // (#63) タイル検索には検索エリアの設定が必要: ジオコードで「梅田」を設定する
+    await setAreaByGeocode()
+
+    // 回帰テスト: 初期ソースがmunicipalityのとき、旧実装は mapBounds 読み取りの条件が
+    // `state.searchSource === 'map'` だったため、dispatch で地図モードへ切替した直後の
+    // ハンドラ内で切り替え前の古い state を見て mapBounds が null になり、
+    // buildSearchCriteria が no_bbox で失敗していた（バナーは「接続エラー」と表示）。
+    // 修正後は切り替え前のソースに関係なく更新後の状態からスナップショットを
     // 構築するため、トップのまま検索が実行される。
     // タイルタップは選択だけ（タップで検索しない）。検索は「検索する」で実行される
     fireEvent.click(screen.getByRole('button', { name: '食べる' }))
