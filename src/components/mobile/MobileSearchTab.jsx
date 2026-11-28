@@ -285,21 +285,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     ? { category: '', cuisine: '', keyword: '', purpose: tile.purpose }
     : { category: tile.category, cuisine: '', keyword: '', purpose: '' })
 
-  // (top) タイル下の「指定した場所と種別で検索」ボタンで実行する施設検索。
-  // ジオコードは一切行わない: 「設定済みの検索エリア＋選ばれたタイル（種別）」
-  // のみで施設検索を実行する（明示的な1回の操作で Nominatim に問い合わせる
-  // 「地名検索」と役割を分ける）。
-  // ① エリアが未設定なら検索せず、「先に場所を指定してください」趣旨の案内。
-  // ② タイル（種別）が未選択なら検索せず「種別を選んでください」案内。
-  // ③ 場所と種別がそろえば、その範囲・種別で施設検索を実行
-  //   （成功で MobileShell が一覧タブへ自動切替）。
-  const handleTopSearch = () => {
+  // 通常の検索とサンプル検索で共用する。サンプルは選択直後の範囲・条件を渡す。
+  const runTopSearch = (selection, areaBbox) => {
     if (state.status === 'loading') return
 
-    // ① 検索エリアの確認（geocode は行わない）。エリアは「地名検索」または
-    //   「都道府県から探す」の自治体選択で設定済みの state.bbox
-    const areaBbox = state.bbox
-    const areaSource = state.bboxSource
     if (!areaBbox || !isValidBbox(areaBbox)) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
@@ -312,12 +301,11 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     }
 
     // ② 種別（目的タイル）が未選択
-    const selection = selectedTemplate ?? selectedTile
     if (!selection) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
         type: 'SET_ERROR',
-        payload: '種別を選んでください。\n目的タイルか検索テンプレートを1つ選んでください。',
+        payload: '種別を選んでください。\n目的タイルか検索サンプルを1つ選んでください。',
         errorType: 'validation'
       })
       return
@@ -336,15 +324,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     dispatch({ type: 'SET_SIMPLE_SEARCH', payload: conditions })
 
     // stale-state競合を避けるため、更新後の状態からスナップショットを構築 (#47)。
-    // 検索は設定済みの検索エリア（state.bbox）の範囲で実行する。トップ画面には
-    // 地図を描画しないため、地図の表示範囲（mapBounds）は使わない。
+    // トップでは地図の表示範囲ではなく、指定された検索エリアを使う。
     const next = {
       ...state,
       searchSource: 'map',
       searchMode: 'simple',
       simpleSearch: { ...state.simpleSearch, ...conditions }
     }
-    const criteria = buildSearchCriteria(next, { wheelchairOnly: selectedTemplate?.wheelchairOnly })
+    const criteria = buildSearchCriteria(next, {
+      bboxOverride: areaBbox,
+      wheelchairOnly: selection.wheelchairOnly,
+    })
     // criteria が ok でない場合、壊れた criteria を search() に渡さない
     // （渡すと useSearch 側の検証エラーが発火し、通信エラーとして表示される）。
     // 代わりに criteria 自身の message / suggestion をエラー表示する。
@@ -359,6 +349,18 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
       return
     }
     search(criteria)
+  }
+
+  const handleTopSearch = () => runTopSearch(selectedTemplate ?? selectedTile, bbox)
+
+  const handleSampleSearch = (template) => {
+    if (state.status === 'loading' || geocoding || locating) return
+    const areaBbox = { ...template.bbox, source: 'geocode' }
+    setSelectedTile(null)
+    setSelectedTemplate(template)
+    setMuniSectionOpen(false)
+    confirmPlace({ query: template.place, displayName: template.place, bbox: areaBbox, remember: false })
+    runTopSearch(template, areaBbox)
   }
 
   // (top) 地名入力欄の「地名検索」ボタン（または Enter）で実行する
@@ -932,20 +934,15 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
                   <p>適用中の条件 {selectedTemplate.label}</p>
                   <p>{hasTopArea ? '設定済みの場所で検索します。' : '地名・駅名、現在地、市区町村から場所を指定してください。'}</p>
                   <button type="button" disabled={state.status === 'loading'} onClick={() => setSelectedTemplate(null)} className="min-h-[44px] text-primary-700 underline">
-                    テンプレートを解除
+                    選択を解除
                   </button>
                 </div>
               )}
             </QuickTopTiles>
             <QuickSearchTemplates
               selected={selectedTemplate}
-              onSelect={(template) => {
-                setSelectedTile(null)
-                setSelectedTemplate(template)
-              }}
-              onSearch={handleTopSearch}
-              hasArea={hasTopArea}
-              disabled={state.status === 'loading'}
+              onSearch={handleSampleSearch}
+              disabled={state.status === 'loading' || geocoding || locating}
             />
           </>
         ) : (

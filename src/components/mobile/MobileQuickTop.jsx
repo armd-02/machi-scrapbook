@@ -258,14 +258,31 @@ export function QuickTopTiles({
 }
 
 const SEARCH_TEMPLATES = [
-  { id: 'station-cafe', category: 'cafe', label: '駅周辺のカフェ', description: '駅名を指定してカフェを探す', icon: '☕' },
-  { id: 'wheelchair-toilets', category: 'toilets', wheelchairOnly: true, label: '車いす対応トイレ', description: '車いす対応の登録があるトイレを探す', icon: '♿' },
+  {
+    id: 'station-cafe',
+    category: 'cafe',
+    label: '高槻駅周辺のカフェ',
+    description: 'JR高槻駅のすぐ近くで探す',
+    icon: '☕',
+    place: 'JR高槻駅周辺',
+    bbox: { south: 34.8503, west: 135.6161, north: 34.8529, east: 135.6193 },
+  },
+  {
+    id: 'wheelchair-toilets',
+    category: 'toilets',
+    wheelchairOnly: true,
+    label: '車いす対応トイレ',
+    description: '高槻市中心部で対応の登録があるトイレを探す',
+    icon: '♿',
+    place: '高槻市中心部',
+    bbox: { south: 34.841, west: 135.609, north: 34.857, east: 135.627 },
+  },
 ]
 
-export function QuickSearchTemplates({ selected, onSelect, onSearch, hasArea, disabled }) {
+export function QuickSearchTemplates({ selected, onSearch, disabled }) {
   return (
     <section aria-labelledby="search-templates-heading" className="space-y-2">
-      <h2 id="search-templates-heading" className="text-base font-semibold text-slate-800">検索テンプレート</h2>
+      <h2 id="search-templates-heading" className="text-base font-semibold text-slate-800">検索サンプル</h2>
       <div className="grid gap-2 lg:grid-cols-2">
         {SEARCH_TEMPLATES.map((template) => (
           <button
@@ -273,7 +290,7 @@ export function QuickSearchTemplates({ selected, onSelect, onSearch, hasArea, di
             type="button"
             disabled={disabled}
             aria-pressed={selected?.id === template.id}
-            onClick={() => onSelect(template)}
+            onClick={() => onSearch(template)}
             className="flex min-h-[44px] items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 aria-pressed:border-primary-600 aria-pressed:bg-primary-50 disabled:opacity-50"
           >
             <span className="text-xl" aria-hidden="true">{template.icon}</span>
@@ -284,20 +301,6 @@ export function QuickSearchTemplates({ selected, onSelect, onSearch, hasArea, di
           </button>
         ))}
       </div>
-      {selected && (
-        <div className="flex flex-wrap items-center gap-x-3">
-          <p role="status" className="text-sm text-slate-600">{selected.label}を選択しました。</p>
-          {hasArea ? (
-            <button type="button" disabled={disabled} onClick={onSearch} className="min-h-[44px] rounded-lg bg-primary-600 px-3 text-sm font-medium text-white disabled:opacity-50">
-              このテンプレートで検索
-            </button>
-          ) : (
-            <button type="button" disabled={disabled} onClick={() => document.getElementById('quick-place-input')?.focus()} className="min-h-[44px] text-sm text-primary-700 underline">
-              場所を指定する
-            </button>
-          )}
-        </div>
-      )}
     </section>
   )
 }

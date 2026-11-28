@@ -97,7 +97,7 @@ export function useSearch() {
       prevBbox.north === bbox.north && prevBbox.east === bbox.east
     dispatch({
       type: 'SET_BBOX',
-      payload: bboxUnchanged ? { ...bbox, source: stateRef.current.bboxSource } : bbox
+      payload: bboxUnchanged && !bbox.source ? { ...bbox, source: stateRef.current.bboxSource } : bbox
     })
 
     // キャンセルシグナル

@@ -1306,41 +1306,27 @@ describe('#63 一般向けトップ（QuickTop）: 初期表示とタイル検�
     expect(mapBlock.hasAttribute('hidden')).toBe(true)
   }, IT_TIMEOUT)
 
-  it('検索テンプレートを選んでから場所を指定でき、選択や解除だけでは検索しない', async () => {
-    renderApp()
-    const templates = screen.getByRole('region', { name: '検索テンプレート' })
-    const cafe = within(templates).getByRole('button', { name: /駅周辺のカフェ/ })
-    const toilets = within(templates).getByRole('button', { name: /車いす対応トイレ/ })
-    fireEvent.click(cafe)
-    expect(cafe.getAttribute('aria-pressed')).toBe('true')
-    expect(within(templates).queryByRole('button', { name: 'このテンプレートで検索' })).toBeNull()
-
-    fireEvent.click(within(templates).getByRole('button', { name: '場所を指定する' }))
-    expect(document.activeElement?.id).toBe('quick-place-input')
-    fireEvent.click(toilets)
-    expect(cafe.getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(screen.getByRole('button', { name: 'テンプレートを解除' }))
-    expect(toilets.getAttribute('aria-pressed')).toBe('false')
-    expect(overpassCalls).toHaveLength(0)
-  }, IT_TIMEOUT)
-
   it.each([
-    [true, /車いす対応トイレ/, 'amenity=toilets', true],
-    [false, /駅周辺のカフェ/, 'amenity=cafe', false],
-  ])('検索テンプレートが確定済みの場所と条件を使う（スマホ=%s）', async (mobile, title, categoryTag, wheelchairOnly) => {
+    [true, /車いす対応トイレ/, 'amenity=toilets', true, '34.841000,135.609000,34.857000,135.627000'],
+    [false, /高槻駅周辺のカフェ/, 'amenity=cafe', false, '34.850300,135.616100,34.852900,135.619300'],
+  ])('検索サンプルが設定済みの場所を置き換えて検索する（スマホ=%s）', async (mobile, title, categoryTag, wheelchairOnly, bbox) => {
     mediaMatches = mobile
     renderApp()
     await setAreaByGeocode()
-    const templates = screen.getByRole('region', { name: '検索テンプレート' })
-    fireEvent.click(within(templates).getByRole('button', { name: title }))
+    const templates = screen.getByRole('region', { name: '検索サンプル' })
     expect(overpassCalls).toHaveLength(0)
-    fireEvent.click(within(templates).getByRole('button', { name: 'このテンプレートで検索' }))
+    fireEvent.click(within(templates).getByRole('button', { name: title }))
 
     await waitFor(() => expect(overpassCalls).toHaveLength(1), { timeout: 8000 })
-    expect(overpassCalls[0]).toContain('34.690000,135.490000,34.710000,135.510000')
+    expect(overpassCalls[0]).toContain(bbox)
     expect(overpassCalls[0]).toContain(categoryTag)
     expect(overpassCalls[0].includes('[wheelchair=yes]')).toBe(wheelchairOnly)
     expect(overpassCalls[0]).not.toContain('amenity=restaurant')
+    await waitFor(() => {
+      if (mobile) expect(tabIsCurrent('一覧')).toBe(true)
+      else expect(screen.getByTestId('pc-right-list').hidden).toBe(false)
+    })
+    expect(overpassCalls).toHaveLength(1)
   }, IT_TIMEOUT)
 
   it('目的タイル（食べる）を選択して「検索する」を押す: 初期ソースが自治体でも検索エリアで検索される（no_bboxにならない）', async () => {
