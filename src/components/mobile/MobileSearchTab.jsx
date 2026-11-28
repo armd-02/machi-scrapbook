@@ -17,7 +17,7 @@ import SearchActionButton from '../SearchActionButton'
 import MapView from '../MapView'
 import GeocodeCandidateList from '../GeocodeCandidateList'
 import PlaceNameInput from '../PlaceNameInput'
-import { QuickTopIntro, QuickTopTiles } from './MobileQuickTop'
+import { QuickSearchTemplates, QuickTopIntro, QuickTopTiles } from './MobileQuickTop'
 import BarrierFreeLegend from '../BarrierFreeLegend'
 import PoiDescription from '../PoiDescription'
 import { useDraggableHeight, MAP_HEIGHT_STORAGE_KEY_MOBILE } from '../../hooks/useDraggableHeight'
@@ -111,6 +111,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 別のタイルを押すと選択が移る（同時に選べるのは1つだけ）。
   // 施設検索はタイル下の「検索する」ボタンで実行される
   const [selectedTile, setSelectedTile] = useState(null)
+  const [selectedTemplate, setSelectedTemplate] = useState(null)
+  const hasTopArea = isValidBbox(bbox)
 
   // (top) 「都道府県から探す」折りたたみセクションの開閉（既定は閉じた状態）
   const [muniSectionOpen, setMuniSectionOpen] = useState(false)
@@ -310,11 +312,12 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     }
 
     // ② 種別（目的タイル）が未選択
-    if (!selectedTile) {
+    const selection = selectedTemplate ?? selectedTile
+    if (!selection) {
       dispatch({ type: 'SET_STATUS', payload: 'error' })
       dispatch({
         type: 'SET_ERROR',
-        payload: '種別を選んでください。\n目的の施設にあたる目的タイルを1つタップしてください。',
+        payload: '種別を選んでください。\n目的タイルか検索テンプレートを1つ選んでください。',
         errorType: 'validation'
       })
       return
@@ -322,13 +325,14 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
 
     // ③ 施設検索（旧タイル即検索と同じ方式: 更新後の状態スナップショット
     //    → buildSearchCriteria → search）
-    const conditions = tileConditions(selectedTile)
+    const conditions = tileConditions(selection)
 
     // 地図モードで検索する。自治体モード等なら先に地図モードへ切替
     // （目的タイル・フォーム経由のいずれの流れでも地図モードで検索する既存設計を維持）
     if (state.searchSource !== 'map') {
       dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'map' })
     }
+    if (searchMode !== 'simple') dispatch({ type: 'SET_SEARCH_MODE', payload: 'simple' })
     dispatch({ type: 'SET_SIMPLE_SEARCH', payload: conditions })
 
     // stale-state競合を避けるため、更新後の状態からスナップショットを構築 (#47)。
@@ -337,9 +341,10 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
     const next = {
       ...state,
       searchSource: 'map',
+      searchMode: 'simple',
       simpleSearch: { ...state.simpleSearch, ...conditions }
     }
-    const criteria = buildSearchCriteria(next, {})
+    const criteria = buildSearchCriteria(next, { wheelchairOnly: selectedTemplate?.wheelchairOnly })
     // criteria が ok でない場合、壊れた criteria を search() に渡さない
     // （渡すと useSearch 側の検証エラーが発火し、通信エラーとして表示される）。
     // 代わりに criteria 自身の message / suggestion をエラー表示する。
@@ -472,6 +477,7 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // 実際の施設検索はタイル下の「検索する」ボタン（handleTopSearch）で実行される。
   const handleTileSelect = (tile) => {
     if (state.status === 'loading') return
+    setSelectedTemplate(null)
     setSelectedTile(tile)
     // 自治体が選択済みなら、セクション内検索にも種別を引き継ぐ
     // （自治体→タイルの順で操作しても、セクションの「検索する」で種別が効く）
@@ -489,14 +495,17 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
   // これによりスナップショットと dispatch 後の状態が一致する。
   const handleMuniSectionSearch = () => {
     if (state.status === 'loading') return
-    const ms = state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
-    let next = state
+    const ms = selectedTemplate
+      ? tileConditions(selectedTemplate)
+      : state.municipalitySearch || { category: '', cuisine: '', purpose: '' }
+    const next = { ...state, searchSource: 'municipality', municipalitySearch: ms }
     if (state.searchSource !== 'municipality') {
       dispatch({ type: 'SET_SEARCH_SOURCE', payload: 'municipality' })
-      dispatch({ type: 'SET_MUNICIPALITY_SEARCH', payload: { ...ms } })
-      next = { ...state, searchSource: 'municipality' }
     }
-    const criteria = buildSearchCriteria(next)
+    if (selectedTemplate || state.searchSource !== 'municipality') {
+      dispatch({ type: 'SET_MUNICIPALITY_SEARCH', payload: ms })
+    }
+    const criteria = buildSearchCriteria(next, { wheelchairOnly: selectedTemplate?.wheelchairOnly })
     if (criteria.ok !== true) return
     search(criteria)
   }
@@ -888,7 +897,8 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
               {muniSectionOpen && (
                 <div className="p-3 space-y-3 border-t border-slate-100">
                   {/* 従来フォームと同一の MunicipalitySearch（モバイル変種）を内嵌 */}
-                  <MunicipalitySearch variant="mobile" />
+                  <MunicipalitySearch variant="mobile" locationOnly={Boolean(selectedTemplate)} />
+                  {selectedTemplate && <p className="text-sm text-slate-700">適用中の条件 {selectedTemplate.label}</p>}
                   <button
                     type="button"
                     onClick={handleMuniSectionSearch}
@@ -908,14 +918,36 @@ export default function MobileSearchTab({ view = 'top', onViewChange = () => {},
         {mapBlock}
 
         {view === 'top' ? (
-          <QuickTopTiles
-            onTileTap={handleTileSelect}
-            onSearch={handleTopSearch}
-            onOpenDetailed={() => onViewChange('form')}
-            selectedTileId={selectedTile ? selectedTile.id : null}
-            searching={state.status === 'loading'}
-            disabled={state.status === 'loading'}
-          />
+          <>
+            <QuickTopTiles
+              onTileTap={handleTileSelect}
+              onSearch={handleTopSearch}
+              onOpenDetailed={() => onViewChange('form')}
+              selectedTileId={selectedTemplate ? null : selectedTile?.id}
+              searching={state.status === 'loading'}
+              disabled={state.status === 'loading'}
+            >
+              {selectedTemplate && (
+                <div className="rounded-lg bg-primary-50 px-3 py-2 text-sm text-slate-700">
+                  <p>適用中の条件 {selectedTemplate.label}</p>
+                  <p>{hasTopArea ? '設定済みの場所で検索します。' : '地名・駅名、現在地、市区町村から場所を指定してください。'}</p>
+                  <button type="button" disabled={state.status === 'loading'} onClick={() => setSelectedTemplate(null)} className="min-h-[44px] text-primary-700 underline">
+                    テンプレートを解除
+                  </button>
+                </div>
+              )}
+            </QuickTopTiles>
+            <QuickSearchTemplates
+              selected={selectedTemplate}
+              onSelect={(template) => {
+                setSelectedTile(null)
+                setSelectedTemplate(template)
+              }}
+              onSearch={handleTopSearch}
+              hasArea={hasTopArea}
+              disabled={state.status === 'loading'}
+            />
+          </>
         ) : (
           formBody
         )}

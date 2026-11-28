@@ -12,7 +12,7 @@ import PrefectureTileMap from './PrefectureTileMap'
  *   - ラベルを生活者の言葉に（「どの県で探す？」「何を探す？」）
  *   - OSMデータ補完性の注意を分かりやすい表現で表示
  */
-export default function MunicipalitySearch({ variant = 'pc' }) {
+export default function MunicipalitySearch({ variant = 'pc', locationOnly = false }) {
   const isMobile = variant === 'mobile'
   const prefSelectId = `pref-select-${variant}`
   const munInputId = `mun-input-${variant}`
@@ -351,7 +351,7 @@ export default function MunicipalitySearch({ variant = 'pc' }) {
       )}
 
       {/* カテゴリ・料理（任意） */}
-      {selectedMun && (
+      {selectedMun && !locationOnly && (
         <>
           <div>
             {/* (#44) 地図モードと共通の目的チップ選択（PC・モバイル統一） */}

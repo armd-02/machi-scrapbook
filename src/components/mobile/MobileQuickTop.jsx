@@ -186,6 +186,7 @@ export function QuickTopIntro({
  * ハイライトされる。施設検索は「検索する」ボタンの押下で初めて実行される。
  *
  * @param {(tile: object) => void} onTileTap タイルタップ（親で選択だけ行う）
+ * @param {React.ReactNode} [children] 検索ボタンの上に表示する条件の案内
  * @param {string | null} selectedTileId 選択中のタイルのid（ハイライト表示用）
  * @param {() => void} onSearch 「指定した場所と種別で検索」押下（親で
  *   設定済みエリア＋種別に絞った施設検索→一覧切替。ジオコードは行わない）
@@ -198,6 +199,7 @@ export function QuickTopTiles({
   onSearch = () => {},
   onOpenDetailed = () => {},
   selectedTileId = null,
+  children,
   searching = false,
   disabled = false
 }) {
@@ -228,6 +230,7 @@ export function QuickTopTiles({
           })}
         </div>
 
+        {children}
         {/* 「指定した場所と種別で検索」: 施設検索を実行する唯一のエントリ
             （設定済みエリア＋タイルで検索→一覧切替。ジオコードは行わない）。
             エリア未設定・種別未選択のまま押下しても検索は実行されず、
@@ -251,5 +254,50 @@ export function QuickTopTiles({
         くわしく探す →
       </button>
     </>
+  )
+}
+
+const SEARCH_TEMPLATES = [
+  { id: 'station-cafe', category: 'cafe', label: '駅周辺のカフェ', description: '駅名を指定してカフェを探す', icon: '☕' },
+  { id: 'wheelchair-toilets', category: 'toilets', wheelchairOnly: true, label: '車いす対応トイレ', description: '車いす対応の登録があるトイレを探す', icon: '♿' },
+]
+
+export function QuickSearchTemplates({ selected, onSelect, onSearch, hasArea, disabled }) {
+  return (
+    <section aria-labelledby="search-templates-heading" className="space-y-2">
+      <h2 id="search-templates-heading" className="text-base font-semibold text-slate-800">検索テンプレート</h2>
+      <div className="grid gap-2 lg:grid-cols-2">
+        {SEARCH_TEMPLATES.map((template) => (
+          <button
+            key={template.id}
+            type="button"
+            disabled={disabled}
+            aria-pressed={selected?.id === template.id}
+            onClick={() => onSelect(template)}
+            className="flex min-h-[44px] items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 aria-pressed:border-primary-600 aria-pressed:bg-primary-50 disabled:opacity-50"
+          >
+            <span className="text-xl" aria-hidden="true">{template.icon}</span>
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">{template.label}</span>
+              <span className="block text-xs text-slate-600">{template.description}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {selected && (
+        <div className="flex flex-wrap items-center gap-x-3">
+          <p role="status" className="text-sm text-slate-600">{selected.label}を選択しました。</p>
+          {hasArea ? (
+            <button type="button" disabled={disabled} onClick={onSearch} className="min-h-[44px] rounded-lg bg-primary-600 px-3 text-sm font-medium text-white disabled:opacity-50">
+              このテンプレートで検索
+            </button>
+          ) : (
+            <button type="button" disabled={disabled} onClick={() => document.getElementById('quick-place-input')?.focus()} className="min-h-[44px] text-sm text-primary-700 underline">
+              場所を指定する
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

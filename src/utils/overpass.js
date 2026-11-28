@@ -111,12 +111,13 @@ function buildPoiBody(bboxStr) {
  *  - 目的指定のみ: その目的に属する全カテゴリのOR union（「遊ぶ」なら公園・スポーツ・博物館・寺院神社・宿泊）
  *  - どちらもなし: POI対象タグ（amenity/shop/tourism/leisure/office/healthcare/craft）
  */
-function buildPoiSearchBody(bboxStr, category, cuisine, purpose = '') {
+function buildPoiSearchBody(bboxStr, category, cuisine, purpose, wheelchairOnly) {
   const catFilter = buildCategoryFilter(category)
-  const cuisineAnd = buildCuisineAndFilters(category, cuisine)
+  const extraFilters = buildCuisineAndFilters(category, cuisine)
+  if (wheelchairOnly) extraFilters.push('wheelchair=yes')
 
   if (catFilter && (catFilter.unionFilters.length > 0 || (catFilter.andFilters && catFilter.andFilters.length > 0))) {
-    return buildFilterBody(bboxStr, catFilter, cuisineAnd)
+    return buildFilterBody(bboxStr, catFilter, extraFilters)
   }
   if (purpose) {
     const filters = getPurposeUnionFilters(purpose)
@@ -128,10 +129,10 @@ function buildPoiSearchBody(bboxStr, category, cuisine, purpose = '') {
   return `  ${buildPoiBody(bboxStr)}`
 }
 
-export function buildSimpleQuery(bbox, category, keyword, cuisine = '', purpose = '') {
+export function buildSimpleQuery(bbox, category, keyword, cuisine = '', purpose = '', wheelchairOnly = false) {
   const { south, west, north, east } = bbox
   const bboxStr = [south, west, north, east].map(n => n.toFixed(6)).join(',')
-  const body = buildPoiSearchBody(bboxStr, category, cuisine, purpose)
+  const body = buildPoiSearchBody(bboxStr, category, cuisine, purpose, wheelchairOnly)
   const query = `[out:json][timeout:25];(\n${body}\n);\nout body center bb;\n`
   return { query, keyword }
 }
@@ -141,12 +142,8 @@ export function buildSimpleQuery(bbox, category, keyword, cuisine = '', purpose 
  * カテゴリ指定: カテゴリのタグ条件 / 目的のみ指定: 目的の施設種類union /
  * 未指定: POI対象タグ（amenity/shop/tourism/leisure/office/healthcare/craft）に限定
  */
-export function buildPoiQuery(bbox, category, keyword, cuisine = '', purpose = '') {
-  const { south, west, north, east } = bbox
-  const bboxStr = [south, west, north, east].map(n => n.toFixed(6)).join(',')
-  const body = buildPoiSearchBody(bboxStr, category, cuisine, purpose)
-  const query = `[out:json][timeout:25];(\n${body}\n);\nout body center bb;\n`
-  return { query, keyword }
+export function buildPoiQuery(bbox, category, keyword, cuisine = '', purpose = '', wheelchairOnly = false) {
+  return buildSimpleQuery(bbox, category, keyword, cuisine, purpose, wheelchairOnly)
 }
 
 /**

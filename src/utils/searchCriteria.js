@@ -30,9 +30,10 @@ function fail(reason, message, suggestion) {
  * @param {object} [options]
  * @param {object|null} [options.mapBounds] - MapLibre LngLatBounds（地図表示範囲。Leaflet形式も後方互換で対応）
  * @param {object|null} [options.bboxOverride] - 地図モードで使用するBBOXを上書き
+ * @param {boolean} [options.wheelchairOnly] 車いす対応（wheelchair=yes）の登録がある施設に絞る
  * @returns {object} criteria（上記の戻り値形式）
  */
-export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = null } = {}) {
+export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = null, wheelchairOnly = false } = {}) {
   const source = state.searchSource === 'municipality' ? 'municipality' : 'map'
 
   // ===== 自治体モード (#44/#47) =====
@@ -76,7 +77,7 @@ export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = nu
         query: buildBarrierFreeQuery(bbox)
       }
     }
-    const { query, keyword } = buildPoiQuery(bbox, ms.category, '', ms.cuisine, ms.purpose)
+    const { query, keyword } = buildPoiQuery(bbox, ms.category, '', ms.cuisine, ms.purpose, wheelchairOnly)
     return {
       ok: true,
       bbox,
@@ -154,7 +155,7 @@ export function buildSearchCriteria(state, { mapBounds = null, bboxOverride = nu
       query: buildBarrierFreeQuery(bbox)
     }
   }
-  const { query, keyword } = buildSimpleQuery(bbox, ss.category, ss.keyword, ss.cuisine, ss.purpose)
+  const { query, keyword } = buildSimpleQuery(bbox, ss.category, ss.keyword, ss.cuisine, ss.purpose, wheelchairOnly)
   return {
     ok: true,
     bbox,
